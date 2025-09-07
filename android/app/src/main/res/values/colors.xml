@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Default Theme Colors -->
+    <color name="default_background">#F5F5F5</color>
+    <color name="default_key_background">#FFFFFF</color>
+    <color name="default_key_text">#212121</color>
+    <color name="default_accent">#2196F3</color>
+    
+    <!-- Dark Theme Colors -->
+    <color name="dark_background">#1E1E1E</color>
+    <color name="dark_key_background">#2D2D2D</color>
+    <color name="dark_key_text">#FFFFFF</color>
+    <color name="dark_accent">#BB86FC</color>
+    
+    <!-- Material You Theme Colors -->
+    <color name="material_you_background">#6750A4</color>
+    <color name="material_you_key_background">#7C4DFF</color>
+    <color name="material_you_key_text">#FFFFFF</color>
+    <color name="material_you_accent">#BB86FC</color>
+    
+    <!-- Professional Theme Colors -->
+    <color name="professional_background">#37474F</color>
+    <color name="professional_key_background">#455A64</color>
+    <color name="professional_key_text">#FFFFFF</color>
+    <color name="professional_accent">#26A69A</color>
+    
+    <!-- Colorful Theme Colors -->
+    <color name="colorful_background">#E1F5FE</color>
+    <color name="colorful_key_background">#81D4FA</color>
+    <color name="colorful_key_text">#0D47A1</color>
+    <color name="colorful_accent">#FF6B35</color>
+    
+    <!-- Common Colors -->
+    <color name="suggestion_background">#F5F5F5</color>
+    <color name="suggestion_background_pressed">#E3F2FD</color>
+    <color name="key_border">#E0E0E0</color>
+    <color name="key_border_pressed">#BDBDBD</color>
+    
+    <!-- Additional Colors for Keyboard -->
+    <color name="candidate_background">#F5F5F5</color>
+    <color name="candidate_normal">#212121</color>
+    <color name="candidate_recommended">#2196F3</color>
+    <color name="candidate_other">#757575</color>
+    <color name="key_text_color">#212121</color>
+</resources>

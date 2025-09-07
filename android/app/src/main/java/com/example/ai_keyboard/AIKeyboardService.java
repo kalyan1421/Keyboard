@@ -1,0 +1,532 @@
+package com.example.ai_keyboard;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.inputmethodservice.InputMethodService;
+import android.inputmethodservice.Keyboard;
+import android.inputmethodservice.KeyboardView;
+import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.TextUtils;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+import java.util.Arrays;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class AIKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
+    
+    private KeyboardView keyboardView;
+    private Keyboard keyboard;
+    private boolean caps = false;
+    private long lastShiftTime;
+    private boolean isShifted = false;
+    private boolean swipeMode = false;
+    private StringBuilder swipeBuffer = new StringBuilder();
+    
+    // AI and suggestion components
+    private TextView suggestionView;
+    private LinearLayout suggestionContainer;
+    private List<String> currentSuggestions = new ArrayList<>();
+    private ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
+    
+    // Settings
+    private SharedPreferences settings;
+    private String currentTheme = "default";
+    private boolean aiSuggestionsEnabled = true;
+    private boolean swipeTypingEnabled = true;
+    private boolean voiceInputEnabled = true;
+    
+    // Keyboard layouts
+    private static final int KEYBOARD_LETTERS = 1;
+    private static final int KEYBOARD_SYMBOLS = 2;
+    private static final int KEYBOARD_NUMBERS = 3;
+    private int currentKeyboard = KEYBOARD_LETTERS;
+    
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE);
+        loadSettings();
+    }
+    
+    @Override
+    public View onCreateInputView() {
+        // Create the main keyboard layout
+        LinearLayout mainLayout = new LinearLayout(this);
+        mainLayout.setOrientation(LinearLayout.VERTICAL);
+        mainLayout.setBackgroundColor(getThemeBackgroundColor());
+        
+        // Create suggestion bar
+        createSuggestionBar(mainLayout);
+        
+        // Create keyboard view
+        keyboardView = (KeyboardView) getLayoutInflater().inflate(R.layout.keyboard, null);
+        keyboard = new Keyboard(this, R.xml.qwerty);
+        keyboardView.setKeyboard(keyboard);
+        keyboardView.setOnKeyboardActionListener(this);
+        
+        // Apply theme
+        applyTheme();
+        
+        mainLayout.addView(keyboardView);
+        return mainLayout;
+    }
+    
+    private void createSuggestionBar(LinearLayout parent) {
+        suggestionContainer = new LinearLayout(this);
+        suggestionContainer.setOrientation(LinearLayout.HORIZONTAL);
+        suggestionContainer.setBackgroundColor(getThemeKeyColor());
+        suggestionContainer.setPadding(16, 8, 16, 8);
+        
+        // Add three suggestion text views
+        for (int i = 0; i < 3; i++) {
+            TextView suggestion = new TextView(this);
+            suggestion.setTextColor(getThemeTextColor());
+            suggestion.setTextSize(16);
+            suggestion.setPadding(16, 8, 16, 8);
+            suggestion.setBackgroundResource(R.drawable.suggestion_background);
+            suggestion.setClickable(true);
+            
+            final int index = i;
+            suggestion.setOnClickListener(v -> {
+                if (index < currentSuggestions.size()) {
+                    applySuggestion(currentSuggestions.get(index));
+                }
+            });
+            
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+            params.setMargins(4, 0, 4, 0);
+            suggestion.setLayoutParams(params);
+            
+            suggestionContainer.addView(suggestion);
+        }
+        
+        parent.addView(suggestionContainer);
+    }
+    
+    private void loadSettings() {
+        currentTheme = settings.getString("keyboard_theme", "default");
+        aiSuggestionsEnabled = settings.getBoolean("ai_suggestions", true);
+        swipeTypingEnabled = settings.getBoolean("swipe_typing", true);
+        voiceInputEnabled = settings.getBoolean("voice_input", true);
+    }
+    
+    private void applyTheme() {
+        if (keyboardView != null) {
+            keyboardView.setBackgroundColor(getThemeBackgroundColor());
+        }
+    }
+    
+    private int getThemeBackgroundColor() {
+        switch (currentTheme) {
+            case "dark": return Color.parseColor("#1E1E1E");
+            case "material_you": return Color.parseColor("#6750A4");
+            case "professional": return Color.parseColor("#37474F");
+            case "colorful": return Color.parseColor("#E1F5FE");
+            default: return Color.parseColor("#F5F5F5");
+        }
+    }
+    
+    private int getThemeKeyColor() {
+        switch (currentTheme) {
+            case "dark": return Color.parseColor("#2D2D2D");
+            case "material_you": return Color.parseColor("#7C4DFF");
+            case "professional": return Color.parseColor("#455A64");
+            case "colorful": return Color.parseColor("#81D4FA");
+            default: return Color.WHITE;
+        }
+    }
+    
+    private int getThemeTextColor() {
+        switch (currentTheme) {
+            case "dark":
+            case "material_you":
+            case "professional":
+                return Color.WHITE;
+            case "colorful": return Color.parseColor("#0D47A1");
+            default: return Color.parseColor("#212121");
+        }
+    }
+    
+    @Override
+    public void onKey(int primaryCode, int[] keyCodes) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        
+        playClick(primaryCode);
+        
+        switch (primaryCode) {
+            case Keyboard.KEYCODE_DELETE:
+                handleBackspace(ic);
+                break;
+            case Keyboard.KEYCODE_SHIFT:
+                handleShift();
+                break;
+            case Keyboard.KEYCODE_DONE:
+                ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
+                break;
+            case KEYCODE_SPACE:
+                handleSpace(ic);
+                break;
+            case KEYCODE_SYMBOLS:
+                switchToSymbols();
+                break;
+            case KEYCODE_LETTERS:
+                switchToLetters();
+                break;
+            case KEYCODE_NUMBERS:
+                switchToNumbers();
+                break;
+            case KEYCODE_VOICE:
+                if (voiceInputEnabled) {
+                    startVoiceInput();
+                }
+                break;
+            default:
+                handleCharacter(primaryCode, ic);
+                break;
+        }
+        
+        // Update AI suggestions after key press
+        if (aiSuggestionsEnabled && primaryCode != Keyboard.KEYCODE_DELETE) {
+            updateAISuggestions();
+        }
+    }
+    
+    private void handleCharacter(int primaryCode, InputConnection ic) {
+        char code = (char) primaryCode;
+        
+        if (Character.isLetter(code) && caps) {
+            code = Character.toUpperCase(code);
+        }
+        
+        ic.commitText(String.valueOf(code), 1);
+        
+        // Handle auto-shift after sentence end
+        if (code == '.' || code == '!' || code == '?') {
+            caps = true;
+            keyboardView.setShifted(caps);
+        } else if (caps && code == ' ') {
+            // Keep caps for next letter
+        } else if (caps && Character.isLetter(code)) {
+            caps = false;
+            keyboardView.setShifted(caps);
+        }
+    }
+    
+    private void handleBackspace(InputConnection ic) {
+        CharSequence selectedText = ic.getSelectedText(0);
+        if (TextUtils.isEmpty(selectedText)) {
+            ic.deleteSurroundingText(1, 0);
+        } else {
+            ic.commitText("", 1);
+        }
+    }
+    
+    private void handleSpace(InputConnection ic) {
+        ic.commitText(" ", 1);
+        updateAISuggestions();
+    }
+    
+    private void handleShift() {
+        long now = System.currentTimeMillis();
+        if (lastShiftTime + 800 > now) {
+            // Double tap for caps lock
+            caps = !caps;
+            lastShiftTime = 0;
+        } else {
+            // Single tap for shift
+            caps = !caps;
+            lastShiftTime = now;
+        }
+        
+        if (keyboardView != null) {
+            keyboardView.setShifted(caps);
+            keyboardView.invalidateAllKeys();
+        }
+    }
+    
+    private void switchToSymbols() {
+        if (currentKeyboard != KEYBOARD_SYMBOLS) {
+            keyboard = new Keyboard(this, R.xml.symbols);
+            currentKeyboard = KEYBOARD_SYMBOLS;
+            keyboardView.setKeyboard(keyboard);
+        }
+    }
+    
+    private void switchToLetters() {
+        if (currentKeyboard != KEYBOARD_LETTERS) {
+            keyboard = new Keyboard(this, R.xml.qwerty);
+            currentKeyboard = KEYBOARD_LETTERS;
+            keyboardView.setKeyboard(keyboard);
+        }
+    }
+    
+    private void switchToNumbers() {
+        if (currentKeyboard != KEYBOARD_NUMBERS) {
+            keyboard = new Keyboard(this, R.xml.numbers);
+            currentKeyboard = KEYBOARD_NUMBERS;
+            keyboardView.setKeyboard(keyboard);
+        }
+    }
+    
+    private void startVoiceInput() {
+        // Placeholder for voice input implementation
+        Toast.makeText(this, "Voice input feature coming soon!", Toast.LENGTH_SHORT).show();
+    }
+    
+    private void updateAISuggestions() {
+        if (!aiSuggestionsEnabled) return;
+        
+        executorService.execute(() -> {
+            try {
+                InputConnection ic = getCurrentInputConnection();
+                if (ic == null) return;
+                
+                // Get current text context
+                CharSequence textBefore = ic.getTextBeforeCursor(50, 0);
+                String currentText = textBefore != null ? textBefore.toString() : "";
+                
+                // Generate AI suggestions (simplified version)
+                List<String> suggestions = generateAISuggestions(currentText);
+                
+                // Update UI on main thread
+                mainHandler.post(() -> updateSuggestionUI(suggestions));
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+    }
+    
+    private List<String> generateAISuggestions(String currentText) {
+        // Simplified AI suggestion logic
+        List<String> suggestions = new ArrayList<>();
+        
+        if (currentText.isEmpty()) {
+            suggestions.addAll(Arrays.asList("Hello", "How are", "Good"));
+        } else {
+            String[] words = currentText.toLowerCase().split("\\s+");
+            String lastWord = words.length > 0 ? words[words.length - 1] : "";
+            
+            switch (lastWord) {
+                case "hello":
+                    suggestions.addAll(Arrays.asList("there", "everyone", "friend"));
+                    break;
+                case "good":
+                    suggestions.addAll(Arrays.asList("morning", "evening", "night"));
+                    break;
+                case "how":
+                    suggestions.addAll(Arrays.asList("are you", "is it", "about"));
+                    break;
+                case "thank":
+                    suggestions.addAll(Arrays.asList("you", "you so much", "goodness"));
+                    break;
+                case "i":
+                    suggestions.addAll(Arrays.asList("am", "will", "think"));
+                    break;
+                default:
+                    suggestions.addAll(Arrays.asList("and", "the", "to"));
+                    break;
+            }
+        }
+        
+        currentSuggestions = suggestions;
+        return suggestions;
+    }
+    
+    private void updateSuggestionUI(List<String> suggestions) {
+        if (suggestionContainer == null) return;
+        
+        for (int i = 0; i < suggestionContainer.getChildCount() && i < 3; i++) {
+            TextView suggestionView = (TextView) suggestionContainer.getChildAt(i);
+            if (i < suggestions.size()) {
+                suggestionView.setText(suggestions.get(i));
+                suggestionView.setVisibility(View.VISIBLE);
+            } else {
+                suggestionView.setVisibility(View.INVISIBLE);
+            }
+        }
+    }
+    
+    private void applySuggestion(String suggestion) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        
+        // Get text before cursor to determine what to replace
+        CharSequence textBefore = ic.getTextBeforeCursor(50, 0);
+        if (textBefore != null) {
+            String[] words = textBefore.toString().split("\\s+");
+            if (words.length > 0) {
+                String lastWord = words[words.length - 1];
+                ic.deleteSurroundingText(lastWord.length(), 0);
+            }
+        }
+        
+        ic.commitText(suggestion + " ", 1);
+        updateAISuggestions();
+    }
+    
+    private void playClick(int keyCode) {
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am != null) {
+            switch (keyCode) {
+                case 32: // Space
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_SPACEBAR);
+                    break;
+                case Keyboard.KEYCODE_DONE:
+                case 10: // Enter
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_RETURN);
+                    break;
+                case Keyboard.KEYCODE_DELETE:
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE);
+                    break;
+                default:
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD);
+            }
+        }
+    }
+    
+    @Override
+    public void onPress(int primaryCode) {
+        // Handle key press visual feedback
+    }
+    
+    @Override
+    public void onRelease(int primaryCode) {
+        // Handle key release visual feedback
+    }
+    
+    @Override
+    public void onText(CharSequence text) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        ic.commitText(text, 1);
+    }
+    
+    @Override
+    public void swipeDown() {
+        handleClose();
+    }
+    
+    @Override
+    public void swipeLeft() {
+        handleBackspace(getCurrentInputConnection());
+    }
+    
+    @Override
+    public void swipeRight() {
+        // Swipe right for space
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null) {
+            ic.commitText(" ", 1);
+        }
+    }
+    
+    @Override
+    public void swipeUp() {
+        // Swipe up for shift
+        handleShift();
+    }
+    
+    private void handleClose() {
+        requestHideSelf(0);
+    }
+    
+    @Override
+    public void onStartInput(EditorInfo attribute, boolean restarting) {
+        super.onStartInput(attribute, restarting);
+        
+        // Reset keyboard state
+        caps = false;
+        if (keyboardView != null) {
+            keyboardView.setShifted(caps);
+        }
+        
+        // Auto-capitalize for sentence start
+        if (attribute.inputType != 0) {
+            int inputType = attribute.inputType & EditorInfo.TYPE_MASK_CLASS;
+            if (inputType == EditorInfo.TYPE_CLASS_TEXT) {
+                int variation = attribute.inputType & EditorInfo.TYPE_MASK_VARIATION;
+                if (variation == EditorInfo.TYPE_TEXT_VARIATION_NORMAL ||
+                    variation == EditorInfo.TYPE_TEXT_VARIATION_EMAIL_SUBJECT) {
+                    caps = true;
+                    if (keyboardView != null) {
+                        keyboardView.setShifted(caps);
+                    }
+                }
+            }
+        }
+        
+        // Load fresh settings
+        loadSettings();
+        applyTheme();
+        
+        // Clear suggestions
+        clearSuggestions();
+    }
+    
+    @Override
+    public void onFinishInput() {
+        super.onFinishInput();
+        clearSuggestions();
+    }
+    
+    private void clearSuggestions() {
+        currentSuggestions.clear();
+        if (suggestionContainer != null) {
+            mainHandler.post(() -> {
+                for (int i = 0; i < suggestionContainer.getChildCount(); i++) {
+                    suggestionContainer.getChildAt(i).setVisibility(View.INVISIBLE);
+                }
+            });
+        }
+    }
+    
+    // Custom key codes
+    private static final int KEYCODE_SPACE = 32;
+    private static final int KEYCODE_SYMBOLS = -10;
+    private static final int KEYCODE_LETTERS = -11;
+    private static final int KEYCODE_NUMBERS = -12;
+    private static final int KEYCODE_VOICE = -13;
+    
+    // Method to update settings from Flutter
+    public void updateSettings(String theme, boolean aiSuggestions, boolean swipeTyping, boolean voiceInput) {
+        currentTheme = theme;
+        aiSuggestionsEnabled = aiSuggestions;
+        swipeTypingEnabled = swipeTyping;
+        voiceInputEnabled = voiceInput;
+        
+        // Save to preferences
+        SharedPreferences.Editor editor = settings.edit();
+        editor.putString("keyboard_theme", theme);
+        editor.putBoolean("ai_suggestions", aiSuggestions);
+        editor.putBoolean("swipe_typing", swipeTyping);
+        editor.putBoolean("voice_input", voiceInput);
+        editor.apply();
+        
+        // Apply theme immediately
+        applyTheme();
+    }
+    
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (executorService != null) {
+            executorService.shutdown();
+        }
+    }
+}

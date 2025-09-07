@@ -1,0 +1,827 @@
+
+
+// main.dart
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+
+void main() {
+  runApp(const AIKeyboardApp());
+}
+
+class AIKeyboardApp extends StatelessWidget {
+  const AIKeyboardApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AI Keyboard',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+      ),
+      home: const KeyboardConfigScreen(),
+    );
+  }
+}
+
+class KeyboardConfigScreen extends StatefulWidget {
+  const KeyboardConfigScreen({super.key});
+
+  @override
+  State<KeyboardConfigScreen> createState() => _KeyboardConfigScreenState();
+}
+
+class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
+  static const platform = MethodChannel('ai_keyboard/config');
+  bool _isKeyboardEnabled = false;
+  bool _isKeyboardActive = false;
+  String _selectedTheme = 'default';
+  bool _aiSuggestionsEnabled = true;
+  bool _swipeTypingEnabled = true;
+  bool _voiceInputEnabled = true;
+
+  final List<String> _themes = [
+    'default',
+    'dark',
+    'material_you',
+    'professional',
+    'colorful'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+    _checkKeyboardStatus();
+    
+    // Show setup reminder for iOS users if keyboard is not enabled
+    if (Platform.isIOS) {
+      _checkAndShowSetupReminder();
+    }
+  }
+
+  Future<void> _checkAndShowSetupReminder() async {
+    // Wait a bit for the UI to settle
+    await Future.delayed(const Duration(seconds: 2));
+    
+    if (!_isKeyboardEnabled && mounted) {
+      _showSetupReminder();
+    }
+  }
+
+  void _showSetupReminder() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Setup Required'),
+            ],
+          ),
+          content: const Text(
+            'AI Keyboard needs to be enabled in iOS Settings to work. Would you like to set it up now?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Later'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _openInputMethodPicker();
+              },
+              child: const Text('Setup Now'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _selectedTheme = prefs.getString('keyboard_theme') ?? 'default';
+      _aiSuggestionsEnabled = prefs.getBool('ai_suggestions') ?? true;
+      _swipeTypingEnabled = prefs.getBool('swipe_typing') ?? true;
+      _voiceInputEnabled = prefs.getBool('voice_input') ?? true;
+    });
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('keyboard_theme', _selectedTheme);
+    await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
+    await prefs.setBool('swipe_typing', _swipeTypingEnabled);
+    await prefs.setBool('voice_input', _voiceInputEnabled);
+    
+    // Send settings to native keyboard
+    _sendSettingsToKeyboard();
+  }
+
+  Future<void> _sendSettingsToKeyboard() async {
+    try {
+      await platform.invokeMethod('updateSettings', {
+        'theme': _selectedTheme,
+        'aiSuggestions': _aiSuggestionsEnabled,
+        'swipeTyping': _swipeTypingEnabled,
+        'voiceInput': _voiceInputEnabled,
+      });
+    } catch (e) {
+      print('Error sending settings: $e');
+    }
+  }
+
+  Future<void> _checkKeyboardStatus() async {
+    try {
+      final bool enabled = await platform.invokeMethod('isKeyboardEnabled');
+      final bool active = await platform.invokeMethod('isKeyboardActive');
+      setState(() {
+        _isKeyboardEnabled = enabled;
+        _isKeyboardActive = active;
+      });
+    } catch (e) {
+      print('Error checking keyboard status: $e');
+    }
+  }
+
+  Future<void> _openKeyboardSettings() async {
+    try {
+      await platform.invokeMethod('openKeyboardSettings');
+    } catch (e) {
+      print('Error opening keyboard settings: $e');
+    }
+  }
+
+  Future<void> _openInputMethodPicker() async {
+    try {
+      if (Platform.isAndroid) {
+        await platform.invokeMethod('openInputMethodPicker');
+      } else if (Platform.isIOS) {
+        // Show interactive tutorial for iOS
+        await platform.invokeMethod('showKeyboardTutorial');
+      }
+    } catch (e) {
+      print('Error opening input method picker: $e');
+    }
+  }
+
+  Future<void> _openKeyboardsDirectly() async {
+    try {
+      await platform.invokeMethod('openKeyboardsDirectly');
+    } catch (e) {
+      print('Error opening keyboards directly: $e');
+    }
+  }
+
+  Future<void> _showQuickSwitchGuide() async {
+    if (Platform.isIOS) {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Text('🚀 Quick Switch Guide'),
+              ],
+            ),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Once AI Keyboard is enabled, switch quickly by:'),
+                SizedBox(height: 12),
+                Text('🌐 Tap globe icon to cycle keyboards'),
+                Text('🌐 Long-press globe for keyboard list'),
+                Text('⌨️ Or go to any text field and tap keyboard icon'),
+                SizedBox(height: 12),
+                Text('💡 Pro tip: Set AI Keyboard as default in Settings!'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it!'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _openKeyboardsDirectly();
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  String _getThemeDisplayName(String theme) {
+    switch (theme) {
+      case 'material_you': return 'Material You';
+      default: return theme.replaceAll('_', ' ').split(' ')
+          .map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
+    }
+  }
+
+  void _showIOSInstructions() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Enable AI Keyboard on iOS'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('To enable AI Keyboard on iOS:'),
+              SizedBox(height: 12),
+              Text('1. Open Settings app'),
+              Text('2. Go to General → Keyboard'),
+              Text('3. Tap "Keyboards"'),
+              Text('4. Tap "Add New Keyboard..."'),
+              Text('5. Select "AI Keyboard" from Third-Party Keyboards'),
+              Text('6. Enable "Allow Full Network Access" if needed'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _openKeyboardSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('AI Keyboard Settings'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: RefreshIndicator(
+        onRefresh: _checkKeyboardStatus,
+        child: ListView(
+          padding: const EdgeInsets.all(16.0),
+          children: [
+            _buildKeyboardStatusCard(),
+            const SizedBox(height: 20),
+            _buildPlatformInfoCard(),
+            const SizedBox(height: 20),
+            if (Platform.isIOS) ...[
+              _buildIOSSetupCard(),
+              const SizedBox(height: 20),
+            ],
+            _buildThemeSelectionCard(),
+            const SizedBox(height: 20),
+            _buildFeaturesCard(),
+            const SizedBox(height: 20),
+            _buildTestKeyboardCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeyboardStatusCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Keyboard Status',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            _buildStatusRow('Enabled', _isKeyboardEnabled),
+            const SizedBox(height: 8),
+            _buildStatusRow('Active', _isKeyboardActive),
+            const SizedBox(height: 16),
+            if (Platform.isIOS) ...[
+              // iOS-specific enhanced buttons
+              ElevatedButton.icon(
+                onPressed: _openInputMethodPicker,
+                icon: const Icon(Icons.help_outline),
+                label: const Text('Quick Setup Guide'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _openKeyboardsDirectly,
+                      child: const Text('Go to Settings'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _showQuickSwitchGuide,
+                      child: const Text('Switch Guide'),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              // Android buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _openKeyboardSettings,
+                      child: const Text('Enable Keyboard'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _openInputMethodPicker,
+                      child: const Text('Select Keyboard'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusRow(String label, bool status) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: status ? Colors.green : Colors.red,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            status ? 'Active' : 'Inactive',
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlatformInfoCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Platform Information',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Platform:'),
+                Text(Platform.isIOS ? 'iOS' : 'Android', 
+                     style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Keyboard Type:'),
+                Text(Platform.isIOS ? 'Extension' : 'InputMethodService',
+                     style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIOSSetupCard() {
+    return Card(
+      color: Colors.blue.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.phone_iphone, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                Text(
+                  'iOS Setup Made Easy',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '📱 Quick Steps:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildStepRow('1', 'Tap "Quick Setup Guide" above'),
+                  _buildStepRow('2', 'Follow the interactive tutorial'),
+                  _buildStepRow('3', 'Add AI Keyboard in Settings'),
+                  _buildStepRow('4', 'Use 🌐 key to switch keyboards'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.lightbulb_outline, color: Colors.amber.shade600, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Pro tip: Long-press the 🌐 globe key in any app to see all available keyboards!',
+                    style: TextStyle(fontStyle: FontStyle.italic),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepRow(String number, String description) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: Colors.blue.shade600,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                number,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(description)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeSelectionCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Keyboard Theme',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              children: _themes.map((theme) {
+                return ChoiceChip(
+                  label: Text(_getThemeDisplayName(theme)),
+                  selected: _selectedTheme == theme,
+                  onSelected: (selected) {
+                    setState(() {
+                      _selectedTheme = theme;
+                    });
+                    _saveSettings();
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Current theme: ${_getThemeDisplayName(_selectedTheme)}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeaturesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Features',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            _buildFeatureSwitch(
+              'AI Suggestions',
+              'Get smart text predictions and corrections',
+              _aiSuggestionsEnabled,
+              (value) {
+                setState(() {
+                  _aiSuggestionsEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Swipe Typing',
+              'Type by swiping across letters (Gestures: ←Delete, →Space, ↑Shift, ↓Hide)',
+              _swipeTypingEnabled,
+              (value) {
+                setState(() {
+                  _swipeTypingEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Voice Input',
+              'Convert speech to text',
+              _voiceInputEnabled,
+              (value) {
+                setState(() {
+                  _voiceInputEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureSwitch(
+    String title,
+    String subtitle,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: Switch(
+        value: value,
+        onChanged: onChanged,
+      ),
+    );
+  }
+
+  Widget _buildTestKeyboardCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Test Keyboard',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            const TextField(
+              decoration: InputDecoration(
+                hintText: 'Tap here to test your AI keyboard...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              Platform.isIOS 
+                ? 'Make sure AI Keyboard is enabled in iOS Settings → General → Keyboard → Keyboards, then tap the text field above to test.'
+                : 'Make sure AI Keyboard is selected as your input method, then tap the text field above to test.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '💡 Features to try:',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue[800]),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('• Try different themes from above'),
+                  const Text('• Use swipe gestures for quick actions'),
+                  const Text('• Test AI suggestions while typing'),
+                  const Text('• Try caps lock (double-tap shift)'),
+                  const Text('• Switch between letter/symbol/number layouts'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// AI Service for text suggestions
+class AIService {
+  static const String _baseUrl = 'https://api.openai.com/v1';
+  static const String _apiKey = 'YOUR_API_KEY_HERE'; // Replace with actual key
+
+  static Future<List<String>> getTextSuggestions(String currentText) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/completions'),
+        headers: {
+          'Authorization': 'Bearer $_apiKey',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'model': 'gpt-3.5-turbo-instruct',
+          'prompt': 'Complete this text with 3 short suggestions: "$currentText"',
+          'max_tokens': 50,
+          'n': 3,
+          'temperature': 0.7,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return (data['choices'] as List)
+            .map((choice) => choice['text'].toString().trim())
+            .toList();
+      }
+    } catch (e) {
+      print('AI Service error: $e');
+    }
+    
+    // Fallback suggestions
+    return _getFallbackSuggestions(currentText);
+  }
+
+  static List<String> _getFallbackSuggestions(String text) {
+    final words = text.split(' ');
+    final lastWord = words.isNotEmpty ? words.last.toLowerCase() : '';
+    
+    // Simple word completion suggestions
+    final Map<String, List<String>> suggestions = {
+      'the': ['the quick', 'the best', 'the most'],
+      'how': ['how are you', 'how to', 'how much'],
+      'what': ['what is', 'what are', 'what time'],
+      'when': ['when is', 'when are', 'when will'],
+      'where': ['where is', 'where are', 'where to'],
+      'good': ['good morning', 'good night', 'good job'],
+      'thank': ['thank you', 'thank you so much', 'thanks'],
+      'please': ['please help', 'please let me know', 'please send'],
+    };
+
+    if (suggestions.containsKey(lastWord)) {
+      return suggestions[lastWord]!;
+    }
+
+    return ['and', 'the', 'to'];
+  }
+
+  static Future<String> correctGrammar(String text) async {
+    // Simplified grammar correction
+    return text
+        .replaceAll(' i ', ' I ')
+        .replaceAll(' im ', ' I\'m ')
+        .replaceAll(' dont ', ' don\'t ')
+        .replaceAll(' cant ', ' can\'t ')
+        .replaceAll(' wont ', ' won\'t ');
+  }
+}
+
+// Keyboard theme configuration
+class KeyboardTheme {
+  final String name;
+  final Color backgroundColor;
+  final Color keyColor;
+  final Color textColor;
+  final Color accentColor;
+
+  KeyboardTheme({
+    required this.name,
+    required this.backgroundColor,
+    required this.keyColor,
+    required this.textColor,
+    required this.accentColor,
+  });
+
+  static KeyboardTheme getTheme(String themeName) {
+    switch (themeName) {
+      case 'dark':
+        return KeyboardTheme(
+          name: 'Dark',
+          backgroundColor: const Color(0xFF1E1E1E),
+          keyColor: const Color(0xFF2D2D2D),
+          textColor: Colors.white,
+          accentColor: Colors.blue,
+        );
+      case 'material_you':
+        return KeyboardTheme(
+          name: 'Material You',
+          backgroundColor: const Color(0xFF6750A4),
+          keyColor: const Color(0xFF7C4DFF),
+          textColor: Colors.white,
+          accentColor: const Color(0xFFBB86FC),
+        );
+      case 'professional':
+        return KeyboardTheme(
+          name: 'Professional',
+          backgroundColor: const Color(0xFF37474F),
+          keyColor: const Color(0xFF455A64),
+          textColor: Colors.white,
+          accentColor: const Color(0xFF26A69A),
+        );
+      case 'colorful':
+        return KeyboardTheme(
+          name: 'Colorful',
+          backgroundColor: const Color(0xFFE1F5FE),
+          keyColor: const Color(0xFF81D4FA),
+          textColor: const Color(0xFF0D47A1),
+          accentColor: const Color(0xFFFF6B35),
+        );
+      default:
+        return KeyboardTheme(
+          name: 'Default',
+          backgroundColor: const Color(0xFFF5F5F5),
+          keyColor: Colors.white,
+          textColor: Colors.black87,
+          accentColor: Colors.blue,
+        );
+    }
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'backgroundColor': backgroundColor.value,
+      'keyColor': keyColor.value,
+      'textColor': textColor.value,
+      'accentColor': accentColor.value,
+    };
+  }
+}

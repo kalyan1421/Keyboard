@@ -1,0 +1,208 @@
+import UIKit
+import Flutter
+
+@main
+@objc class AppDelegate: FlutterAppDelegate {
+    
+    private let CHANNEL = "ai_keyboard/config"
+    
+    override func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        
+        let controller = window?.rootViewController as! FlutterViewController
+        let keyboardChannel = FlutterMethodChannel(name: CHANNEL, binaryMessenger: controller.binaryMessenger)
+        
+        keyboardChannel.setMethodCallHandler({ [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
+            switch call.method {
+            case "isKeyboardEnabled":
+                result(self?.isKeyboardEnabled() ?? false)
+            case "isKeyboardActive":
+                result(self?.isKeyboardActive() ?? false)
+            case "openKeyboardSettings":
+                self?.openKeyboardSettings()
+                result(true)
+            case "openInputMethodPicker":
+                // iOS doesn't have an input method picker like Android
+                // Users must enable keyboard in Settings app
+                result(false)
+            case "updateSettings":
+                if let args = call.arguments as? [String: Any] {
+                    self?.updateKeyboardSettings(args)
+                }
+                result(true)
+            case "showKeyboardTutorial":
+                self?.showKeyboardTutorial()
+                result(true)
+            case "openKeyboardsDirectly":
+                self?.openKeyboardsDirectly()
+                result(true)
+            case "checkKeyboardPermissions":
+                result(self?.checkKeyboardPermissions() ?? false)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        })
+        
+        GeneratedPluginRegistrant.register(with: self)
+        
+        // Setup shortcuts for easier access (TODO: Add ShortcutsManager to Xcode project)
+        // if #available(iOS 12.0, *) {
+        //     ShortcutsManager.shared.setupKeyboardShortcuts()
+        // }
+        
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+    
+    private func isKeyboardEnabled() -> Bool {
+        // Check if the keyboard extension is enabled
+        // This is a simplified check - in production, you might want more sophisticated detection
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
+        let keyboardBundleId = "\(bundleIdentifier).KeyboardExtension"
+        
+        // Check if keyboard is in the list of enabled keyboards
+        if let keyboards = UserDefaults.standard.object(forKey: "AppleKeyboards") as? [String] {
+            return keyboards.contains(keyboardBundleId)
+        }
+        
+        return false
+    }
+    
+    private func isKeyboardActive() -> Bool {
+        // iOS doesn't provide easy way to check if keyboard is currently active
+        // Return true if enabled for simplicity
+        return isKeyboardEnabled()
+    }
+    
+    private func openKeyboardSettings() {
+        // Try to open directly to Keyboard settings with deep link
+        let keyboardSettingsUrl = "App-prefs:General&path=Keyboard"
+        
+        if let url = URL(string: keyboardSettingsUrl),
+           UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url, completionHandler: nil)
+        } else {
+            // Fallback to general settings
+            if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                if UIApplication.shared.canOpenURL(settingsUrl) {
+                    UIApplication.shared.open(settingsUrl, completionHandler: nil)
+                }
+            }
+        }
+    }
+    
+    private func updateKeyboardSettings(_ settings: [String: Any]) {
+        // Share settings with keyboard extension using App Groups
+        if let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard") {
+            userDefaults.set(settings["theme"] as? String ?? "default", forKey: "keyboard_theme")
+            userDefaults.set(settings["aiSuggestions"] as? Bool ?? true, forKey: "ai_suggestions")
+            userDefaults.set(settings["swipeTyping"] as? Bool ?? true, forKey: "swipe_typing")
+            userDefaults.set(settings["voiceInput"] as? Bool ?? true, forKey: "voice_input")
+            userDefaults.synchronize()
+        }
+    }
+    
+    private func showKeyboardTutorial() {
+        // Show interactive tutorial for keyboard setup
+        guard let rootViewController = window?.rootViewController else { return }
+        
+        let alert = UIAlertController(
+            title: "🎯 Quick Setup Guide",
+            message: "Follow these steps to enable AI Keyboard:",
+            preferredStyle: .alert
+        )
+        
+        let tutorialMessage = """
+        Step 1: Tap 'Go to Settings' below
+        Step 2: Scroll to 'Keyboards' section
+        Step 3: Tap 'Add New Keyboard...'
+        Step 4: Find 'AI Keyboard' in list
+        Step 5: Tap to enable it
+        Step 6: Return to any app and test!
+        
+        💡 Tip: Long-press the 🌐 key to switch keyboards quickly!
+        """
+        
+        alert.message = tutorialMessage
+        
+        alert.addAction(UIAlertAction(title: "Go to Settings", style: .default) { _ in
+            self.openKeyboardsDirectly()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Later", style: .cancel))
+        
+        rootViewController.present(alert, animated: true)
+    }
+    
+    private func openKeyboardsDirectly() {
+        // Multiple attempts to open keyboard settings directly
+        let keyboardUrls = [
+            "App-prefs:General&path=Keyboard",
+            "prefs:General&path=Keyboard",
+            "App-prefs:General&path=KEYBOARD",
+            UIApplication.openSettingsURLString
+        ]
+        
+        for urlString in keyboardUrls {
+            if let url = URL(string: urlString),
+               UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, completionHandler: nil)
+                return
+            }
+        }
+    }
+    
+    private func checkKeyboardPermissions() -> Bool {
+        // Enhanced keyboard permission checking
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
+        let keyboardBundleId = "\(bundleIdentifier).KeyboardExtension"
+        
+        // Check multiple sources for keyboard status
+        let sources = [
+            UserDefaults.standard.object(forKey: "AppleKeyboards") as? [String],
+            UserDefaults.standard.object(forKey: "AddedKeyboards") as? [String]
+        ]
+        
+        for keyboards in sources {
+            if let keyboards = keyboards,
+               keyboards.contains(where: { $0.contains(keyboardBundleId) }) {
+                return true
+            }
+        }
+        
+        return false
+    }
+}
+
+// MARK: - Keyboard Extension Manager
+class KeyboardExtensionManager {
+    static let shared = KeyboardExtensionManager()
+    
+    private init() {}
+    
+    func sendSettingsUpdate(theme: String, aiSuggestions: Bool, swipeTyping: Bool, voiceInput: Bool) {
+        guard let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard") else { return }
+        
+        userDefaults.set(theme, forKey: "keyboard_theme")
+        userDefaults.set(aiSuggestions, forKey: "ai_suggestions")
+        userDefaults.set(swipeTyping, forKey: "swipe_typing")
+        userDefaults.set(voiceInput, forKey: "voice_input")
+        userDefaults.synchronize()
+        
+        // Post notification to keyboard extension
+        let notification = CFNotificationCenterGetDarwinNotifyCenter()
+        let name = CFNotificationName("com.example.aiKeyboard.settingsChanged" as CFString)
+        CFNotificationCenterPostNotification(notification, name, nil, nil, true)
+    }
+    
+    // Handle Siri shortcuts and user activities (TODO: Implement after adding ShortcutsManager)
+    // func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+    //     if #available(iOS 12.0, *) {
+    //         if ShortcutsManager.shared.handleShortcut(userActivity: userActivity) {
+    //             return true
+    //         }
+    //     }
+    //     return false
+    // }
+}
