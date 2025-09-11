@@ -182,7 +182,7 @@ public class SwipeKeyboardView extends KeyboardView {
         
         // Get keys that were swiped over
         for (float[] point : swipePoints) {
-            int keyIndex = getKeyIndices((int)point[0], (int)point[1], null);
+            int keyIndex = getKeyboard() != null ? findKeyAtPoint((int)point[0], (int)point[1]) : -1;
             if (keyIndex >= 0 && getKeyboard() != null) {
                 try {
                     int keyCode = getKeyboard().getKeys().get(keyIndex).codes[0];
@@ -227,12 +227,30 @@ public class SwipeKeyboardView extends KeyboardView {
     }
     
     @Override
-    protected void onDraw(Canvas canvas) {
+    public void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         
         // Draw swipe path if swiping
         if (isSwipeInProgress && !swipePath.isEmpty()) {
             canvas.drawPath(swipePath, swipePaint);
         }
+    }
+    
+    private int findKeyAtPoint(int x, int y) {
+        if (getKeyboard() == null) return -1;
+        
+        try {
+            List<android.inputmethodservice.Keyboard.Key> keys = getKeyboard().getKeys();
+            for (int i = 0; i < keys.size(); i++) {
+                android.inputmethodservice.Keyboard.Key key = keys.get(i);
+                if (x >= key.x && x < key.x + key.width && 
+                    y >= key.y && y < key.y + key.height) {
+                    return i;
+                }
+            }
+        } catch (Exception e) {
+            // Ignore errors in key detection
+        }
+        return -1;
     }
 }
