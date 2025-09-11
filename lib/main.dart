@@ -116,18 +116,62 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
             children: [
               Icon(Icons.check_circle, color: Colors.white, size: 20),
               SizedBox(width: 8),
-              Text('Keyboard settings updated instantly!'),
+              Text('Settings saved! Switch to keyboard to see changes.'),
             ],
           ),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
+          duration: const Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
+          action: SnackBarAction(
+            label: 'Test Keyboard',
+            textColor: Colors.white,
+            onPressed: () {
+              // Show dialog to test keyboard
+              _showTestKeyboardDialog();
+            },
+          ),
         ),
       );
     }
+  }
+
+  void _showTestKeyboardDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Test Your Keyboard'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('To test your updated settings:'),
+              SizedBox(height: 12),
+              Text('1. Tap the text field below'),
+              Text('2. Switch to AI Keyboard if needed'),
+              Text('3. Test the new settings!'),
+              SizedBox(height: 16),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'Test your keyboard here...',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it!'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _loadSettings() async {

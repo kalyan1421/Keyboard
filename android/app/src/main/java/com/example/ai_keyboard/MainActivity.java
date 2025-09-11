@@ -82,7 +82,17 @@ public class MainActivity extends FlutterActivity {
                 Settings.Secure.DEFAULT_INPUT_METHOD
             );
             
-            return inputMethodId.equals(currentInputMethod);
+            // Also check if our keyboard service is currently selected
+            boolean isDefault = inputMethodId.equals(currentInputMethod);
+            
+            // Additional check: see if our keyboard is in the current input method
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                String currentIme = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+                return currentIme != null && currentIme.contains(packageName);
+            }
+            
+            return isDefault;
         } catch (Exception e) {
             // Fallback to false to encourage user to set it up
             return false;

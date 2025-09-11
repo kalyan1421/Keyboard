@@ -41,6 +41,10 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private long swipeStartTime = 0;
     private boolean isCurrentlySwiping = false;
     
+    // Settings polling
+    private Runnable settingsPoller;
+    private long lastSettingsCheck = 0;
+    
     // AI and suggestion components
     private TextView suggestionView;
     private LinearLayout suggestionContainer;
@@ -100,6 +104,9 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         } catch (Exception e) {
             // Ignore registration errors to prevent crashes
         }
+        
+        // Start settings polling as backup
+        startSettingsPolling();
     }
     
     @Override
@@ -942,9 +949,8 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
             }
         }
         
-        // Load fresh settings
-        loadSettings();
-        applyTheme();
+        // Force load fresh settings when keyboard becomes active
+        checkAndUpdateSettings();
         
         // Clear suggestions
         clearSuggestions();
@@ -1013,6 +1019,9 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
             executorService.shutdown();
         }
         
+        // Stop settings polling
+        stopSettingsPolling();
+        
         // Unregister broadcast receiver
         try {
             unregisterReceiver(settingsReceiver);
@@ -1062,6 +1071,70 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
             }
         } catch (Exception e) {
             // Prevent crashes from settings application
+        }
+    }
+    
+    private void startSettingsPolling() {
+        if (settingsPoller != null || mainHandler == null) return;
+        
+        settingsPoller = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    checkAndUpdateSettings();
+                    // Poll every 2 seconds
+                    if (mainHandler != null && settingsPoller != null) {
+                        mainHandler.postDelayed(this, 2000);
+                    }
+                } catch (Exception e) {
+                    // Ignore polling errors
+                }
+            }
+        };
+        
+        // Start polling after 1 second
+        mainHandler.postDelayed(settingsPoller, 1000);
+    }
+    
+    private void stopSettingsPolling() {
+        if (settingsPoller != null && mainHandler != null) {
+            mainHandler.removeCallbacks(settingsPoller);
+            settingsPoller = null;
+        }
+    }
+    
+    private void checkAndUpdateSettings() {
+        try {
+            // Check if SharedPreferences file was modified
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastSettingsCheck > 1000) { // Check at most once per second
+                lastSettingsCheck = currentTime;
+                
+                // Store current settings
+                String oldTheme = currentTheme;
+                boolean oldVibration = vibrationEnabled;
+                boolean oldSwipeTyping = swipeTypingEnabled;
+                boolean oldKeyPreview = keyPreviewEnabled;
+                boolean oldAISuggestions = aiSuggestionsEnabled;
+                boolean oldVoiceInput = voiceInputEnabled;
+                
+                // Reload settings
+                loadSettings();
+                
+                // Check if any settings changed
+                boolean settingsChanged = !oldTheme.equals(currentTheme) ||
+                    oldVibration != vibrationEnabled ||
+                    oldSwipeTyping != swipeTypingEnabled ||
+                    oldKeyPreview != keyPreviewEnabled ||
+                    oldAISuggestions != aiSuggestionsEnabled ||
+                    oldVoiceInput != voiceInputEnabled;
+                
+                if (settingsChanged) {
+                    applySettingsImmediately();
+                }
+            }
+        } catch (Exception e) {
+            // Ignore polling errors
         }
     }
 }
