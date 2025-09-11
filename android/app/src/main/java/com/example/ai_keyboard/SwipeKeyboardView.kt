@@ -42,6 +42,16 @@ class SwipeKeyboardView @JvmOverloads constructor(
             alpha = 180
         }
         swipePath = Path()
+        
+        // Initialize with safe defaults to prevent crashes
+        try {
+            // Ensure we have proper background drawable
+            if (background == null) {
+                setBackgroundColor(Color.parseColor("#F5F5F5"))
+            }
+        } catch (e: Exception) {
+            // Ignore initialization errors
+        }
     }
     
     fun setSwipeEnabled(enabled: Boolean) {

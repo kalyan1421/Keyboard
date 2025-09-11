@@ -118,7 +118,8 @@ class AIKeyboardService : InputMethodService(), KeyboardView.OnKeyboardActionLis
         createSuggestionBar(mainLayout)
         
         // Create keyboard view with swipe support
-        keyboardView = SwipeKeyboardView(this, null).apply {
+        keyboardView = layoutInflater.inflate(R.layout.keyboard, null) as SwipeKeyboardView
+        keyboardView?.apply {
             keyboard = Keyboard(this@AIKeyboardService, R.xml.qwerty)
             setKeyboard(keyboard)
             setOnKeyboardActionListener(this@AIKeyboardService)
