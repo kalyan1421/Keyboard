@@ -33,6 +33,9 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private boolean isShifted = false;
     private boolean swipeMode = false;
     private StringBuilder swipeBuffer = new StringBuilder();
+    private List<Integer> swipePath = new ArrayList<>();
+    private long swipeStartTime = 0;
+    private boolean isCurrentlySwiping = false;
     
     // AI and suggestion components
     private TextView suggestionView;
@@ -47,6 +50,8 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private boolean aiSuggestionsEnabled = true;
     private boolean swipeTypingEnabled = true;
     private boolean voiceInputEnabled = true;
+    private boolean vibrationEnabled = true;
+    private boolean keyPreviewEnabled = false; // Disabled by default
     
     // Keyboard layouts
     private static final int KEYBOARD_LETTERS = 1;
@@ -76,6 +81,9 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         keyboard = new Keyboard(this, R.xml.qwerty);
         keyboardView.setKeyboard(keyboard);
         keyboardView.setOnKeyboardActionListener(this);
+        
+        // Configure key preview (disable popup)
+        keyboardView.setPreviewEnabled(keyPreviewEnabled);
         
         // Apply theme
         applyTheme();
@@ -122,6 +130,8 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         aiSuggestionsEnabled = settings.getBoolean("ai_suggestions", true);
         swipeTypingEnabled = settings.getBoolean("swipe_typing", true);
         voiceInputEnabled = settings.getBoolean("voice_input", true);
+        vibrationEnabled = settings.getBoolean("vibration_enabled", true);
+        keyPreviewEnabled = settings.getBoolean("key_preview_enabled", false);
     }
     
     private void applyTheme() {
@@ -517,11 +527,19 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     public void onPress(int primaryCode) {
         // Handle key press visual feedback
         if (keyboardView != null) {
-            // Add haptic feedback
-            keyboardView.performHapticFeedback(
-                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
-            );
+            // Add haptic feedback only if enabled
+            if (vibrationEnabled) {
+                keyboardView.performHapticFeedback(
+                    android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                    android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+                );
+            }
+            
+            // Check if this could be the start of swipe typing
+            if (swipeTypingEnabled && Character.isLetter(primaryCode) && !isCurrentlySwiping) {
+                // Potential start of swipe typing - wait for movement or release
+                swipeStartTime = System.currentTimeMillis();
+            }
             
             // Visual press feedback is handled by the key background drawable
             // Additional custom animations can be added here
@@ -569,27 +587,159 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     
     @Override
     public void swipeDown() {
-        handleClose();
+        if (swipeTypingEnabled && isCurrentlySwiping) {
+            finishSwipeTyping();
+        } else {
+            handleClose();
+        }
     }
     
     @Override
     public void swipeLeft() {
-        handleBackspace(getCurrentInputConnection());
+        if (swipeTypingEnabled && isCurrentlySwiping) {
+            // Continue swipe typing
+            processSwipeMovement(-1); // Left direction
+        } else {
+            handleBackspace(getCurrentInputConnection());
+        }
     }
     
     @Override
     public void swipeRight() {
-        // Swipe right for space
-        InputConnection ic = getCurrentInputConnection();
-        if (ic != null) {
-            ic.commitText(" ", 1);
+        if (swipeTypingEnabled && isCurrentlySwiping) {
+            // Continue swipe typing
+            processSwipeMovement(1); // Right direction
+        } else {
+            // Swipe right for space
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) {
+                ic.commitText(" ", 1);
+            }
         }
     }
     
     @Override
     public void swipeUp() {
-        // Swipe up for shift
-        handleShift();
+        if (swipeTypingEnabled && isCurrentlySwiping) {
+            // Continue swipe typing
+            processSwipeMovement(0); // Up direction
+        } else {
+            // Swipe up for shift
+            handleShift();
+        }
+    }
+    
+    // Enhanced swipe typing methods
+    private void startSwipeTyping(int primaryCode) {
+        if (!swipeTypingEnabled) return;
+        
+        isCurrentlySwiping = true;
+        swipeStartTime = System.currentTimeMillis();
+        swipePath.clear();
+        swipeBuffer.setLength(0);
+        swipePath.add(primaryCode);
+        
+        // Visual feedback for swipe start
+        if (keyboardView != null) {
+            keyboardView.setBackgroundColor(getSwipeActiveColor());
+        }
+    }
+    
+    private void processSwipeMovement(int direction) {
+        if (!isCurrentlySwiping || !swipeTypingEnabled) return;
+        
+        // Add direction to swipe path for processing
+        swipePath.add(direction);
+        
+        // Process swipe path to predict words
+        String predictedWord = processSwipePath(swipePath);
+        if (!predictedWord.isEmpty()) {
+            // Update swipe buffer
+            swipeBuffer.setLength(0);
+            swipeBuffer.append(predictedWord);
+            
+            // Show prediction in suggestion bar
+            showSwipePrediction(predictedWord);
+        }
+    }
+    
+    private void finishSwipeTyping() {
+        if (!isCurrentlySwiping || !swipeTypingEnabled) return;
+        
+        isCurrentlySwiping = false;
+        
+        // Process final swipe path
+        String finalWord = processSwipePath(swipePath);
+        
+        if (!finalWord.isEmpty()) {
+            // Commit the swiped word
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) {
+                ic.commitText(finalWord + " ", 1);
+                updateAISuggestions();
+            }
+        }
+        
+        // Reset visual feedback
+        if (keyboardView != null) {
+            keyboardView.setBackgroundColor(getThemeBackgroundColor());
+        }
+        
+        // Clear swipe data
+        swipePath.clear();
+        swipeBuffer.setLength(0);
+    }
+    
+    private String processSwipePath(List<Integer> path) {
+        if (path.isEmpty()) return "";
+        
+        // Simple swipe-to-word mapping (basic implementation)
+        // In a real implementation, this would use advanced algorithms
+        StringBuilder word = new StringBuilder();
+        
+        for (int code : path) {
+            if (code > 0 && code < 256) {
+                char c = (char) code;
+                if (Character.isLetter(c)) {
+                    word.append(c);
+                }
+            }
+        }
+        
+        // Apply basic swipe word corrections
+        String result = word.toString().toLowerCase();
+        return applySwipeCorrections(result);
+    }
+    
+    private String applySwipeCorrections(String swipeWord) {
+        // Basic swipe pattern to word mapping
+        switch (swipeWord) {
+            case "qwerty": return "hello";
+            case "asdf": return "and";
+            case "zxcv": return "the";
+            case "qwe": return "you";
+            case "asd": return "are";
+            case "zxc": return "to";
+            default: 
+                return swipeWord.length() > 1 ? swipeWord : "";
+        }
+    }
+    
+    private void showSwipePrediction(String prediction) {
+        if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+            TextView firstSuggestion = (TextView) suggestionContainer.getChildAt(0);
+            firstSuggestion.setText(prediction);
+            firstSuggestion.setTextColor(getSwipeTextColor());
+            firstSuggestion.setVisibility(View.VISIBLE);
+        }
+    }
+    
+    private int getSwipeActiveColor() {
+        return Color.parseColor("#E3F2FD"); // Light blue for swipe mode
+    }
+    
+    private int getSwipeTextColor() {
+        return Color.parseColor("#1976D2"); // Blue for swipe predictions
     }
     
     private void handleClose() {
@@ -654,11 +804,13 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private static final int KEYCODE_VOICE = -13;
     
     // Method to update settings from Flutter
-    public void updateSettings(String theme, boolean aiSuggestions, boolean swipeTyping, boolean voiceInput) {
+    public void updateSettings(String theme, boolean aiSuggestions, boolean swipeTyping, boolean voiceInput, boolean vibration, boolean keyPreview) {
         currentTheme = theme;
         aiSuggestionsEnabled = aiSuggestions;
         swipeTypingEnabled = swipeTyping;
         voiceInputEnabled = voiceInput;
+        vibrationEnabled = vibration;
+        keyPreviewEnabled = keyPreview;
         
         // Save to preferences
         SharedPreferences.Editor editor = settings.edit();
@@ -666,10 +818,20 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         editor.putBoolean("ai_suggestions", aiSuggestions);
         editor.putBoolean("swipe_typing", swipeTyping);
         editor.putBoolean("voice_input", voiceInput);
+        editor.putBoolean("vibration_enabled", vibration);
+        editor.putBoolean("key_preview_enabled", keyPreview);
         editor.apply();
         
-        // Apply theme immediately
+        // Apply settings immediately
         applyTheme();
+        if (keyboardView != null) {
+            keyboardView.setPreviewEnabled(keyPreviewEnabled);
+        }
+    }
+    
+    // Overloaded method for backward compatibility
+    public void updateSettings(String theme, boolean aiSuggestions, boolean swipeTyping, boolean voiceInput) {
+        updateSettings(theme, aiSuggestions, swipeTyping, voiceInput, true, false);
     }
     
     @Override
