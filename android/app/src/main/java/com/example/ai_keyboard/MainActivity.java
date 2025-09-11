@@ -41,7 +41,9 @@ public class MainActivity extends FlutterActivity {
                         Boolean aiSuggestions = call.argument("aiSuggestions");
                         Boolean swipeTyping = call.argument("swipeTyping");
                         Boolean voiceInput = call.argument("voiceInput");
-                        updateKeyboardSettings(theme, aiSuggestions, swipeTyping, voiceInput);
+                        Boolean vibration = call.argument("vibration");
+                        Boolean keyPreview = call.argument("keyPreview");
+                        updateKeyboardSettings(theme, aiSuggestions, swipeTyping, voiceInput, vibration, keyPreview);
                         result.success(true);
                         break;
                     default:
@@ -100,7 +102,7 @@ public class MainActivity extends FlutterActivity {
         }
     }
 
-    private void updateKeyboardSettings(String theme, Boolean aiSuggestions, Boolean swipeTyping, Boolean voiceInput) {
+    private void updateKeyboardSettings(String theme, Boolean aiSuggestions, Boolean swipeTyping, Boolean voiceInput, Boolean vibration, Boolean keyPreview) {
         // Store settings in SharedPreferences for the keyboard service to read
         getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
             .edit()
@@ -108,6 +110,18 @@ public class MainActivity extends FlutterActivity {
             .putBoolean("ai_suggestions", aiSuggestions != null ? aiSuggestions : true)
             .putBoolean("swipe_typing", swipeTyping != null ? swipeTyping : true)
             .putBoolean("voice_input", voiceInput != null ? voiceInput : true)
+            .putBoolean("vibration_enabled", vibration != null ? vibration : true)
+            .putBoolean("key_preview_enabled", keyPreview != null ? keyPreview : false)
             .apply();
+            
+        // Notify keyboard service to reload settings immediately
+        notifyKeyboardServiceSettingsChanged();
+    }
+    
+    private void notifyKeyboardServiceSettingsChanged() {
+        // Send broadcast to keyboard service to reload settings
+        Intent intent = new Intent("com.example.ai_keyboard.SETTINGS_CHANGED");
+        intent.setPackage(getPackageName());
+        sendBroadcast(intent);
     }
 }

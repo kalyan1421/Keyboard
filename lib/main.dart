@@ -108,6 +108,28 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     );
   }
 
+  void _showSettingsUpdatedSnackBar() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Text('Keyboard settings updated instantly!'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -130,7 +152,10 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
     
     // Send settings to native keyboard
-    _sendSettingsToKeyboard();
+    await _sendSettingsToKeyboard();
+    
+    // Show success feedback
+    _showSettingsUpdatedSnackBar();
   }
 
   Future<void> _sendSettingsToKeyboard() async {
@@ -592,7 +617,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
             ),
             _buildFeatureSwitch(
               'Swipe Typing',
-              'Type by swiping across letters (Gestures: ←Delete, →Space, ↑Shift, ↓Hide)',
+              'Swipe across letters to form words instantly! Try swiping "hello" or "the"',
               _swipeTypingEnabled,
               (value) {
                 setState(() {

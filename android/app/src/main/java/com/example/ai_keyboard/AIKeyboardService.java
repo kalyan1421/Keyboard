@@ -1,6 +1,9 @@
 package com.example.ai_keyboard;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -54,6 +57,18 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private boolean vibrationEnabled = true;
     private boolean keyPreviewEnabled = false; // Disabled by default
     
+    // Broadcast receiver for settings changes
+    private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if ("com.example.ai_keyboard.SETTINGS_CHANGED".equals(intent.getAction())) {
+                // Reload settings immediately
+                loadSettings();
+                applySettingsImmediately();
+            }
+        }
+    };
+    
     // Keyboard layouts
     private static final int KEYBOARD_LETTERS = 1;
     private static final int KEYBOARD_SYMBOLS = 2;
@@ -65,6 +80,10 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         super.onCreate();
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE);
         loadSettings();
+        
+        // Register broadcast receiver for settings changes
+        IntentFilter filter = new IntentFilter("com.example.ai_keyboard.SETTINGS_CHANGED");
+        registerReceiver(settingsReceiver, filter);
     }
     
     @Override
@@ -976,6 +995,43 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         super.onDestroy();
         if (executorService != null) {
             executorService.shutdown();
+        }
+        
+        // Unregister broadcast receiver
+        try {
+            unregisterReceiver(settingsReceiver);
+        } catch (IllegalArgumentException e) {
+            // Receiver was not registered
+        }
+    }
+    
+    private void applySettingsImmediately() {
+        // Apply theme changes
+        applyTheme();
+        
+        // Update keyboard view settings
+        if (keyboardView != null) {
+            keyboardView.setPreviewEnabled(keyPreviewEnabled);
+            keyboardView.setSwipeEnabled(swipeTypingEnabled);
+            
+            // Force refresh of the keyboard view
+            keyboardView.invalidateAllKeys();
+        }
+        
+        // Show feedback to user that settings were applied
+        if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+            TextView firstSuggestion = (TextView) suggestionContainer.getChildAt(0);
+            firstSuggestion.setText("⚙️ Settings Updated");
+            firstSuggestion.setTextColor(Color.parseColor("#4CAF50"));
+            firstSuggestion.setVisibility(View.VISIBLE);
+            
+            // Reset after 2 seconds
+            mainHandler.postDelayed(() -> {
+                if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+                    TextView suggestion = (TextView) suggestionContainer.getChildAt(0);
+                    suggestion.setVisibility(View.INVISIBLE);
+                }
+            }, 2000);
         }
     }
 }
