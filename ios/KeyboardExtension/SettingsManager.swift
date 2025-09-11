@@ -48,14 +48,43 @@ class SettingsManager {
         }
     }
     
+    var vibrationEnabled: Bool {
+        get { userDefaults?.bool(forKey: "vibration_enabled") ?? true }
+        set { 
+            userDefaults?.set(newValue, forKey: "vibration_enabled")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    var keyPreviewEnabled: Bool {
+        get { userDefaults?.bool(forKey: "key_preview_enabled") ?? false }
+        set { 
+            userDefaults?.set(newValue, forKey: "key_preview_enabled")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    // Convenience property for current theme access (matching Android implementation)
+    var currentTheme: String {
+        get { return keyboardTheme }
+        set { keyboardTheme = newValue }
+    }
+    
     // MARK: - Bulk Operations
+    
+    func loadSettings() {
+        // Force synchronize to get latest settings from shared storage
+        userDefaults?.synchronize()
+    }
     
     func loadAllSettings() -> KeyboardSettings {
         return KeyboardSettings(
             theme: keyboardTheme,
             aiSuggestions: aiSuggestionsEnabled,
             swipeTyping: swipeTypingEnabled,
-            voiceInput: voiceInputEnabled
+            voiceInput: voiceInputEnabled,
+            vibration: vibrationEnabled,
+            keyPreview: keyPreviewEnabled
         )
     }
     
@@ -64,6 +93,8 @@ class SettingsManager {
         aiSuggestionsEnabled = settings.aiSuggestions
         swipeTypingEnabled = settings.swipeTyping
         voiceInputEnabled = settings.voiceInput
+        vibrationEnabled = settings.vibration
+        keyPreviewEnabled = settings.keyPreview
     }
 }
 
@@ -74,6 +105,8 @@ struct KeyboardSettings {
     let aiSuggestions: Bool
     let swipeTyping: Bool
     let voiceInput: Bool
+    let vibration: Bool
+    let keyPreview: Bool
 }
 
 // MARK: - Notification Extension
