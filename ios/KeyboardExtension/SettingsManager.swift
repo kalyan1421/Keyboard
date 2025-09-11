@@ -10,7 +10,7 @@ class SettingsManager {
         return UserDefaults(suiteName: appGroupIdentifier)
     }
     
-    private init() {
+    init() {
         // Simple initialization without complex notifications for now
     }
     
