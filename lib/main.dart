@@ -43,6 +43,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   bool _aiSuggestionsEnabled = true;
   bool _swipeTypingEnabled = true;
   bool _voiceInputEnabled = true;
+  bool _vibrationEnabled = true;
+  bool _keyPreviewEnabled = false;
 
   final List<String> _themes = [
     'default',
@@ -113,6 +115,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       _aiSuggestionsEnabled = prefs.getBool('ai_suggestions') ?? true;
       _swipeTypingEnabled = prefs.getBool('swipe_typing') ?? true;
       _voiceInputEnabled = prefs.getBool('voice_input') ?? true;
+      _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
+      _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
     });
   }
 
@@ -122,6 +126,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
     await prefs.setBool('swipe_typing', _swipeTypingEnabled);
     await prefs.setBool('voice_input', _voiceInputEnabled);
+    await prefs.setBool('vibration_enabled', _vibrationEnabled);
+    await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
     
     // Send settings to native keyboard
     _sendSettingsToKeyboard();
@@ -134,6 +140,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
         'aiSuggestions': _aiSuggestionsEnabled,
         'swipeTyping': _swipeTypingEnabled,
         'voiceInput': _voiceInputEnabled,
+        'vibration': _vibrationEnabled,
+        'keyPreview': _keyPreviewEnabled,
       });
     } catch (e) {
       print('Error sending settings: $e');
@@ -600,6 +608,28 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               (value) {
                 setState(() {
                   _voiceInputEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Vibration Feedback',
+              'Haptic feedback when typing (Recommended: ON)',
+              _vibrationEnabled,
+              (value) {
+                setState(() {
+                  _vibrationEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Key Preview',
+              'Show letter popup when typing (Recommended: OFF for cleaner experience)',
+              _keyPreviewEnabled,
+              (value) {
+                setState(() {
+                  _keyPreviewEnabled = value;
                 });
                 _saveSettings();
               },

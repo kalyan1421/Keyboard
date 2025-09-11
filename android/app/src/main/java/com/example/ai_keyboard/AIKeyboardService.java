@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -24,9 +25,9 @@ import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class AIKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
+public class AIKeyboardService extends InputMethodService implements KeyboardView.OnKeyboardActionListener, SwipeKeyboardView.SwipeListener {
     
-    private KeyboardView keyboardView;
+    private SwipeKeyboardView keyboardView;
     private Keyboard keyboard;
     private boolean caps = false;
     private long lastShiftTime;
@@ -76,11 +77,13 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         // Create suggestion bar
         createSuggestionBar(mainLayout);
         
-        // Create keyboard view
-        keyboardView = (KeyboardView) getLayoutInflater().inflate(R.layout.keyboard, null);
+        // Create keyboard view with swipe support
+        keyboardView = new SwipeKeyboardView(this, null);
         keyboard = new Keyboard(this, R.xml.qwerty);
         keyboardView.setKeyboard(keyboard);
         keyboardView.setOnKeyboardActionListener(this);
+        keyboardView.setSwipeListener(this);
+        keyboardView.setSwipeEnabled(swipeTypingEnabled);
         
         // Configure key preview (disable popup)
         keyboardView.setPreviewEnabled(keyPreviewEnabled);
@@ -712,16 +715,149 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     }
     
     private String applySwipeCorrections(String swipeWord) {
-        // Basic swipe pattern to word mapping
-        switch (swipeWord) {
-            case "qwerty": return "hello";
-            case "asdf": return "and";
-            case "zxcv": return "the";
-            case "qwe": return "you";
-            case "asd": return "are";
-            case "zxc": return "to";
+        // Enhanced swipe pattern to word mapping
+        switch (swipeWord.toLowerCase()) {
+            case "hello": case "helo": case "hllo": return "hello";
+            case "and": case "adn": case "nad": return "and";
+            case "the": case "teh": case "hte": return "the";
+            case "you": case "yuo": case "oyu": return "you";
+            case "are": case "aer": case "rae": return "are";
+            case "to": case "ot": return "to";
+            case "for": case "fro": case "ofr": return "for";
+            case "with": case "wiht": case "whit": return "with";
+            case "that": case "taht": case "htat": return "that";
+            case "this": case "tihs": case "htis": return "this";
+            case "have": case "ahve": case "haev": return "have";
+            case "from": case "form": case "fomr": return "from";
+            case "they": case "tehy": case "yhte": return "they";
+            case "know": case "konw": case "nkow": return "know";
+            case "want": case "wnat": case "awnt": return "want";
+            case "been": case "eben": case "neeb": return "been";
+            case "good": case "godo": case "ogod": return "good";
+            case "much": case "muhc": case "mcuh": return "much";
+            case "some": case "soem": case "mose": return "some";
+            case "time": case "tmie": case "itme": return "time";
+            case "very": case "vrey": case "yrev": return "very";
+            case "when": case "wehn": case "hwne": return "when";
+            case "come": case "coem": case "moce": return "come";
+            case "here": case "hree": case "ehre": return "here";
+            case "just": case "jsut": case "ujst": return "just";
+            case "like": case "lkie": case "ilke": return "like";
+            case "over": case "ovre": case "roev": return "over";
+            case "also": case "aslo": case "laso": return "also";
+            case "back": case "bakc": case "cabk": return "back";
+            case "after": case "afetr": case "atfer": return "after";
+            case "use": case "ues": case "seu": return "use";
+            case "two": case "tow": case "wto": return "two";
+            case "how": case "hwo": case "ohw": return "how";
+            case "our": case "oru": case "uro": return "our";
+            case "work": case "wokr": case "rwok": return "work";
+            case "first": case "frist": case "fisrt": return "first";
+            case "well": case "wlel": case "ewll": return "well";
+            case "way": case "wya": case "awy": return "way";
+            case "even": case "eevn": case "nev": return "even";
+            case "new": case "nwe": case "enw": return "new";
+            case "year": case "yaer": case "yrea": return "year";
+            case "would": case "woudl": case "wolud": return "would";
+            case "people": case "poeple": case "peolpe": return "people";
+            case "think": case "thinl": case "htink": return "think";
+            case "where": case "wheer": case "hwere": return "where";
+            case "being": case "beinf": case "beign": return "being";
+            case "now": case "nwo": case "onw": return "now";
+            case "make": case "amke": case "meak": return "make";
+            case "most": case "mots": case "omst": return "most";
+            case "get": case "gte": case "teg": return "get";
+            case "see": case "ese": case "ees": return "see";
+            case "him": case "hmi": case "ihm": return "him";
+            case "has": case "ahs": case "sha": return "has";
+            case "had": case "ahd": case "dha": return "had";
             default: 
                 return swipeWord.length() > 1 ? swipeWord : "";
+        }
+    }
+    
+    // Implement SwipeListener interface methods
+    @Override
+    public void onSwipeDetected(List<Integer> swipedKeys, String swipePattern) {
+        if (swipedKeys.isEmpty()) return;
+        
+        // Convert key codes to characters
+        StringBuilder swipeWord = new StringBuilder();
+        for (Integer keyCode : swipedKeys) {
+            if (keyCode > 0 && keyCode < 256) {
+                char c = (char) keyCode.intValue();
+                if (Character.isLetter(c)) {
+                    swipeWord.append(Character.toLowerCase(c));
+                }
+            }
+        }
+        
+        String word = swipeWord.toString();
+        if (word.length() > 1) {
+            // Apply corrections and get final word
+            String finalWord = applySwipeCorrections(word);
+            
+            if (!finalWord.isEmpty()) {
+                // Insert the swiped word
+                InputConnection ic = getCurrentInputConnection();
+                if (ic != null) {
+                    ic.commitText(finalWord + " ", 1);
+                    updateAISuggestions();
+                }
+                
+                // Show success feedback
+                showSwipeSuccess(finalWord);
+            }
+        }
+    }
+    
+    @Override
+    public void onSwipeStarted() {
+        // Visual feedback for swipe start
+        if (keyboardView != null) {
+            keyboardView.setBackgroundColor(getSwipeActiveColor());
+        }
+        
+        // Show swipe mode indicator
+        showSwipeIndicator(true);
+    }
+    
+    @Override
+    public void onSwipeEnded() {
+        // Reset visual feedback
+        if (keyboardView != null) {
+            keyboardView.setBackgroundColor(getThemeBackgroundColor());
+        }
+        
+        // Hide swipe mode indicator
+        showSwipeIndicator(false);
+    }
+    
+    private void showSwipeSuccess(String word) {
+        // Show the swiped word in the first suggestion slot briefly
+        if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+            TextView firstSuggestion = (TextView) suggestionContainer.getChildAt(0);
+            firstSuggestion.setText("✓ " + word);
+            firstSuggestion.setTextColor(Color.parseColor("#4CAF50")); // Green for success
+            firstSuggestion.setVisibility(View.VISIBLE);
+            
+            // Reset after 1 second
+            mainHandler.postDelayed(() -> {
+                updateAISuggestions();
+            }, 1000);
+        }
+    }
+    
+    private void showSwipeIndicator(boolean show) {
+        if (suggestionContainer != null && suggestionContainer.getChildCount() > 1) {
+            TextView indicator = (TextView) suggestionContainer.getChildAt(1);
+            if (show) {
+                indicator.setText("🔄 Swipe");
+                indicator.setTextColor(getSwipeTextColor());
+                indicator.setVisibility(View.VISIBLE);
+            } else {
+                indicator.setVisibility(View.INVISIBLE);
+            }
         }
     }
     
@@ -826,6 +962,7 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         applyTheme();
         if (keyboardView != null) {
             keyboardView.setPreviewEnabled(keyPreviewEnabled);
+            keyboardView.setSwipeEnabled(swipeTypingEnabled);
         }
     }
     
