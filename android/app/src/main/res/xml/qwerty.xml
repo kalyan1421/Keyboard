@@ -7,16 +7,16 @@
     
     <!-- First row: QWERTYUIOP -->
     <Row android:rowEdgeFlags="top">
-        <Key android:codes="113" android:keyLabel="q" android:keyWidth="9.5%p" android:keyEdgeFlags="left"/>
-        <Key android:codes="119" android:keyLabel="w" android:keyWidth="9.5%p"/>
-        <Key android:codes="101" android:keyLabel="e" android:keyWidth="9.5%p"/>
-        <Key android:codes="114" android:keyLabel="r" android:keyWidth="9.5%p"/>
-        <Key android:codes="116" android:keyLabel="t" android:keyWidth="9.5%p"/>
-        <Key android:codes="121" android:keyLabel="y" android:keyWidth="9.5%p"/>
-        <Key android:codes="117" android:keyLabel="u" android:keyWidth="9.5%p"/>
-        <Key android:codes="105" android:keyLabel="i" android:keyWidth="9.5%p"/>
-        <Key android:codes="111" android:keyLabel="o" android:keyWidth="9.5%p"/>
-        <Key android:codes="112" android:keyLabel="p" android:keyWidth="9.5%p" android:keyEdgeFlags="right"/>
+        <Key android:codes="113" android:keyLabel="q" android:keyWidth="10%p" android:keyEdgeFlags="left"/>
+        <Key android:codes="119" android:keyLabel="w" android:keyWidth="10%p"/>
+        <Key android:codes="101" android:keyLabel="e" android:keyWidth="10%p"/>
+        <Key android:codes="114" android:keyLabel="r" android:keyWidth="10%p"/>
+        <Key android:codes="116" android:keyLabel="t" android:keyWidth="10%p"/>
+        <Key android:codes="121" android:keyLabel="y" android:keyWidth="10%p"/>
+        <Key android:codes="117" android:keyLabel="u" android:keyWidth="10%p"/>
+        <Key android:codes="105" android:keyLabel="i" android:keyWidth="10%p"/>
+        <Key android:codes="111" android:keyLabel="o" android:keyWidth="10%p"/>
+        <Key android:codes="112" android:keyLabel="p" android:keyWidth="10%p" android:keyEdgeFlags="right"/>
     </Row>
     
     <!-- Second row: ASDFGHJKL -->
