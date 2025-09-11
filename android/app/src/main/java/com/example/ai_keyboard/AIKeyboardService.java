@@ -209,21 +209,134 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private void handleCharacter(int primaryCode, InputConnection ic) {
         char code = (char) primaryCode;
         
-        if (Character.isLetter(code) && caps) {
-            code = Character.toUpperCase(code);
+        // Enhanced character handling with better case management
+        if (Character.isLetter(code)) {
+            if (caps) {
+                code = Character.toUpperCase(code);
+            } else {
+                code = Character.toLowerCase(code);
+            }
         }
         
-        ic.commitText(String.valueOf(code), 1);
+        // Insert character with enhanced text processing
+        insertCharacterWithProcessing(ic, code);
         
-        // Handle auto-shift after sentence end
+        // Enhanced auto-shift logic
+        updateCapsState(code);
+        
+        // Update keyboard visual state
+        updateKeyboardState();
+    }
+    
+    private void insertCharacterWithProcessing(InputConnection ic, char code) {
+        // Get current text context for smart processing
+        CharSequence textBefore = ic.getTextBeforeCursor(10, 0);
+        String context = textBefore != null ? textBefore.toString() : "";
+        
+        // Handle smart punctuation
+        if (isSmartPunctuationEnabled() && isPunctuation(code)) {
+            handleSmartPunctuation(ic, code, context);
+        } else {
+            // Standard character insertion
+            ic.commitText(String.valueOf(code), 1);
+        }
+        
+        // Handle auto-correction if enabled
+        if (isAutoCorrectEnabled() && (code == ' ' || isPunctuation(code))) {
+            performAutoCorrection(ic);
+        }
+    }
+    
+    private void updateCapsState(char code) {
+        boolean wasCapitalized = caps;
+        
+        // Auto-shift after sentence end
         if (code == '.' || code == '!' || code == '?') {
             caps = true;
-            keyboardView.setShifted(caps);
-        } else if (caps && code == ' ') {
-            // Keep caps for next letter
-        } else if (caps && Character.isLetter(code)) {
+        } else if (caps && Character.isLetter(code) && !isCapslockEnabled()) {
+            // Turn off caps after typing a letter (unless caps lock is on)
             caps = false;
+        }
+        
+        // Update visual state if changed
+        if (wasCapitalized != caps && keyboardView != null) {
             keyboardView.setShifted(caps);
+        }
+    }
+    
+    private void updateKeyboardState() {
+        if (keyboardView != null) {
+            keyboardView.invalidateAllKeys();
+        }
+    }
+    
+    private boolean isSmartPunctuationEnabled() {
+        return settings.getBoolean("smart_punctuation", true);
+    }
+    
+    private boolean isAutoCorrectEnabled() {
+        return settings.getBoolean("auto_correct", true);
+    }
+    
+    private boolean isCapslockEnabled() {
+        return settings.getBoolean("caps_lock_active", false);
+    }
+    
+    private boolean isPunctuation(char c) {
+        return ".,!?;:".indexOf(c) != -1;
+    }
+    
+    private void handleSmartPunctuation(InputConnection ic, char code, String context) {
+        // Smart spacing around punctuation
+        if (code == '.' || code == '!' || code == '?') {
+            // Remove extra spaces before sentence-ending punctuation
+            if (context.endsWith(" ")) {
+                ic.deleteSurroundingText(1, 0);
+            }
+            ic.commitText(String.valueOf(code), 1);
+        } else if (code == ',') {
+            // Handle comma spacing
+            ic.commitText(String.valueOf(code), 1);
+        } else {
+            ic.commitText(String.valueOf(code), 1);
+        }
+    }
+    
+    private void performAutoCorrection(InputConnection ic) {
+        // Get the last word typed
+        CharSequence textBefore = ic.getTextBeforeCursor(50, 0);
+        if (textBefore == null) return;
+        
+        String text = textBefore.toString();
+        String[] words = text.split("\\s+");
+        if (words.length == 0) return;
+        
+        String lastWord = words[words.length - 1];
+        if (lastWord.length() < 2) return;
+        
+        // Simple auto-correction dictionary
+        String corrected = getAutoCorrection(lastWord);
+        if (corrected != null && !corrected.equals(lastWord)) {
+            // Replace the word with correction
+            ic.deleteSurroundingText(lastWord.length(), 0);
+            ic.commitText(corrected, 1);
+        }
+    }
+    
+    private String getAutoCorrection(String word) {
+        // Simple auto-correction dictionary
+        switch (word.toLowerCase()) {
+            case "teh": return "the";
+            case "adn": return "and";
+            case "hte": return "the";
+            case "taht": return "that";
+            case "thier": return "their";
+            case "recieve": return "receive";
+            case "seperate": return "separate";
+            case "definately": return "definitely";
+            case "occured": return "occurred";
+            case "begining": return "beginning";
+            default: return null;
         }
     }
     
@@ -403,11 +516,48 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     @Override
     public void onPress(int primaryCode) {
         // Handle key press visual feedback
+        if (keyboardView != null) {
+            // Add haptic feedback
+            keyboardView.performHapticFeedback(
+                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+            );
+            
+            // Visual press feedback is handled by the key background drawable
+            // Additional custom animations can be added here
+            animateKeyPress(primaryCode);
+        }
     }
     
     @Override
     public void onRelease(int primaryCode) {
         // Handle key release visual feedback
+        if (keyboardView != null) {
+            animateKeyRelease(primaryCode);
+        }
+    }
+    
+    private void animateKeyPress(int primaryCode) {
+        // Custom key press animation
+        if (keyboardView != null) {
+            // Scale effect for pressed key
+            keyboardView.setScaleX(0.95f);
+            keyboardView.setScaleY(0.95f);
+            
+            // Reset scale after short delay
+            keyboardView.postDelayed(() -> {
+                keyboardView.setScaleX(1.0f);
+                keyboardView.setScaleY(1.0f);
+            }, 100);
+        }
+    }
+    
+    private void animateKeyRelease(int primaryCode) {
+        // Ensure scale is reset on release
+        if (keyboardView != null) {
+            keyboardView.setScaleX(1.0f);
+            keyboardView.setScaleY(1.0f);
+        }
     }
     
     @Override

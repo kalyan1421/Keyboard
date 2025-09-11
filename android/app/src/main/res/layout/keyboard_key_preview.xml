@@ -4,6 +4,11 @@
     android:layout_height="match_parent"
     android:gravity="center"
     android:background="@drawable/key_background_popup"
-    android:textColor="#FF000000"
-    android:textSize="30sp"
-    android:textStyle="bold" />
+    android:textColor="#212121"
+    android:textSize="@dimen/key_preview_text_size"
+    android:textStyle="bold"
+    android:elevation="8dp"
+    android:shadowColor="#33000000"
+    android:shadowDx="0"
+    android:shadowDy="2"
+    android:shadowRadius="4" />
