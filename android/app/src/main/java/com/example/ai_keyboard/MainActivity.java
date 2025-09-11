@@ -119,9 +119,13 @@ public class MainActivity extends FlutterActivity {
     }
     
     private void notifyKeyboardServiceSettingsChanged() {
-        // Send broadcast to keyboard service to reload settings
-        Intent intent = new Intent("com.example.ai_keyboard.SETTINGS_CHANGED");
-        intent.setPackage(getPackageName());
-        sendBroadcast(intent);
+        try {
+            // Send broadcast to keyboard service to reload settings
+            Intent intent = new Intent("com.example.ai_keyboard.SETTINGS_CHANGED");
+            intent.setPackage(getPackageName());
+            sendBroadcast(intent);
+        } catch (Exception e) {
+            // Ignore broadcast errors to prevent crashes
+        }
     }
 }

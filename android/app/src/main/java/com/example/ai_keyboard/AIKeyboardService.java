@@ -61,10 +61,22 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if ("com.example.ai_keyboard.SETTINGS_CHANGED".equals(intent.getAction())) {
-                // Reload settings immediately
-                loadSettings();
-                applySettingsImmediately();
+            try {
+                if ("com.example.ai_keyboard.SETTINGS_CHANGED".equals(intent.getAction())) {
+                    // Reload settings immediately on main thread
+                    if (mainHandler != null) {
+                        mainHandler.post(() -> {
+                            try {
+                                loadSettings();
+                                applySettingsImmediately();
+                            } catch (Exception e) {
+                                // Ignore errors to prevent crashes
+                            }
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                // Ignore broadcast errors to prevent crashes
             }
         }
     };
@@ -82,8 +94,12 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         loadSettings();
         
         // Register broadcast receiver for settings changes
-        IntentFilter filter = new IntentFilter("com.example.ai_keyboard.SETTINGS_CHANGED");
-        registerReceiver(settingsReceiver, filter);
+        try {
+            IntentFilter filter = new IntentFilter("com.example.ai_keyboard.SETTINGS_CHANGED");
+            registerReceiver(settingsReceiver, filter);
+        } catch (Exception e) {
+            // Ignore registration errors to prevent crashes
+        }
     }
     
     @Override
@@ -1006,32 +1022,46 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     }
     
     private void applySettingsImmediately() {
-        // Apply theme changes
-        applyTheme();
-        
-        // Update keyboard view settings
-        if (keyboardView != null) {
-            keyboardView.setPreviewEnabled(keyPreviewEnabled);
-            keyboardView.setSwipeEnabled(swipeTypingEnabled);
+        try {
+            // Apply theme changes
+            applyTheme();
             
-            // Force refresh of the keyboard view
-            keyboardView.invalidateAllKeys();
-        }
-        
-        // Show feedback to user that settings were applied
-        if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
-            TextView firstSuggestion = (TextView) suggestionContainer.getChildAt(0);
-            firstSuggestion.setText("⚙️ Settings Updated");
-            firstSuggestion.setTextColor(Color.parseColor("#4CAF50"));
-            firstSuggestion.setVisibility(View.VISIBLE);
+            // Update keyboard view settings
+            if (keyboardView != null) {
+                keyboardView.setPreviewEnabled(keyPreviewEnabled);
+                keyboardView.setSwipeEnabled(swipeTypingEnabled);
+                
+                // Force refresh of the keyboard view
+                keyboardView.invalidateAllKeys();
+            }
             
-            // Reset after 2 seconds
-            mainHandler.postDelayed(() -> {
-                if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
-                    TextView suggestion = (TextView) suggestionContainer.getChildAt(0);
-                    suggestion.setVisibility(View.INVISIBLE);
+            // Show feedback to user that settings were applied
+            if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+                TextView firstSuggestion = (TextView) suggestionContainer.getChildAt(0);
+                if (firstSuggestion != null) {
+                    firstSuggestion.setText("⚙️ Settings Updated");
+                    firstSuggestion.setTextColor(Color.parseColor("#4CAF50"));
+                    firstSuggestion.setVisibility(View.VISIBLE);
+                    
+                    // Reset after 2 seconds
+                    if (mainHandler != null) {
+                        mainHandler.postDelayed(() -> {
+                            try {
+                                if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+                                    TextView suggestion = (TextView) suggestionContainer.getChildAt(0);
+                                    if (suggestion != null) {
+                                        suggestion.setVisibility(View.INVISIBLE);
+                                    }
+                                }
+                            } catch (Exception e) {
+                                // Ignore UI update errors
+                            }
+                        }, 2000);
+                    }
                 }
-            }, 2000);
+            }
+        } catch (Exception e) {
+            // Prevent crashes from settings application
         }
     }
 }
