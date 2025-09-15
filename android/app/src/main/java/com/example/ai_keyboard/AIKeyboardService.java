@@ -61,6 +61,12 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private boolean vibrationEnabled = true;
     private boolean keyPreviewEnabled = false; // Disabled by default
     
+    // Advanced feedback settings
+    private int hapticIntensity = 2; // 0=off, 1=light, 2=medium, 3=strong
+    private int soundIntensity = 1;
+    private int visualIntensity = 2;
+    private float soundVolume = 0.3f;
+    
     // Broadcast receiver for settings changes
     private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override
@@ -177,6 +183,12 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         voiceInputEnabled = settings.getBoolean("voice_input", true);
         vibrationEnabled = settings.getBoolean("vibration_enabled", true);
         keyPreviewEnabled = settings.getBoolean("key_preview_enabled", false);
+        
+        // Load advanced feedback settings
+        hapticIntensity = settings.getInt("haptic_intensity", 2); // medium by default
+        soundIntensity = settings.getInt("sound_intensity", 1); // light by default
+        visualIntensity = settings.getInt("visual_intensity", 2); // medium by default
+        soundVolume = settings.getFloat("sound_volume", 0.3f);
     }
     
     private void applyTheme() {
@@ -568,16 +580,72 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         }
     }
     
+    private void playKeySound(int primaryCode) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                float volume = soundVolume;
+                
+                // Adjust volume based on sound intensity
+                switch (soundIntensity) {
+                    case 1: // Light
+                        volume *= 0.5f;
+                        break;
+                    case 2: // Medium
+                        volume *= 0.8f;
+                        break;
+                    case 3: // Strong
+                        volume *= 1.0f;
+                        break;
+                }
+                
+                // Different sounds for different key types
+                if (primaryCode == 32) { // Space bar
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_SPACEBAR, volume);
+                } else if (primaryCode == 10 || primaryCode == -4) { // Enter/Return
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_RETURN, volume);
+                } else if (primaryCode == -5) { // Delete
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE, volume);
+                } else { // Standard keys
+                    am.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, volume);
+                }
+            }
+        } catch (Exception e) {
+            // Ignore sound errors to prevent crashes
+        }
+    }
+    
     @Override
     public void onPress(int primaryCode) {
         // Handle key press visual feedback
         if (keyboardView != null) {
-            // Add haptic feedback only if enabled
-            if (vibrationEnabled) {
+            // Add advanced haptic feedback based on intensity
+            if (vibrationEnabled && hapticIntensity > 0) {
+                int hapticType;
+                switch (hapticIntensity) {
+                    case 1: // Light
+                        hapticType = android.view.HapticFeedbackConstants.VIRTUAL_KEY;
+                        break;
+                    case 2: // Medium
+                        hapticType = android.view.HapticFeedbackConstants.KEYBOARD_TAP;
+                        break;
+                    case 3: // Strong
+                        hapticType = android.view.HapticFeedbackConstants.LONG_PRESS;
+                        break;
+                    default:
+                        hapticType = android.view.HapticFeedbackConstants.KEYBOARD_TAP;
+                        break;
+                }
+                
                 keyboardView.performHapticFeedback(
-                    android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                    hapticType,
                     android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
                 );
+            }
+            
+            // Add sound feedback based on intensity
+            if (soundIntensity > 0) {
+                playKeySound(primaryCode);
             }
             
             // Check if this could be the start of swipe typing
@@ -988,6 +1056,12 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         voiceInputEnabled = voiceInput;
         vibrationEnabled = vibration;
         keyPreviewEnabled = keyPreview;
+        
+        // Load advanced feedback settings from preferences
+        hapticIntensity = settings.getInt("haptic_intensity", 2);
+        soundIntensity = settings.getInt("sound_intensity", 1);
+        visualIntensity = settings.getInt("visual_intensity", 2);
+        soundVolume = settings.getFloat("sound_volume", 0.3f);
         
         // Save to preferences
         SharedPreferences.Editor editor = settings.edit();

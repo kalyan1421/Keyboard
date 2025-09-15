@@ -7,8 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'keyboard_feedback_system.dart';
+import 'demo_keyboard_widget.dart';
 
 void main() {
+  // Initialize the advanced feedback system
+  KeyboardFeedbackSystem.initialize();
   runApp(const AIKeyboardApp());
 }
 
@@ -45,6 +49,12 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   bool _voiceInputEnabled = true;
   bool _vibrationEnabled = true;
   bool _keyPreviewEnabled = false;
+  
+  // Advanced feedback settings
+  FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
+  FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
+  FeedbackIntensity _visualIntensity = FeedbackIntensity.medium;
+  double _soundVolume = 0.3;
 
   final List<String> _themes = [
     'default',
@@ -141,34 +151,104 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   void _showTestKeyboardDialog() {
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Test Your Keyboard'),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('To test your updated settings:'),
-              SizedBox(height: 12),
-              Text('1. Tap the text field below'),
-              Text('2. Switch to AI Keyboard if needed'),
-              Text('3. Test the new settings!'),
-              SizedBox(height: 16),
-              TextField(
-                decoration: InputDecoration(
-                  hintText: 'Test your keyboard here...',
-                  border: OutlineInputBorder(),
+        return Dialog(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.rocket_launch, color: Colors.blue, size: 28),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Advanced Feedback Testing',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
                 ),
-                maxLines: 2,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Got it!'),
+                const SizedBox(height: 20),
+                
+                // Quick feedback test panel
+                const FeedbackTestPanel(),
+                const SizedBox(height: 20),
+                
+                // Interactive demo keyboard
+                const Expanded(
+                  child: SingleChildScrollView(
+                    child: LiveEffectsDemoKeyboard(),
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Instructions
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '💡 How to test:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text('• Tap demo keys above to test current feedback settings'),
+                      Text('• Use quick test buttons for individual feedback types'),
+                      Text('• Adjust settings and see changes instantly'),
+                      Text('• For real keyboard: Open any text app and switch to AI Keyboard'),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Action buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Close'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _openInputMethodPicker();
+                      },
+                      icon: const Icon(Icons.keyboard),
+                      label: const Text('Switch to AI Keyboard'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -183,7 +263,21 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       _voiceInputEnabled = prefs.getBool('voice_input') ?? true;
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
+      
+      // Load advanced feedback settings
+      _hapticIntensity = FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2]; // medium
+      _soundIntensity = FeedbackIntensity.values[prefs.getInt('sound_intensity') ?? 1]; // light
+      _visualIntensity = FeedbackIntensity.values[prefs.getInt('visual_intensity') ?? 2]; // medium
+      _soundVolume = prefs.getDouble('sound_volume') ?? 0.3;
     });
+    
+    // Update feedback system with loaded settings
+    KeyboardFeedbackSystem.updateSettings(
+      haptic: _hapticIntensity,
+      sound: _soundIntensity,
+      visual: _visualIntensity,
+      volume: _soundVolume,
+    );
   }
 
   Future<void> _saveSettings() async {
@@ -194,6 +288,20 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setBool('voice_input', _voiceInputEnabled);
     await prefs.setBool('vibration_enabled', _vibrationEnabled);
     await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
+    
+    // Save advanced feedback settings
+    await prefs.setInt('haptic_intensity', _hapticIntensity.index);
+    await prefs.setInt('sound_intensity', _soundIntensity.index);
+    await prefs.setInt('visual_intensity', _visualIntensity.index);
+    await prefs.setDouble('sound_volume', _soundVolume);
+    
+    // Update feedback system with new settings
+    KeyboardFeedbackSystem.updateSettings(
+      haptic: _hapticIntensity,
+      sound: _soundIntensity,
+      visual: _visualIntensity,
+      volume: _soundVolume,
+    );
     
     // Send settings to native keyboard
     await _sendSettingsToKeyboard();
@@ -703,6 +811,49 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 _saveSettings();
               },
             ),
+            
+            // Advanced Feedback Settings Section
+            const SizedBox(height: 24),
+            _buildSectionHeader('🎯 Advanced Feedback Settings'),
+            const SizedBox(height: 16),
+            
+            _buildIntensitySelector(
+              'Haptic Feedback Intensity',
+              'Control the strength of touch vibrations',
+              _hapticIntensity,
+              (value) {
+                setState(() {
+                  _hapticIntensity = value;
+                });
+                _saveSettings();
+              },
+            ),
+            
+            _buildIntensitySelector(
+              'Sound Feedback Intensity',
+              'Control keyboard typing sounds',
+              _soundIntensity,
+              (value) {
+                setState(() {
+                  _soundIntensity = value;
+                });
+                _saveSettings();
+              },
+            ),
+            
+            _buildIntensitySelector(
+              'Visual Effects Intensity',
+              'Control animations, particles, and ripple effects',
+              _visualIntensity,
+              (value) {
+                setState(() {
+                  _visualIntensity = value;
+                });
+                _saveSettings();
+              },
+            ),
+            
+            _buildVolumeSlider(),
           ],
         ),
       ),
@@ -724,6 +875,150 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
         onChanged: onChanged,
       ),
     );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.blue,
+      ),
+    );
+  }
+
+  Widget _buildIntensitySelector(
+    String title,
+    String subtitle,
+    FeedbackIntensity value,
+    ValueChanged<FeedbackIntensity> onChanged,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: FeedbackIntensity.values.map((intensity) {
+                final isSelected = value == intensity;
+                return GestureDetector(
+                  onTap: () => onChanged(intensity),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.blue : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected ? Colors.blue : Colors.grey,
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      _getIntensityLabel(intensity),
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.grey[700],
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVolumeSlider() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Sound Volume',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Adjust keyboard sound volume level',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.volume_down, color: Colors.grey),
+                Expanded(
+                  child: Slider(
+                    value: _soundVolume,
+                    min: 0.0,
+                    max: 1.0,
+                    divisions: 10,
+                    label: '${(_soundVolume * 100).round()}%',
+                    onChanged: (value) {
+                      setState(() {
+                        _soundVolume = value;
+                      });
+                      _saveSettings();
+                    },
+                  ),
+                ),
+                const Icon(Icons.volume_up, color: Colors.grey),
+              ],
+            ),
+            Text(
+              'Current: ${(_soundVolume * 100).round()}%',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getIntensityLabel(FeedbackIntensity intensity) {
+    switch (intensity) {
+      case FeedbackIntensity.off:
+        return 'OFF';
+      case FeedbackIntensity.light:
+        return 'Light';
+      case FeedbackIntensity.medium:
+        return 'Medium';
+      case FeedbackIntensity.strong:
+        return 'Strong';
+    }
   }
 
   Widget _buildTestKeyboardCard() {

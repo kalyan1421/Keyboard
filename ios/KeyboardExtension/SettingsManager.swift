@@ -58,8 +58,42 @@ class SettingsManager {
     
     var keyPreviewEnabled: Bool {
         get { userDefaults?.bool(forKey: "key_preview_enabled") ?? false }
-        set { 
+        set {
             userDefaults?.set(newValue, forKey: "key_preview_enabled")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    // MARK: - Advanced Feedback Settings
+    
+    var hapticIntensity: Int {
+        get { userDefaults?.integer(forKey: "haptic_intensity") ?? 2 } // medium by default
+        set {
+            userDefaults?.set(newValue, forKey: "haptic_intensity")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    var soundIntensity: Int {
+        get { userDefaults?.integer(forKey: "sound_intensity") ?? 1 } // light by default
+        set {
+            userDefaults?.set(newValue, forKey: "sound_intensity")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    var visualIntensity: Int {
+        get { userDefaults?.integer(forKey: "visual_intensity") ?? 2 } // medium by default
+        set {
+            userDefaults?.set(newValue, forKey: "visual_intensity")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    var soundVolume: Float {
+        get { userDefaults?.float(forKey: "sound_volume") ?? 0.3 }
+        set {
+            userDefaults?.set(newValue, forKey: "sound_volume")
             userDefaults?.synchronize()
         }
     }
@@ -84,7 +118,11 @@ class SettingsManager {
             swipeTyping: swipeTypingEnabled,
             voiceInput: voiceInputEnabled,
             vibration: vibrationEnabled,
-            keyPreview: keyPreviewEnabled
+            keyPreview: keyPreviewEnabled,
+            hapticIntensity: hapticIntensity,
+            soundIntensity: soundIntensity,
+            visualIntensity: visualIntensity,
+            soundVolume: soundVolume
         )
     }
     
@@ -95,6 +133,10 @@ class SettingsManager {
         voiceInputEnabled = settings.voiceInput
         vibrationEnabled = settings.vibration
         keyPreviewEnabled = settings.keyPreview
+        hapticIntensity = settings.hapticIntensity
+        soundIntensity = settings.soundIntensity
+        visualIntensity = settings.visualIntensity
+        soundVolume = settings.soundVolume
     }
 }
 
@@ -107,6 +149,12 @@ struct KeyboardSettings {
     let voiceInput: Bool
     let vibration: Bool
     let keyPreview: Bool
+    
+    // Advanced feedback settings
+    let hapticIntensity: Int
+    let soundIntensity: Int
+    let visualIntensity: Int
+    let soundVolume: Float
 }
 
 // MARK: - Notification Extension

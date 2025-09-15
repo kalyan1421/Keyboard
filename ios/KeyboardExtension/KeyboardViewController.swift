@@ -7,9 +7,10 @@
 //
 
 import UIKit
+import AudioToolbox
 
 class KeyboardViewController: UIInputViewController {
-    
+
     // MARK: - Properties
     private var keyboardView: UIView!
     private var nextKeyboardButton: UIButton!
@@ -179,6 +180,33 @@ class KeyboardViewController: UIInputViewController {
     @objc private func keyPressed(_ sender: UIButton) {
         guard let title = sender.currentTitle else { return }
         
+        // Add advanced haptic feedback based on intensity
+        if settingsManager.vibrationEnabled && settingsManager.hapticIntensity > 0 {
+            let feedbackStyle: UIImpactFeedbackGenerator.FeedbackStyle
+            
+            switch settingsManager.hapticIntensity {
+            case 1: // Light
+                feedbackStyle = .light
+            case 2: // Medium
+                feedbackStyle = .medium
+            case 3: // Strong
+                feedbackStyle = .heavy
+            default:
+                feedbackStyle = .medium
+            }
+            
+            let impactFeedback = UIImpactFeedbackGenerator(style: feedbackStyle)
+            impactFeedback.impactOccurred()
+        }
+        
+        // Add sound feedback if enabled
+        if settingsManager.soundIntensity > 0 {
+            playKeySound(for: title)
+        }
+        
+        // Add visual feedback animation
+        animateKeyPress(sender)
+        
         let character = isShifted || isCapsLock ? title.uppercased() : title.lowercased()
         textDocumentProxy.insertText(character)
         
@@ -186,12 +214,6 @@ class KeyboardViewController: UIInputViewController {
         if isShifted && !isCapsLock {
             isShifted = false
             updateShiftKey()
-        }
-        
-        // Add haptic feedback if enabled
-        if settingsManager.vibrationEnabled {
-            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-            impactFeedback.impactOccurred()
         }
     }
     
@@ -216,6 +238,17 @@ class KeyboardViewController: UIInputViewController {
     }
     
     @objc private func spacePressed() {
+        // Add enhanced haptic feedback for space bar
+        if settingsManager.vibrationEnabled && settingsManager.hapticIntensity > 0 {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+        }
+        
+        // Add sound feedback
+        if settingsManager.soundIntensity > 0 {
+            playKeySound(for: " ")
+        }
+        
         textDocumentProxy.insertText(" ")
         
         // Auto-capitalize after sentence ending
@@ -265,5 +298,82 @@ class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         updateKeyboardAppearance()
+    }
+    
+    // MARK: - Advanced Feedback Methods
+    
+    private func playKeySound(for key: String) {
+        // Play system sound based on key type and intensity
+        let soundID: SystemSoundID
+        
+        switch key.lowercased() {
+        case " ": // Space
+            soundID = 1104 // Spacebar sound
+        case "delete", "⌫":
+            soundID = 1155 // Delete sound
+        case "return", "↵":
+            soundID = 1156 // Return sound
+        default:
+            soundID = 1103 // Standard key sound
+        }
+        
+        // Adjust for sound intensity (iOS doesn't support volume directly for system sounds)
+        if settingsManager.soundIntensity > 0 {
+            AudioServicesPlaySystemSound(soundID)
+        }
+    }
+    
+    private func animateKeyPress(_ button: UIButton) {
+        guard settingsManager.visualIntensity > 0 else { return }
+        
+        let animationIntensity = Double(settingsManager.visualIntensity) / 3.0
+        let scaleDown = 0.95 - (0.05 * (1.0 - animationIntensity))
+        let duration = 0.1 + (0.05 * animationIntensity)
+        
+        // Scale down animation
+        UIView.animate(withDuration: duration, animations: {
+            button.transform = CGAffineTransform(scaleX: scaleDown, scaleY: scaleDown)
+        }) { _ in
+            // Spring back animation
+            UIView.animate(withDuration: duration * 1.5, 
+                          delay: 0,
+                          usingSpringWithDamping: 0.6,
+                          initialSpringVelocity: 0.8,
+                          options: .curveEaseOut) {
+                button.transform = CGAffineTransform.identity
+            }
+        }
+        
+        // Add brightness effect for higher intensities
+        if settingsManager.visualIntensity >= 2 {
+            UIView.animate(withDuration: duration) {
+                button.alpha = 1.2
+            } completion: { _ in
+                UIView.animate(withDuration: duration) {
+                    button.alpha = 1.0
+                }
+            }
+        }
+    }
+    
+    private func animateSpaceBarPress(_ button: UIButton) {
+        guard settingsManager.visualIntensity > 0 else { return }
+        
+        // Enhanced bounce animation for space bar
+        let scaleDown: CGFloat = 0.90
+        let duration = 0.15
+        
+        UIView.animate(withDuration: duration, animations: {
+            button.transform = CGAffineTransform(scaleX: scaleDown, scaleY: scaleDown)
+        }) { _ in
+            // Triple bounce effect for space bar
+            UIView.animate(withDuration: duration * 2, 
+                          delay: 0,
+                          usingSpringWithDamping: 0.3,
+                          initialSpringVelocity: 1.2,
+                          options: .curveEaseOut) {
+                button.transform = CGAffineTransform.identity
+            }
+        }
     }
 }
