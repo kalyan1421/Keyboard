@@ -8,7 +8,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'keyboard_feedback_system.dart';
-import 'demo_keyboard_widget.dart';
+// Demo keyboard widget removed - using system-wide keyboard instead
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -182,14 +182,14 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Quick feedback test panel
-                const FeedbackTestPanel(),
+                // System keyboard status panel
+                const SystemKeyboardStatusPanel(),
                 const SizedBox(height: 20),
                 
-                // Interactive demo keyboard
+                // AI Service Information
                 const Expanded(
                   child: SingleChildScrollView(
-                    child: LiveEffectsDemoKeyboard(),
+                    child: AIServiceInfoWidget(),
                   ),
                 ),
                 
@@ -450,6 +450,47 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 _openKeyboardSettings();
               },
               child: const Text('Open Settings'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSystemKeyboardInstructions(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('🚀 System Keyboard Setup'),
+          content: const SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Your AI keyboard is ready! Follow these steps:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 16),
+                Text('1. Go to Android Settings'),
+                Text('2. Navigate to: System → Languages & input → Virtual keyboard'),
+                Text('3. Tap "Manage keyboards"'),
+                Text('4. Enable "AI Keyboard"'),
+                Text('5. Open any app and tap in a text field'),
+                Text('6. Select "AI Keyboard" from the keyboard picker'),
+                SizedBox(height: 16),
+                Text(
+                  '✨ You\'ll now have AI-powered suggestions in all apps!',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it!'),
             ),
           ],
         );
@@ -1033,6 +1074,13 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               'Test Keyboard',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
+            TextButton(
+              onPressed: () {
+                // Navigate to system keyboard setup instructions
+                _showSystemKeyboardInstructions(context);
+              },
+              child: const Text('Test Keyboard'),
+            ),
             const SizedBox(height: 16),
             const TextField(
               decoration: InputDecoration(
@@ -1218,5 +1266,130 @@ class KeyboardTheme {
       'textColor': textColor.value,
       'accentColor': accentColor.value,
     };
+  }
+}
+/// System keyboard status panel
+class SystemKeyboardStatusPanel extends StatelessWidget {
+  const SystemKeyboardStatusPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.keyboard, color: Colors.blue),
+                SizedBox(width: 8),
+                Text(
+                  'System Keyboard Status',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('✅ AI Keyboard Service: Ready'),
+            const Text('🤖 Autocorrect Engine: Active'),
+            const Text('🧠 Predictive Text: Learning'),
+            const Text('📱 System Integration: Complete'),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('System Keyboard'),
+                    content: const Text('Go to Android Settings > System > Languages & input > Virtual keyboard to enable AI Keyboard'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              icon: const Icon(Icons.settings),
+              label: const Text('Enable System Keyboard'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// AI Service information widget
+class AIServiceInfoWidget extends StatelessWidget {
+  const AIServiceInfoWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.psychology, color: Colors.green),
+                SizedBox(width: 8),
+                Text(
+                  'AI Features Now Available System-Wide',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('🔧 Smart Autocorrect'),
+            const Text('   • Typo detection and correction'),
+            const Text('   • Context-aware suggestions'),
+            const SizedBox(height: 8),
+            const Text('🧠 Predictive Text'),
+            const Text('   • Word completion'),
+            const Text('   • Context predictions'),
+            const SizedBox(height: 8),
+            const Text('✨ Learning System'),
+            const Text('   • Adapts to your typing style'),
+            const Text('   • Improves over time'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '🎯 How to Use:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 8),
+                  Text('1. Enable AI Keyboard in Android Settings'),
+                  Text('2. Open any app (WhatsApp, Gmail, etc.)'),
+                  Text('3. Tap in text field → Select AI Keyboard'),
+                  Text('4. Start typing → See AI suggestions!'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

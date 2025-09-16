@@ -14,6 +14,7 @@ import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -51,6 +52,12 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     private List<String> currentSuggestions = new ArrayList<>();
     private ExecutorService executorService = Executors.newSingleThreadExecutor();
     private Handler mainHandler = new Handler(Looper.getMainLooper());
+    
+    // AI Service Bridge
+    private AIServiceBridge aiBridge;
+    private List<String> wordHistory = new ArrayList<>();
+    private String currentWord = "";
+    private boolean isAIReady = false;
     
     // Settings
     private SharedPreferences settings;
@@ -103,6 +110,9 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE);
         loadSettings();
         
+        // Initialize AI Service Bridge
+        initializeAIBridge();
+        
         // Register broadcast receiver for settings changes
         try {
             IntentFilter filter = new IntentFilter("com.example.ai_keyboard.SETTINGS_CHANGED");
@@ -113,6 +123,30 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         
         // Start settings polling as backup
         startSettingsPolling();
+    }
+    
+    private void initializeAIBridge() {
+        try {
+            aiBridge = AIServiceBridge.getInstance();
+            aiBridge.initialize(this);
+            
+            // Check AI readiness periodically
+            mainHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    isAIReady = aiBridge.isReady();
+                    if (isAIReady) {
+                        Toast.makeText(AIKeyboardService.this, "🤖 AI Keyboard Ready", Toast.LENGTH_SHORT).show();
+                    } else {
+                        // Retry after 2 seconds
+                        mainHandler.postDelayed(this, 2000);
+                    }
+                }
+            }, 1000);
+            
+        } catch (Exception e) {
+            Log.e("AIKeyboardService", "Failed to initialize AI bridge", e);
+        }
     }
     
     @Override
@@ -285,6 +319,11 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
             }
         }
         
+        // Update current word
+        if (Character.isLetter(code)) {
+            currentWord += Character.toLowerCase(code);
+        }
+        
         // Insert character with enhanced text processing
         insertCharacterWithProcessing(ic, code);
         
@@ -411,14 +450,83 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         CharSequence selectedText = ic.getSelectedText(0);
         if (TextUtils.isEmpty(selectedText)) {
             ic.deleteSurroundingText(1, 0);
+            
+            // Update current word tracking
+            if (!currentWord.isEmpty()) {
+                currentWord = currentWord.substring(0, currentWord.length() - 1);
+            } else {
+                // If no current word, rebuild from text
+                rebuildCurrentWord(ic);
+            }
         } else {
             ic.commitText("", 1);
+            currentWord = "";
+        }
+        
+        // Update suggestions after backspace
+        if (aiSuggestionsEnabled) {
+            updateAISuggestions();
+        }
+    }
+    
+    private void rebuildCurrentWord(InputConnection ic) {
+        try {
+            CharSequence textBefore = ic.getTextBeforeCursor(50, 0);
+            if (textBefore != null) {
+                String text = textBefore.toString();
+                String[] words = text.split("\\s+");
+                if (words.length > 0 && !words[words.length - 1].isEmpty()) {
+                    // Check if the last "word" contains only letters
+                    String lastWord = words[words.length - 1];
+                    if (lastWord.matches("[a-zA-Z]+")) {
+                        currentWord = lastWord.toLowerCase();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // If rebuilding fails, just clear current word
+            currentWord = "";
         }
     }
     
     private void handleSpace(InputConnection ic) {
+        // Process current word before adding space
+        if (!currentWord.isEmpty()) {
+            finishCurrentWord();
+        }
+        
         ic.commitText(" ", 1);
         updateAISuggestions();
+    }
+    
+    private void finishCurrentWord() {
+        if (currentWord.isEmpty()) return;
+        
+        // Add to word history
+        wordHistory.add(currentWord);
+        
+        // Learn from user input if AI is ready
+        if (isAIReady && aiBridge != null) {
+            List<String> context = getRecentContext();
+            aiBridge.learnFromInput(currentWord, context);
+        }
+        
+        // Clear current word
+        currentWord = "";
+        
+        // Keep word history manageable
+        if (wordHistory.size() > 20) {
+            wordHistory.remove(0);
+        }
+    }
+    
+    private List<String> getRecentContext() {
+        List<String> context = new ArrayList<>();
+        int start = Math.max(0, wordHistory.size() - 3);
+        for (int i = start; i < wordHistory.size(); i++) {
+            context.add(wordHistory.get(i));
+        }
+        return context;
     }
     
     private void handleShift() {
@@ -469,63 +577,90 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     }
     
     private void updateAISuggestions() {
-        if (!aiSuggestionsEnabled) return;
+        if (!aiSuggestionsEnabled || !isAIReady || aiBridge == null) {
+            return;
+        }
         
         executorService.execute(() -> {
             try {
-                InputConnection ic = getCurrentInputConnection();
-                if (ic == null) return;
+                // Get AI-powered suggestions
+                List<String> context = getRecentContext();
                 
-                // Get current text context
-                CharSequence textBefore = ic.getTextBeforeCursor(50, 0);
-                String currentText = textBefore != null ? textBefore.toString() : "";
-                
-                // Generate AI suggestions (simplified version)
-                List<String> suggestions = generateAISuggestions(currentText);
-                
-                // Update UI on main thread
-                mainHandler.post(() -> updateSuggestionUI(suggestions));
+                aiBridge.getSuggestions(currentWord, context, new AIServiceBridge.AICallback() {
+                    @Override
+                    public void onSuggestionsReady(List<AIServiceBridge.AISuggestion> suggestions) {
+                        // Convert AI suggestions to display format
+                        List<String> suggestionTexts = new ArrayList<>();
+                        for (AIServiceBridge.AISuggestion suggestion : suggestions) {
+                            // Mark corrections with indicator
+                            String displayText = suggestion.isCorrection ? 
+                                "✓ " + suggestion.word : suggestion.word;
+                            suggestionTexts.add(displayText);
+                        }
+                        
+                        // Update UI on main thread
+                        mainHandler.post(() -> updateSuggestionUI(suggestionTexts));
+                    }
+                    
+                    @Override
+                    public void onCorrectionReady(String originalWord, String correctedWord, double confidence) {
+                        // Handle individual corrections
+                        if (confidence > 0.8) {
+                            mainHandler.post(() -> showAutoCorrection(originalWord, correctedWord));
+                        }
+                    }
+                    
+                    @Override
+                    public void onError(String error) {
+                        Log.w("AIKeyboardService", "AI suggestion error: " + error);
+                        // Fallback to basic suggestions
+                        mainHandler.post(() -> {
+                            List<String> fallback = generateBasicSuggestions(currentWord);
+                            updateSuggestionUI(fallback);
+                        });
+                    }
+                });
                 
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.e("AIKeyboardService", "Error updating AI suggestions", e);
             }
         });
     }
     
-    private List<String> generateAISuggestions(String currentText) {
-        // Simplified AI suggestion logic
+    private void showAutoCorrection(String original, String corrected) {
+        if (suggestionContainer != null && suggestionContainer.getChildCount() > 0) {
+            TextView firstSuggestion = (TextView) suggestionContainer.getChildAt(0);
+            firstSuggestion.setText("✓ " + corrected);
+            firstSuggestion.setTextColor(Color.parseColor("#4CAF50")); // Green for corrections
+            firstSuggestion.setBackgroundColor(Color.parseColor("#E8F5E8")); // Light green background
+            firstSuggestion.setVisibility(View.VISIBLE);
+        }
+    }
+    
+    private List<String> generateBasicSuggestions(String currentWord) {
+        // Basic fallback suggestions when AI is not available
         List<String> suggestions = new ArrayList<>();
         
-        if (currentText.isEmpty()) {
-            suggestions.addAll(Arrays.asList("Hello", "How are", "Good"));
+        if (currentWord.isEmpty()) {
+            suggestions.addAll(Arrays.asList("the", "and", "to"));
         } else {
-            String[] words = currentText.toLowerCase().split("\\s+");
-            String lastWord = words.length > 0 ? words[words.length - 1] : "";
+            String word = currentWord.toLowerCase();
             
-            switch (lastWord) {
-                case "hello":
-                    suggestions.addAll(Arrays.asList("there", "everyone", "friend"));
-                    break;
-                case "good":
-                    suggestions.addAll(Arrays.asList("morning", "evening", "night"));
-                    break;
-                case "how":
-                    suggestions.addAll(Arrays.asList("are you", "is it", "about"));
-                    break;
-                case "thank":
-                    suggestions.addAll(Arrays.asList("you", "you so much", "goodness"));
-                    break;
-                case "i":
-                    suggestions.addAll(Arrays.asList("am", "will", "think"));
-                    break;
-                default:
-                    suggestions.addAll(Arrays.asList("and", "the", "to"));
-                    break;
+            // Simple prefix matching for common words
+            if (word.startsWith("h")) {
+                suggestions.addAll(Arrays.asList("hello", "how", "have"));
+            } else if (word.startsWith("w")) {
+                suggestions.addAll(Arrays.asList("what", "when", "where"));
+            } else if (word.startsWith("t")) {
+                suggestions.addAll(Arrays.asList("the", "that", "this"));
+            } else if (word.startsWith("i")) {
+                suggestions.addAll(Arrays.asList("is", "it", "in"));
+            } else {
+                suggestions.addAll(Arrays.asList("and", "the", "to"));
             }
         }
         
-        currentSuggestions = suggestions;
-        return suggestions;
+        return suggestions.subList(0, Math.min(3, suggestions.size()));
     }
     
     private void updateSuggestionUI(List<String> suggestions) {
@@ -546,17 +681,32 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         
-        // Get text before cursor to determine what to replace
-        CharSequence textBefore = ic.getTextBeforeCursor(50, 0);
-        if (textBefore != null) {
-            String[] words = textBefore.toString().split("\\s+");
-            if (words.length > 0) {
-                String lastWord = words[words.length - 1];
-                ic.deleteSurroundingText(lastWord.length(), 0);
+        // Clean suggestion text (remove correction indicators)
+        String cleanSuggestion = suggestion.replace("✓ ", "");
+        
+        // Replace current word with suggestion
+        if (!currentWord.isEmpty()) {
+            ic.deleteSurroundingText(currentWord.length(), 0);
+        }
+        
+        ic.commitText(cleanSuggestion + " ", 1);
+        
+        // Learn from user selection if AI is ready
+        if (isAIReady && aiBridge != null && !currentWord.isEmpty()) {
+            List<String> context = getRecentContext();
+            aiBridge.learnCorrection(currentWord, cleanSuggestion, true);
+        }
+        
+        // Update word history
+        if (!cleanSuggestion.isEmpty()) {
+            wordHistory.add(cleanSuggestion);
+            if (wordHistory.size() > 20) {
+                wordHistory.remove(0);
             }
         }
         
-        ic.commitText(suggestion + " ", 1);
+        // Clear current word and update suggestions
+        currentWord = "";
         updateAISuggestions();
     }
     
@@ -1089,6 +1239,13 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
     @Override
     public void onDestroy() {
         super.onDestroy();
+        
+        // Clean up AI bridge
+        if (aiBridge != null) {
+            aiBridge.destroy();
+            aiBridge = null;
+        }
+        
         if (executorService != null) {
             executorService.shutdown();
         }
@@ -1102,6 +1259,11 @@ public class AIKeyboardService extends InputMethodService implements KeyboardVie
         } catch (IllegalArgumentException e) {
             // Receiver was not registered
         }
+        
+        // Clear data
+        wordHistory.clear();
+        currentWord = "";
+        isAIReady = false;
     }
     
     private void applySettingsImmediately() {
