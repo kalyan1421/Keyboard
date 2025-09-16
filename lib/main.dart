@@ -11,6 +11,7 @@ import 'keyboard_feedback_system.dart';
 import 'demo_keyboard_widget.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
   runApp(const AIKeyboardApp());

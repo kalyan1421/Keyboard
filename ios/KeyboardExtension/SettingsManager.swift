@@ -4,7 +4,7 @@ import Foundation
 class SettingsManager {
     static let shared = SettingsManager()
     
-    private let appGroupIdentifier = "group.com.example.aiKeyboard"
+    private let appGroupIdentifier = "group.com.example.aiKeyboard.shared"
     
     private var userDefaults: UserDefaults? {
         return UserDefaults(suiteName: appGroupIdentifier)

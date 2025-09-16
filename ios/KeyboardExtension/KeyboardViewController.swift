@@ -332,7 +332,7 @@ class KeyboardViewController: UIInputViewController {
         
         // Scale down animation
         UIView.animate(withDuration: duration, animations: {
-            button.transform = CGAffineTransform(scaleX: scaleDown, scaleY: scaleDown)
+            button.transform = CGAffineTransform(scaleX: scaleDown, y: scaleDown)
         }) { _ in
             // Spring back animation
             UIView.animate(withDuration: duration * 1.5, 
@@ -364,7 +364,7 @@ class KeyboardViewController: UIInputViewController {
         let duration = 0.15
         
         UIView.animate(withDuration: duration, animations: {
-            button.transform = CGAffineTransform(scaleX: scaleDown, scaleY: scaleDown)
+            button.transform = CGAffineTransform(scaleX: scaleDown, y: scaleDown)
         }) { _ in
             // Triple bounce effect for space bar
             UIView.animate(withDuration: duration * 2, 
