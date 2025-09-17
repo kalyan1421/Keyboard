@@ -8,12 +8,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'keyboard_feedback_system.dart';
-// Demo keyboard widget removed - using system-wide keyboard instead
+// In-app keyboard widgets removed - using system-wide keyboard only
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
+  
   runApp(const AIKeyboardApp());
 }
 
@@ -44,12 +46,12 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   static const platform = MethodChannel('ai_keyboard/config');
   bool _isKeyboardEnabled = false;
   bool _isKeyboardActive = false;
-  String _selectedTheme = 'default';
+  String _selectedTheme = 'gboard';
   bool _aiSuggestionsEnabled = true;
   bool _swipeTypingEnabled = true;
-  bool _voiceInputEnabled = true;
   bool _vibrationEnabled = true;
   bool _keyPreviewEnabled = false;
+  bool _shiftFeedbackEnabled = false;
   
   // Advanced feedback settings
   FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
@@ -58,6 +60,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   double _soundVolume = 0.3;
 
   final List<String> _themes = [
+    'gboard',
+    'gboard_dark',
     'default',
     'dark',
     'material_you',
@@ -261,9 +265,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       _selectedTheme = prefs.getString('keyboard_theme') ?? 'default';
       _aiSuggestionsEnabled = prefs.getBool('ai_suggestions') ?? true;
       _swipeTypingEnabled = prefs.getBool('swipe_typing') ?? true;
-      _voiceInputEnabled = prefs.getBool('voice_input') ?? true;
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
+      _shiftFeedbackEnabled = prefs.getBool('show_shift_feedback') ?? false;
       
       // Load advanced feedback settings
       _hapticIntensity = FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2]; // medium
@@ -286,9 +290,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setString('keyboard_theme', _selectedTheme);
     await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
     await prefs.setBool('swipe_typing', _swipeTypingEnabled);
-    await prefs.setBool('voice_input', _voiceInputEnabled);
     await prefs.setBool('vibration_enabled', _vibrationEnabled);
     await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
+    await prefs.setBool('show_shift_feedback', _shiftFeedbackEnabled);
     
     // Save advanced feedback settings
     await prefs.setInt('haptic_intensity', _hapticIntensity.index);
@@ -317,9 +321,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
         'theme': _selectedTheme,
         'aiSuggestions': _aiSuggestionsEnabled,
         'swipeTyping': _swipeTypingEnabled,
-        'voiceInput': _voiceInputEnabled,
         'vibration': _vibrationEnabled,
         'keyPreview': _keyPreviewEnabled,
+        'shiftFeedback': _shiftFeedbackEnabled,
       });
     } catch (e) {
       print('Error sending settings: $e');
@@ -413,6 +417,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
 
   String _getThemeDisplayName(String theme) {
     switch (theme) {
+      case 'gboard': return '🎯 Gboard (Recommended)';
+      case 'gboard_dark': return '🌙 Gboard Dark';
       case 'material_you': return 'Material You';
       default: return theme.replaceAll('_', ' ').split(' ')
           .map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
@@ -457,44 +463,29 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     );
   }
 
-  void _showSystemKeyboardInstructions(BuildContext context) {
+
+  /// Show system keyboard instructions (in-app keyboard removed)
+  void _showSystemKeyboardInstructions() {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('🚀 System Keyboard Setup'),
-          content: const SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Your AI keyboard is ready! Follow these steps:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                SizedBox(height: 16),
-                Text('1. Go to Android Settings'),
-                Text('2. Navigate to: System → Languages & input → Virtual keyboard'),
-                Text('3. Tap "Manage keyboards"'),
-                Text('4. Enable "AI Keyboard"'),
-                Text('5. Open any app and tap in a text field'),
-                Text('6. Select "AI Keyboard" from the keyboard picker'),
-                SizedBox(height: 16),
-                Text(
-                  '✨ You\'ll now have AI-powered suggestions in all apps!',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                ),
-              ],
-            ),
+      builder: (context) => AlertDialog(
+        title: const Text('System Keyboard Only'),
+        content: const Text(
+          'This app now uses only the system-wide keyboard.\n\n'
+          'To test all features:\n'
+          '1. Enable the AI Keyboard in system settings\n'
+          '2. Set it as your default keyboard\n'
+          '3. Use it in any app (SMS, email, etc.)\n\n'
+          'All advanced features like long-press accents, '
+          'swipe typing, and AI suggestions work system-wide.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Got it!'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -821,17 +812,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               },
             ),
             _buildFeatureSwitch(
-              'Voice Input',
-              'Convert speech to text',
-              _voiceInputEnabled,
-              (value) {
-                setState(() {
-                  _voiceInputEnabled = value;
-                });
-                _saveSettings();
-              },
-            ),
-            _buildFeatureSwitch(
               'Vibration Feedback',
               'Haptic feedback when typing (Recommended: ON)',
               _vibrationEnabled,
@@ -849,6 +829,17 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               (value) {
                 setState(() {
                   _keyPreviewEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Shift State Feedback',
+              'Show messages when shift state changes (OFF/ON/CAPS)',
+              _shiftFeedbackEnabled,
+              (value) {
+                setState(() {
+                  _shiftFeedbackEnabled = value;
                 });
                 _saveSettings();
               },
@@ -1063,6 +1054,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     }
   }
 
+
   Widget _buildTestKeyboardCard() {
     return Card(
       child: Padding(
@@ -1071,15 +1063,22 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Test Keyboard',
+              'System-Wide Keyboard',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            TextButton(
-              onPressed: () {
-                // Navigate to system keyboard setup instructions
-                _showSystemKeyboardInstructions(context);
-              },
-              child: const Text('Test Keyboard'),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _showSystemKeyboardInstructions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                icon: const Icon(Icons.keyboard),
+                label: const Text('Setup & Test System Keyboard'),
+              ),
             ),
             const SizedBox(height: 16),
             const TextField(

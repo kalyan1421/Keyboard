@@ -13,12 +13,12 @@ import 'package:ai_keyboard/main.dart';
 void main() {
   testWidgets('AI Keyboard app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const KeyboardFeedbackApp());
+    await tester.pumpWidget(const AIKeyboardApp());
 
     // Verify that the app loads with the expected title.
-    expect(find.text('AI Keyboard Demo'), findsOneWidget);
+    expect(find.text('AI Keyboard'), findsOneWidget);
     
-    // Verify that the demo keyboard widget is present.
-    expect(find.text('AI-Powered Demo Keyboard'), findsOneWidget);
+    // Verify that configuration screen is present.
+    expect(find.text('System-Wide Keyboard'), findsOneWidget);
   });
 }
