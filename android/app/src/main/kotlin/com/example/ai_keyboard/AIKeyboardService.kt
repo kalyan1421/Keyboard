@@ -30,6 +30,10 @@ import android.view.LayoutInflater
 import android.graphics.drawable.ColorDrawable
 import kotlinx.coroutines.*
 import kotlin.math.max
+import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
 
 class AIKeyboardService : InputMethodService(), 
     KeyboardView.OnKeyboardActionListener, 
@@ -124,6 +128,16 @@ class AIKeyboardService : InputMethodService(),
         '$'.code to listOf("¢", "£", "€", "¥", "₹", "₽", "₩")
     )
     
+    // Keyboard settings
+    private var showNumberRow = false
+    private var swipeEnabled = true
+    private var vibrationEnabled = true
+    private var soundEnabled = true
+    
+    // Language cycling
+    private val availableLanguages = listOf("EN", "ES", "FR", "DE", "HI")
+    private var currentLanguageIndex = 0
+    
     // Swipe typing state
     private var swipeMode = false
     private val swipeBuffer = StringBuilder()
@@ -155,6 +169,13 @@ class AIKeyboardService : InputMethodService(),
     private var cleverTypePreview: CleverTypePreview? = null
     private var cleverTypeToneSelector: CleverTypeToneSelector? = null
     private var cleverTypeToolbar: LinearLayout? = null
+    
+    // Settings
+    private lateinit var settings: SharedPreferences
+    
+    // Method channel for app communication
+    private var methodChannel: MethodChannel? = null
+    
     private lateinit var keyboardLayoutManager: KeyboardLayoutManager
     private lateinit var multilingualDictionary: MultilingualDictionary
     private lateinit var multilingualAutocorrect: MultilingualAutocorrectEngine
@@ -165,12 +186,11 @@ class AIKeyboardService : InputMethodService(),
     private val mainHandler = Handler(Looper.getMainLooper())
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
-    // Settings
-    private lateinit var settings: SharedPreferences
+    // Settings (using existing declarations above)
     private var currentTheme = "default"
     private var aiSuggestionsEnabled = true
     private var swipeTypingEnabled = true
-    private var vibrationEnabled = true
+    // vibrationEnabled already declared above with new settings
     private var keyPreviewEnabled = false
     
     // Advanced feedback settings
@@ -188,13 +208,17 @@ class AIKeyboardService : InputMethodService(),
         override fun onReceive(context: Context?, intent: Intent?) {
             try {
                 if ("com.example.ai_keyboard.SETTINGS_CHANGED" == intent?.action) {
+                    Log.d(TAG, "SETTINGS_CHANGED broadcast received!")
                     // Reload settings immediately on main thread
                     mainHandler.post {
                         try {
+                            Log.d(TAG, "Loading settings from broadcast...")
                             loadSettings()
+                            Log.d(TAG, "Applying settings immediately...")
                             applySettingsImmediately()
+                            Log.d(TAG, "Settings applied successfully!")
                         } catch (e: Exception) {
-                            // Ignore errors to prevent crashes
+                            Log.e(TAG, "Error applying settings from broadcast", e)
                         }
                     }
                 }
@@ -215,6 +239,7 @@ class AIKeyboardService : InputMethodService(),
             Log.e(TAG, "Error initializing OpenAI configuration", e)
         }
         
+        // Initialize settings
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         loadSettings()
         loadDictionaries()
@@ -236,8 +261,9 @@ class AIKeyboardService : InputMethodService(),
         try {
             val filter = IntentFilter("com.example.ai_keyboard.SETTINGS_CHANGED")
             registerReceiver(settingsReceiver, filter)
+            Log.d(TAG, "Broadcast receiver registered successfully")
         } catch (e: Exception) {
-            // Ignore registration errors to prevent crashes
+            Log.e(TAG, "Error registering broadcast receiver", e)
         }
         
         // Start settings polling as backup
@@ -400,8 +426,9 @@ class AIKeyboardService : InputMethodService(),
             setBackgroundColor(getThemeBackgroundColor())
         }
         
-        // Create suggestion bar
-        createSuggestionBarWithLanguageSwitch(mainLayout)
+        // Create suggestion bar container and bar
+        createSuggestionBarContainer(mainLayout)
+        createSuggestionBar(suggestionContainer!!)
         
         // Create CleverType toolbar
         cleverTypeToolbar = createCleverTypeToolbar()
@@ -425,12 +452,21 @@ class AIKeyboardService : InputMethodService(),
         }
         
         keyboardView?.apply {
-            keyboard = Keyboard(this@AIKeyboardService, R.xml.qwerty_google)
+            // Choose initial keyboard layout based on number row setting
+            val keyboardResource = if (showNumberRow) {
+                R.xml.qwerty_with_numbers
+            } else {
+                R.xml.qwerty_google
+            }
+            
+            keyboard = Keyboard(this@AIKeyboardService, keyboardResource)
             setKeyboard(keyboard)
             setOnKeyboardActionListener(this@AIKeyboardService)
             setSwipeListener(this@AIKeyboardService)
             setSwipeEnabled(swipeTypingEnabled)
             isPreviewEnabled = keyPreviewEnabled
+            
+            Log.d(TAG, "Initial keyboard loaded with number row: $showNumberRow")
         }
         
         // Create media panel manager (but don't add to layout yet)
@@ -449,10 +485,10 @@ class AIKeyboardService : InputMethodService(),
         return mainLayout
     }
     
-    private fun createSuggestionBarWithLanguageSwitch(parent: LinearLayout) {
-        Log.d(TAG, "Creating suggestion bar with language switch")
+    private fun createSuggestionBarContainer(parent: LinearLayout) {
+        Log.d(TAG, "Creating suggestion bar container")
         
-        // Create container for language switch and suggestions
+        // Create container for suggestions only (language switch moved to global button)
         topContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(getThemeKeyColor())
@@ -463,40 +499,23 @@ class AIKeyboardService : InputMethodService(),
             )
         }
         
-        // Create language switch view
-        languageSwitchView = LanguageSwitchView(this).apply {
-            setLanguageManager(languageManager)
-            setOnLanguageChangeListener { newLanguage ->
-                Log.d(TAG, "Language switched to: $newLanguage")
-            }
-        }
+        // Language switch removed - now using global button instead
         
-        // Set layout params for language switch view
-        val languageSwitchParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.MATCH_PARENT
-        ).apply {
-            setMargins(4, 0, 8, 0)
-        }
-        languageSwitchView?.layoutParams = languageSwitchParams
-        
-        // Create suggestions container
+        // Create suggestions container (now takes full width)
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT
             )
         }
         
-        // Add components to top container
-        topContainer!!.addView(languageSwitchView)
+        // Add suggestions container to top container
         topContainer!!.addView(suggestionContainer)
         
         // Add to parent
         parent.addView(topContainer)
         
-        // Now create the actual suggestion bar
-        createSuggestionBar(suggestionContainer!!)
+        // Suggestion bar will be populated by the second method
     }
     
     private fun createSuggestionBar(parent: LinearLayout) {
@@ -796,17 +815,33 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun loadSettings() {
+        try {
         currentTheme = settings.getString("keyboard_theme", "default") ?: "default"
         aiSuggestionsEnabled = settings.getBoolean("ai_suggestions", true)
         swipeTypingEnabled = settings.getBoolean("swipe_typing", true)
-        vibrationEnabled = settings.getBoolean("vibration_enabled", true)
         keyPreviewEnabled = settings.getBoolean("key_preview_enabled", false)
+            
+            // Load new keyboard settings
+            showNumberRow = settings.getBoolean("show_number_row", false)
+            swipeEnabled = settings.getBoolean("swipe_enabled", true)
+            vibrationEnabled = settings.getBoolean("vibration_enabled", true)
+            soundEnabled = settings.getBoolean("sound_enabled", true)
+            
+            // Load current language index
+            currentLanguageIndex = settings.getInt("current_language_index", 0)
+            
+            Log.d(TAG, "Settings loaded - NumberRow: $showNumberRow, Language: ${availableLanguages[currentLanguageIndex]} (index: $currentLanguageIndex), Swipe: $swipeEnabled, Vibration: $vibrationEnabled, Sound: $soundEnabled")
         
         // Load advanced feedback settings
         hapticIntensity = settings.getInt("haptic_intensity", 2) // medium by default
         soundIntensity = settings.getInt("sound_intensity", 1) // light by default
         visualIntensity = settings.getInt("visual_intensity", 2) // medium by default
         soundVolume = settings.getFloat("sound_volume", 0.3f)
+            
+            Log.d(TAG, "Settings loaded - NumberRow: $showNumberRow, Swipe: $swipeEnabled, Vibration: $vibrationEnabled, Sound: $soundEnabled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading settings", e)
+        }
     }
     
     private fun applyTheme() {
@@ -1208,10 +1243,53 @@ class AIKeyboardService : InputMethodService(),
                 SHIFT_CAPS -> {
                     // Caps lock - strong highlighting with caps indicator
                     view.setShiftKeyHighlight(true, true)
+                    Log.d(TAG, "Caps lock activated - visual feedback should show uppercase letters")
                 }
             }
             
+            // Key labels are now handled by SwipeKeyboardView drawing override
+            
             view.invalidateAllKeys()
+        }
+    }
+    
+    /**
+     * Updates the keyboard display to show capital letters when caps lock is active
+     */
+    private fun updateKeyboardCaseDisplay() {
+        keyboard?.let { kb ->
+            for (key in kb.keys) {
+                if (key.label != null && key.label.length == 1) {
+                    val char = key.label[0]
+                    if (Character.isLetter(char)) {
+                        // Update key label based on caps state
+                        key.label = when (shiftState) {
+                            SHIFT_CAPS -> char.uppercaseChar().toString()
+                            else -> {
+                                // For normal state, get original lowercase from keyboard layout
+                                getOriginalKeyLabel(key.codes[0])?.lowercaseChar()?.toString() ?: char.lowercaseChar().toString()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Gets the original key label for a given key code
+     */
+    private fun getOriginalKeyLabel(keyCode: Int): Char? {
+        return when (keyCode) {
+            // English/Spanish QWERTY & German QWERTZ & French AZERTY
+            113 -> 'q'; 119 -> 'w'; 101 -> 'e'; 114 -> 'r'; 116 -> 't'; 121 -> 'y'
+            117 -> 'u'; 105 -> 'i'; 111 -> 'o'; 112 -> 'p'
+            97 -> 'a'; 115 -> 's'; 100 -> 'd'; 102 -> 'f'; 103 -> 'g'; 104 -> 'h'
+            106 -> 'j'; 107 -> 'k'; 108 -> 'l'
+            122 -> 'z'; 120 -> 'x'; 99 -> 'c'; 118 -> 'v'; 98 -> 'b'; 110 -> 'n'; 109 -> 'm'
+            // Additional characters for European layouts
+            // Note: Devanagari characters don't have uppercase/lowercase concept, so they're excluded
+            else -> null
         }
     }
     
@@ -1261,11 +1339,60 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun switchToLetters() {
-        if (currentKeyboard != KEYBOARD_LETTERS) {
-            keyboard = Keyboard(this, R.xml.qwerty_google)
+        // Always reload the keyboard layout (for language/number row changes)
+        val lang = availableLanguages[currentLanguageIndex]
+        val keyboardResource = when (lang) {
+            "EN" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwerty_google
+            "ES" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwerty_google
+            "FR" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.azerty_google
+            "DE" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwertz_google
+            "HI" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.devanagari_google
+            else -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwerty_google
+        }
+        
+        try {
+            Log.d(TAG, "Loading keyboard resource: $keyboardResource for language: $lang")
+            
+            // Create new keyboard instance
+            val newKeyboard = Keyboard(this, keyboardResource)
+            keyboard = newKeyboard
             currentKeyboard = KEYBOARD_LETTERS
-            keyboardView?.keyboard = keyboard
+            
+            keyboardView?.let { view ->
+                Log.d(TAG, "Setting new keyboard to view...")
+                
+                // Set the new keyboard
+                view.keyboard = newKeyboard
+                
+                // Force complete refresh of the keyboard view
+                view.invalidateAllKeys()
+                view.invalidate()
+                view.requestLayout()
+                
+                // Post additional refresh to ensure UI thread updates
+                view.post {
+                    view.invalidateAllKeys()
+                    view.invalidate()
+                    view.requestLayout()
+                }
+                
+                // Force redraw after a short delay to ensure everything is updated
+                view.postDelayed({
+                    view.invalidateAllKeys()
+                    view.invalidate()
+                    Log.d(TAG, "Delayed refresh completed")
+                }, 50)
+                
+                Log.d(TAG, "Keyboard view updated with new layout")
+            } ?: Log.e(TAG, "KeyboardView is null!")
+            
             applyTheme() // Reapply theme after layout change
+            
+            // Caps display is handled by SwipeKeyboardView drawing
+            
+            Log.d(TAG, "Successfully switched to $lang letters keyboard with number row: $showNumberRow")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error switching to letters keyboard", e)
         }
     }
     
@@ -1279,13 +1406,26 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun handleLanguageSwitch() {
-        // For now, show a simple message about language switching
-        // This can be enhanced to show a language picker or cycle through languages
-        Toast.makeText(this, "Language switching - Feature coming soon!", Toast.LENGTH_SHORT).show()
-        
-        // Future enhancement: Implement actual language switching
-        // switchInputMethod() can be used to switch between input methods
-        // or implement internal language switching logic
+        try {
+            // Cycle to next language
+            currentLanguageIndex = (currentLanguageIndex + 1) % availableLanguages.size
+            val currentLanguage = availableLanguages[currentLanguageIndex]
+            
+            // Save current language index
+            settings.edit().putInt("current_language_index", currentLanguageIndex).apply()
+            
+            // Reload keyboard layout to reflect language change
+            switchToLetters()
+            
+            // Show language change feedback
+            Toast.makeText(this, "🌐 $currentLanguage", Toast.LENGTH_SHORT).show()
+            
+            Log.d(TAG, "Language cycled to: $currentLanguage (index: $currentLanguageIndex)")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cycling language", e)
+            Toast.makeText(this, "🌐 Language cycle failed", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun handleEmojiKey() {
@@ -2163,17 +2303,18 @@ class AIKeyboardService : InputMethodService(),
         // Stop settings polling
         stopSettingsPolling()
         
+        // Unregister broadcast receiver
+        try {
+            unregisterReceiver(settingsReceiver)
+        } catch (e: Exception) {
+            // Ignore unregistration errors
+        }
+        
         // Clean up advanced keyboard resources
         longPressHandler?.removeCallbacksAndMessages(null)
         hideKeyPreview()
         hideAccentOptions()
         
-        // Unregister broadcast receiver
-        try {
-            unregisterReceiver(settingsReceiver)
-        } catch (e: Exception) {
-            // Receiver was not registered or other errors
-        }
         
         // Clear data
         wordHistory.clear()
@@ -2185,6 +2326,12 @@ class AIKeyboardService : InputMethodService(),
         try {
             // Apply theme changes
             applyTheme()
+            
+            // Reload keyboard layout if needed (for number row changes)
+            if (currentKeyboard == KEYBOARD_LETTERS) {
+                switchToLetters()  // This will apply number row and language changes
+                Log.d(TAG, "Keyboard layout reloaded - NumberRow: $showNumberRow, Language: ${availableLanguages[currentLanguageIndex]}")
+            }
             
             // Update keyboard view settings
             keyboardView?.let { view ->
@@ -2264,6 +2411,8 @@ class AIKeyboardService : InputMethodService(),
                 val oldSwipeTyping = swipeTypingEnabled
                 val oldKeyPreview = keyPreviewEnabled
                 val oldAISuggestions = aiSuggestionsEnabled
+                val oldNumberRow = showNumberRow
+                val oldLanguageIndex = currentLanguageIndex
                 
                 // Reload settings
                 loadSettings()
@@ -2273,9 +2422,12 @@ class AIKeyboardService : InputMethodService(),
                         oldVibration != vibrationEnabled ||
                         oldSwipeTyping != swipeTypingEnabled ||
                         oldKeyPreview != keyPreviewEnabled ||
-                        oldAISuggestions != aiSuggestionsEnabled
+                        oldAISuggestions != aiSuggestionsEnabled ||
+                        oldNumberRow != showNumberRow ||
+                        oldLanguageIndex != currentLanguageIndex
                 
                 if (settingsChanged) {
+                    Log.d(TAG, "Settings change detected via polling - NumberRow: $oldNumberRow->$showNumberRow, Language: $oldLanguageIndex->$currentLanguageIndex")
                     applySettingsImmediately()
                 }
             }
@@ -2612,6 +2764,8 @@ class AIKeyboardService : InputMethodService(),
             onClick = { handleToneAdjustment() }
         )
         
+        // Settings button removed - settings now managed by main app
+        
         // Add buttons to toolbar
         toolbar.addView(grammarButton)
         toolbar.addView(toneButton)
@@ -2892,5 +3046,133 @@ class AIKeyboardService : InputMethodService(),
             cornerRadius = dpToPx(8).toFloat()
             setStroke(dpToPx(1), Color.parseColor("#e8eaed"))
         }
+    }
+    
+    // loadSettings method merged with existing one above
+    
+    /**
+     * Save keyboard settings to SharedPreferences
+     */
+    private fun saveSettings() {
+        try {
+            settings.edit().apply {
+                putBoolean("show_number_row", showNumberRow)
+                putBoolean("swipe_enabled", swipeEnabled)
+                putBoolean("vibration_enabled", vibrationEnabled)
+                putBoolean("sound_enabled", soundEnabled)
+                apply()
+            }
+            Log.d(TAG, "Settings saved")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving settings", e)
+        }
+    }
+    
+    /**
+     * Toggle number row setting
+     */
+    fun toggleNumberRow() {
+        showNumberRow = !showNumberRow
+        saveSettings()
+        
+        // Reload keyboard with/without number row
+        reloadKeyboard()
+        
+        Toast.makeText(this, if (showNumberRow) "Number row enabled" else "Number row disabled", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Number row toggled: $showNumberRow")
+    }
+    
+    /**
+     * Toggle swipe typing
+     */
+    fun toggleSwipeTyping() {
+        swipeEnabled = !swipeEnabled
+        saveSettings()
+        Toast.makeText(this, if (swipeEnabled) "Swipe typing enabled" else "Swipe typing disabled", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Swipe typing toggled: $swipeEnabled")
+    }
+    
+    /**
+     * Toggle vibration feedback
+     */
+    fun toggleVibration() {
+        vibrationEnabled = !vibrationEnabled
+        saveSettings()
+        Toast.makeText(this, if (vibrationEnabled) "Vibration enabled" else "Vibration disabled", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Vibration toggled: $vibrationEnabled")
+    }
+    
+    /**
+     * Toggle sound feedback
+     */
+    fun toggleSound() {
+        soundEnabled = !soundEnabled
+        saveSettings()
+        Toast.makeText(this, if (soundEnabled) "Sound enabled" else "Sound disabled", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Sound toggled: $soundEnabled")
+    }
+    
+    /**
+     * Reload keyboard with current settings
+     */
+    private fun reloadKeyboard() {
+        try {
+            // Reload the current keyboard layout with updated settings
+            switchToLetters()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reloading keyboard", e)
+        }
+    }
+    
+    /**
+     * Update settings from main app
+     */
+    fun updateSettingsFromApp(settingsMap: Map<String, Any>) {
+        try {
+            settingsMap["show_number_row"]?.let { 
+                showNumberRow = it as Boolean
+                reloadKeyboard()
+            }
+            settingsMap["swipe_enabled"]?.let { 
+                swipeEnabled = it as Boolean
+                keyboardView?.setSwipeEnabled(swipeEnabled)
+            }
+            settingsMap["vibration_enabled"]?.let { 
+                vibrationEnabled = it as Boolean
+            }
+            settingsMap["sound_enabled"]?.let { 
+                soundEnabled = it as Boolean
+            }
+            settingsMap["ai_suggestions"]?.let { 
+                aiSuggestionsEnabled = it as Boolean
+            }
+            settingsMap["key_preview_enabled"]?.let { 
+                keyPreviewEnabled = it as Boolean
+                keyboardView?.isPreviewEnabled = keyPreviewEnabled
+            }
+            
+            // Save settings
+            saveSettings()
+            
+            Log.d(TAG, "Settings updated from app: $settingsMap")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating settings from app", e)
+        }
+    }
+    
+    /**
+     * Get current settings for app
+     */
+    fun getCurrentSettings(): Map<String, Any> {
+        return mapOf(
+            "show_number_row" to showNumberRow,
+            "swipe_enabled" to swipeEnabled,
+            "vibration_enabled" to vibrationEnabled,
+            "sound_enabled" to soundEnabled,
+            "ai_suggestions" to aiSuggestionsEnabled,
+            "key_preview_enabled" to keyPreviewEnabled,
+            "current_language" to availableLanguages[currentLanguageIndex]
+        )
     }
 }

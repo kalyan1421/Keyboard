@@ -49,9 +49,12 @@ class MainActivity : FlutterActivity() {
                                 val voiceInput = call.argument<Boolean>("voiceInput") ?: true
                                 val vibration = call.argument<Boolean>("vibration") ?: true
                                 val keyPreview = call.argument<Boolean>("keyPreview") ?: false
+                                val shiftFeedback = call.argument<Boolean>("shiftFeedback") ?: false
+                                val showNumberRow = call.argument<Boolean>("showNumberRow") ?: false
+                                val soundEnabled = call.argument<Boolean>("soundEnabled") ?: true
                                 
                                 withContext(Dispatchers.IO) {
-                                    updateKeyboardSettings(theme, aiSuggestions, swipeTyping, voiceInput, vibration, keyPreview)
+                                    updateKeyboardSettings(theme, aiSuggestions, swipeTyping, voiceInput, vibration, keyPreview, shiftFeedback, showNumberRow, soundEnabled)
                                 }
                                 result.success(true)
                             }
@@ -119,7 +122,10 @@ class MainActivity : FlutterActivity() {
         swipeTyping: Boolean,
         voiceInput: Boolean,
         vibration: Boolean,
-        keyPreview: Boolean
+        keyPreview: Boolean,
+        shiftFeedback: Boolean,
+        showNumberRow: Boolean,
+        soundEnabled: Boolean
     ) = withContext(Dispatchers.IO) {
         // Store settings in SharedPreferences for the keyboard service to read
         getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
@@ -130,6 +136,9 @@ class MainActivity : FlutterActivity() {
             .putBoolean("voice_input", voiceInput)
             .putBoolean("vibration_enabled", vibration)
             .putBoolean("key_preview_enabled", keyPreview)
+            .putBoolean("show_shift_feedback", shiftFeedback)
+            .putBoolean("show_number_row", showNumberRow)
+            .putBoolean("sound_enabled", soundEnabled)
             .apply()
             
         // Notify keyboard service to reload settings immediately
@@ -143,8 +152,9 @@ class MainActivity : FlutterActivity() {
                 setPackage(packageName)
             }
             sendBroadcast(intent)
+            android.util.Log.d("MainActivity", "Broadcast sent: SETTINGS_CHANGED")
         } catch (e: Exception) {
-            // Ignore broadcast errors to prevent crashes
+            android.util.Log.e("MainActivity", "Error sending broadcast", e)
         }
     }
 

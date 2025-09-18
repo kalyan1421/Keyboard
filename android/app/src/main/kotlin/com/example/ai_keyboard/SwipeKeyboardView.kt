@@ -114,6 +114,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     fun setShiftKeyHighlight(highlighted: Boolean, capsLock: Boolean) {
         isShiftHighlighted = highlighted
         isCapsLockActive = capsLock
+        android.util.Log.d("SwipeKeyboardView", "Shift highlight updated - highlighted: $highlighted, capsLock: $capsLock")
         invalidate()
     }
     
@@ -234,12 +235,34 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Gboard-style key coloring
         val fillPaint = when {
             isShiftKey && isCapsLockActive -> {
-                // Caps lock - amber/orange highlighting
-                Paint(capsLockPaint)
+                // Caps lock - prominent highlighting
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = when (currentTheme) {
+                        "gboard_dark" -> Color.parseColor("#F9AB00") // Google yellow/amber
+                        "dark" -> Color.parseColor("#FF9800") // Orange
+                        "material_you" -> Color.parseColor("#FFC107") // Amber
+                        "professional" -> Color.parseColor("#FF5722") // Deep orange
+                        "colorful" -> Color.parseColor("#FF9800") // Orange
+                        else -> Color.parseColor("#FEF7E0") // Light amber
+                    }
+                }
             }
             isShiftKey && isShiftHighlighted -> {
-                // Shift active - blue highlighting
-                Paint(shiftHighlightPaint)
+                // Shift active - more visible highlighting
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = when (currentTheme) {
+                        "gboard_dark" -> ContextCompat.getColor(context, R.color.gboard_dark_key_pressed)
+                        "dark" -> Color.parseColor("#4CAF50") // Green highlight
+                        "material_you" -> Color.parseColor("#BB86FC") // Purple highlight
+                        "professional" -> Color.parseColor("#26A69A") // Teal highlight
+                        "colorful" -> Color.parseColor("#FF9800") // Orange highlight
+                        else -> ContextCompat.getColor(context, R.color.gboard_key_pressed) // Light blue
+                    }
+                }
             }
             isActionKey -> {
                 // Special keys (shift, delete, etc.) - light gray
@@ -312,7 +335,22 @@ class SwipeKeyboardView @JvmOverloads constructor(
             } else {
                 val textHeight = gboardTextPaint.descent() - gboardTextPaint.ascent()
                 val textOffset = (textHeight / 2) - gboardTextPaint.descent()
-                canvas.drawText(key.label.toString(), centerX, centerY + textOffset, gboardTextPaint)
+                
+                // Show uppercase letters when caps lock is active
+                val displayText = if (isCapsLockActive && key.label != null && key.label.length == 1) {
+                    val char = key.label[0]
+                    if (Character.isLetter(char)) {
+                        val upperText = char.uppercaseChar().toString()
+                        android.util.Log.d("SwipeKeyboardView", "Caps active: converting '$char' to '$upperText'")
+                        upperText
+                    } else {
+                        key.label.toString()
+                    }
+                } else {
+                    key.label.toString()
+                }
+                
+                canvas.drawText(displayText, centerX, centerY + textOffset, gboardTextPaint)
             }
         } else if (key.icon != null) {
             // Gboard-style icon handling
@@ -322,8 +360,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 val iconLeft = centerX - iconSize / 2
                 val iconTop = centerY - iconSize / 2 - 4  // Move up slightly
                 
-                // Tint icon with caps lock color
-                key.icon.setTint(capsLockPaint.color)
+                // Tint icon with text color for better visibility
+                key.icon.setTint(keyTextPaint.color)
                 key.icon.setBounds(
                     iconLeft.toInt(),
                     iconTop.toInt(),
@@ -334,8 +372,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 
                 // Draw underline to indicate caps lock
                 val underlinePaint = Paint().apply {
-                    color = capsLockPaint.color
-                    strokeWidth = 2f
+                    color = keyTextPaint.color // Use text color for better visibility
+                    strokeWidth = 3f // Make it slightly thicker
                     isAntiAlias = true
                 }
                 canvas.drawLine(
@@ -349,9 +387,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 val iconLeft = centerX - iconSize / 2
                 val iconTop = centerY - iconSize / 2
                 
-                // Tint icon appropriately
+                // Tint icon appropriately - make shift highlighting more visible
                 if (isShiftKey && isShiftHighlighted) {
-                    key.icon.setTint(shiftHighlightPaint.color)
+                    // Use a more visible color for shift highlighting
+                    key.icon.setTint(keyTextPaint.color) // Same as text color for consistency
                 } else {
                     key.icon.setTint(keyTextPaint.color)
                 }

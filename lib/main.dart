@@ -52,6 +52,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   bool _vibrationEnabled = true;
   bool _keyPreviewEnabled = false;
   bool _shiftFeedbackEnabled = false;
+  bool _showNumberRow = false;
+  bool _soundEnabled = true;
+  String _currentLanguage = "EN";
   
   // Advanced feedback settings
   FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
@@ -268,6 +271,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
       _shiftFeedbackEnabled = prefs.getBool('show_shift_feedback') ?? false;
+      _showNumberRow = prefs.getBool('show_number_row') ?? false;
+      _soundEnabled = prefs.getBool('sound_enabled') ?? true;
+      _currentLanguage = prefs.getString('current_language') ?? "EN";
       
       // Load advanced feedback settings
       _hapticIntensity = FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2]; // medium
@@ -293,6 +299,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setBool('vibration_enabled', _vibrationEnabled);
     await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
     await prefs.setBool('show_shift_feedback', _shiftFeedbackEnabled);
+    await prefs.setBool('show_number_row', _showNumberRow);
+    await prefs.setBool('sound_enabled', _soundEnabled);
+    await prefs.setString('current_language', _currentLanguage);
     
     // Save advanced feedback settings
     await prefs.setInt('haptic_intensity', _hapticIntensity.index);
@@ -324,6 +333,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
         'vibration': _vibrationEnabled,
         'keyPreview': _keyPreviewEnabled,
         'shiftFeedback': _shiftFeedbackEnabled,
+        'showNumberRow': _showNumberRow,
+        'soundEnabled': _soundEnabled,
       });
     } catch (e) {
       print('Error sending settings: $e');
@@ -843,6 +854,70 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 });
                 _saveSettings();
               },
+            ),
+            _buildFeatureSwitch(
+              'Number Row',
+              'Show number row (1234567890) above letters for faster numeric input',
+              _showNumberRow,
+              (value) {
+                setState(() {
+                  _showNumberRow = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Sound Feedback',
+              'Play typing sounds when pressing keys',
+              _soundEnabled,
+              (value) {
+                setState(() {
+                  _soundEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            
+            // Language Status Section
+            const SizedBox(height: 24),
+            _buildSectionHeader('🌐 Language Status'),
+            const SizedBox(height: 16),
+            
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.language, color: Colors.blue, size: 32),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Current Language: $_currentLanguage',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Tap 🌐 on keyboard to cycle through languages',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             
             // Advanced Feedback Settings Section
