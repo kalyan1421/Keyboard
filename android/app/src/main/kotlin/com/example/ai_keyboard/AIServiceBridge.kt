@@ -12,8 +12,8 @@ import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
 
 /**
- * Bridge between Android keyboard service and Flutter AI services
- * Provides autocorrect and predictive text functionality to the system keyboard
+ * Enhanced bridge between Android keyboard service and AI engines
+ * Provides advanced autocorrect and predictive text functionality
  */
 class AIServiceBridge private constructor() {
     companion object {
@@ -22,13 +22,24 @@ class AIServiceBridge private constructor() {
         
         @Volatile
         private var INSTANCE: AIServiceBridge? = null
+        private var context: Context? = null
         
         fun getInstance(): AIServiceBridge {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: AIServiceBridge().also { INSTANCE = it }
             }
         }
+        
+        fun initialize(context: Context) {
+            this.context = context.applicationContext
+            getInstance().initializeEngines(context)
+        }
     }
+    
+    // Enhanced AI engines
+    private var wordDatabase: WordDatabase? = null
+    private var autocorrectEngine: AutocorrectEngine? = null
+    private var predictiveEngine: PredictiveTextEngine? = null
     
     // Callback interface for AI results
     interface AICallback {
@@ -50,8 +61,29 @@ class AIServiceBridge private constructor() {
     private var methodChannel: MethodChannel? = null
     private var context: Context? = null
     private var isInitialized = false
+    private var isEnhancedMode = true // Use enhanced engines by default
     
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    /**
+     * Initialize the enhanced AI engines
+     */
+    private fun initializeEngines(context: Context) {
+        try {
+            wordDatabase = WordDatabase.getInstance(context)
+            autocorrectEngine = AutocorrectEngine.getInstance(context)
+            predictiveEngine = PredictiveTextEngine.getInstance(context)
+            
+            // Initialize database with word data
+            coroutineScope.launch {
+                wordDatabase?.populateInitialData(context)
+                Log.d(TAG, "Enhanced AI engines initialized successfully")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing enhanced AI engines", e)
+            isEnhancedMode = false // Fall back to basic mode
+        }
+    }
     
     // HTTP client for AI API calls
     private val httpClient by lazy {
@@ -96,13 +128,43 @@ class AIServiceBridge private constructor() {
             return
         }
         
+        Log.d(TAG, "Getting suggestions for: '$currentWord' with context: $context")
+        
         coroutineScope.launch {
             try {
-                val suggestions = generateBuiltInSuggestions(currentWord, context)
+                val suggestions = if (isEnhancedMode && autocorrectEngine != null && predictiveEngine != null) {
+                    generateEnhancedSuggestions(currentWord, context)
+                } else {
+                    generateBuiltInSuggestions(currentWord, context)
+                }
+                
                 withContext(Dispatchers.Main) {
                     callback.onSuggestionsReady(suggestions)
                 }
+                
+                // Handle autocorrect
+                if (isEnhancedMode && autocorrectEngine != null) {
+                    val shouldCorrect = autocorrectEngine!!.shouldAutocorrect(currentWord)
+                    if (shouldCorrect) {
+                        val correction = autocorrectEngine!!.getBestAutocorrect(currentWord, context)
+                        if (correction != null && correction != currentWord) {
+                            withContext(Dispatchers.Main) {
+                                callback.onCorrectionReady(currentWord, correction, 0.9)
+                            }
+                        }
+                    }
+                } else {
+                    // Fallback to built-in correction
+                    val correction = getBuiltInCorrection(currentWord)
+                    if (correction != null && correction != currentWord) {
+                        withContext(Dispatchers.Main) {
+                            callback.onCorrectionReady(currentWord, correction, 0.9)
+                        }
+                    }
+                }
+                
             } catch (e: Exception) {
+                Log.e(TAG, "Error generating suggestions", e)
                 withContext(Dispatchers.Main) {
                     callback.onError("Failed to generate suggestions: ${e.message}")
                 }
@@ -156,6 +218,59 @@ class AIServiceBridge private constructor() {
         }
         
         suggestions
+    }
+    
+    /**
+     * Generate enhanced suggestions using the new AI engines
+     */
+    private suspend fun generateEnhancedSuggestions(currentWord: String, context: List<String>): List<AISuggestion> = withContext(Dispatchers.Default) {
+        val suggestions = mutableListOf<AISuggestion>()
+        
+        try {
+            // Get predictive suggestions
+            val predictions = predictiveEngine?.getPredictions(
+                currentWord = currentWord,
+                previousWords = context,
+                includeCompletions = currentWord.isNotEmpty(),
+                includeNextWords = true
+            ) ?: emptyList()
+            
+            // Convert to AISuggestion format
+            predictions.take(5).forEach { prediction ->
+                suggestions.add(AISuggestion(
+                    word = prediction.word,
+                    confidence = (prediction.score * 0.8).coerceIn(0.0, 1.0), // Scale confidence
+                    source = "enhanced_${prediction.type.name.lowercase()}",
+                    isCorrection = prediction.type == PredictionType.USER // Mark user-learned words as corrections
+                ))
+            }
+            
+            // Get autocorrect suggestions if word might be misspelled
+            if (currentWord.isNotEmpty() && autocorrectEngine?.shouldAutocorrect(currentWord) == true) {
+                val corrections = autocorrectEngine?.getAutocorrectSuggestions(currentWord) ?: emptyList()
+                
+                corrections.take(2).forEach { correction ->
+                    if (!suggestions.any { it.word == correction.word }) {
+                        suggestions.add(AISuggestion(
+                            word = correction.word,
+                            confidence = correction.confidence,
+                            source = "enhanced_autocorrect",
+                            isCorrection = true
+                        ))
+                    }
+                }
+            }
+            
+            // Sort by confidence
+            suggestions.sortByDescending { it.confidence }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in enhanced suggestions", e)
+            // Fallback to built-in suggestions
+            return@withContext generateBuiltInSuggestions(currentWord, context)
+        }
+        
+        suggestions.take(5)
     }
     
     /**

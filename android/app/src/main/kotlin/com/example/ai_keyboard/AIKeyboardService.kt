@@ -73,6 +73,10 @@ class AIKeyboardService : InputMethodService(),
     private var keyboardView: SwipeKeyboardView? = null
     private var keyboard: Keyboard? = null
     private var suggestionContainer: LinearLayout? = null
+    private var topContainer: LinearLayout? = null // Container for suggestions + language switch
+    private var mediaPanelManager: SimpleMediaPanel? = null
+    private var keyboardContainer: LinearLayout? = null
+    private var isMediaPanelVisible = false
     
     // Keyboard state
     private var caps = false
@@ -133,6 +137,29 @@ class AIKeyboardService : InputMethodService(),
     private var currentWord = ""
     private var isAIReady = false
     
+    // Dictionary data loaded from assets
+    private var commonWords = listOf<String>()
+    private var wordFrequencies = mapOf<String, Int>()
+    private var corrections = mapOf<String, String>()
+    private var contractions = mapOf<String, List<String>>()
+    private var technologyWords = listOf<String>()
+    private var businessWords = listOf<String>()
+    private var allWords = listOf<String>()
+    
+    // Multilingual components
+    private lateinit var languageManager: LanguageManager
+    private lateinit var languageDetector: LanguageDetector
+    
+    // CleverType components
+    private lateinit var cleverTypeService: CleverTypeAIService
+    private var cleverTypePreview: CleverTypePreview? = null
+    private var cleverTypeToneSelector: CleverTypeToneSelector? = null
+    private var cleverTypeToolbar: LinearLayout? = null
+    private lateinit var keyboardLayoutManager: KeyboardLayoutManager
+    private lateinit var multilingualDictionary: MultilingualDictionary
+    private lateinit var multilingualAutocorrect: MultilingualAutocorrectEngine
+    private var languageSwitchView: LanguageSwitchView? = null
+    
     // Services and handlers
     private lateinit var aiBridge: AIServiceBridge
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -179,11 +206,27 @@ class AIKeyboardService : InputMethodService(),
     
     override fun onCreate() {
         super.onCreate()
+        
+        // Initialize OpenAI configuration first (critical for AI features)
+        try {
+            OpenAIConfig.getInstance(this)
+            Log.d(TAG, "OpenAI configuration initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing OpenAI configuration", e)
+        }
+        
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         loadSettings()
+        loadDictionaries()
         
-        // Initialize AI Service Bridge
+        // Initialize multilingual components
+        initializeMultilingualComponents()
+
+        // Initialize Enhanced AI Service Bridge
         initializeAIBridge()
+        
+        // Initialize CleverType AI Service
+        initializeCleverTypeService()
         
         // Initialize advanced keyboard features
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
@@ -203,13 +246,16 @@ class AIKeyboardService : InputMethodService(),
     
     private fun initializeAIBridge() {
         try {
+            // Initialize the enhanced AI bridge with context
+            AIServiceBridge.initialize(this)
             aiBridge = AIServiceBridge.getInstance()
-            aiBridge.initialize(this)
+            Log.d(TAG, "AI Bridge initialized successfully")
             
             // Check AI readiness periodically
             coroutineScope.launch {
                 delay(1000)
-                while (!isAIReady) {
+                var retryCount = 0
+                while (!isAIReady && retryCount < 5) {
                     isAIReady = aiBridge.isReady()
                     if (isAIReady) {
                         withContext(Dispatchers.Main) {
@@ -217,7 +263,16 @@ class AIKeyboardService : InputMethodService(),
                         }
                         break
                     } else {
+                        Log.d(TAG, "AI not ready yet, retry $retryCount/5")
                         delay(2000) // Retry after 2 seconds
+                        retryCount++
+                    }
+                }
+                
+                if (!isAIReady) {
+                    Log.w(TAG, "AI failed to initialize after 5 retries - using enhanced basic mode")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@AIKeyboardService, "📝 Keyboard Ready (Basic Mode)", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -226,15 +281,140 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
+    /**
+     * Initialize multilingual keyboard components
+     */
+    private fun initializeMultilingualComponents() {
+        try {
+            // Initialize language manager
+            languageManager = LanguageManager(this)
+            
+            // Initialize language detector
+            languageDetector = LanguageDetector()
+            
+            // Initialize keyboard layout manager
+            keyboardLayoutManager = KeyboardLayoutManager(this)
+            
+            // Initialize multilingual dictionary
+            multilingualDictionary = MultilingualDictionary(this)
+            
+            // Initialize multilingual autocorrect engine
+            multilingualAutocorrect = MultilingualAutocorrectEngine(this)
+            
+            // Set up language change listener
+            languageManager.addLanguageChangeListener(object : LanguageManager.LanguageChangeListener {
+                override fun onLanguageChanged(oldLanguage: String, newLanguage: String) {
+                    handleLanguageChange(oldLanguage, newLanguage)
+                }
+                
+                override fun onEnabledLanguagesChanged(enabledLanguages: Set<String>) {
+                    handleEnabledLanguagesChange(enabledLanguages)
+                }
+            })
+            
+            // Initialize with current enabled languages
+            val enabledLanguages = languageManager.getEnabledLanguages()
+            coroutineScope.launch {
+                multilingualAutocorrect.initialize(enabledLanguages)
+            }
+            
+            Log.d(TAG, "Multilingual components initialized successfully")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing multilingual components", e)
+        }
+    }
+    
+    /**
+     * Handle language change
+     */
+    private fun handleLanguageChange(oldLanguage: String, newLanguage: String) {
+        try {
+            Log.d(TAG, "Language changed from $oldLanguage to $newLanguage")
+            
+            // Update keyboard layout
+            keyboardLayoutManager.updateCurrentLanguage(newLanguage)
+            
+            // Update autocorrect engine
+            multilingualAutocorrect.updateCurrentLanguage(newLanguage)
+            
+            // Update keyboard view if available
+            keyboardView?.let { kv ->
+                val currentMode = when (currentKeyboard) {
+                    KEYBOARD_LETTERS -> "letters"
+                    KEYBOARD_SYMBOLS -> "symbols"
+                    KEYBOARD_NUMBERS -> "numbers"
+                    else -> "letters"
+                }
+                
+                val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(currentMode)
+                if (newKeyboard != null) {
+                    keyboard = newKeyboard
+                    kv.keyboard = newKeyboard
+                    kv.invalidateAllKeys()
+                }
+            }
+            
+            // Update language switch view
+            languageSwitchView?.refreshDisplay()
+            
+            // Clear current word and update suggestions
+            currentWord = ""
+            updateAISuggestions()
+            
+            // Show language change notification
+            Toast.makeText(this, "Language: ${languageManager.getLanguageDisplayName(newLanguage)}", Toast.LENGTH_SHORT).show()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling language change", e)
+        }
+    }
+    
+    /**
+     * Handle enabled languages change
+     */
+    private fun handleEnabledLanguagesChange(enabledLanguages: Set<String>) {
+        try {
+            Log.d(TAG, "Enabled languages changed: $enabledLanguages")
+            
+            // Update autocorrect engine
+            coroutineScope.launch {
+                multilingualAutocorrect.updateEnabledLanguages(enabledLanguages)
+            }
+            
+            // Preload keyboard layouts
+            keyboardLayoutManager.preloadLayouts(enabledLanguages)
+            
+            // Update language switch view visibility
+            languageSwitchView?.refreshDisplay()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling enabled languages change", e)
+        }
+    }
+    
     override fun onCreateInputView(): View {
-        // Create the main keyboard layout
+        // Create the main keyboard container
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getThemeBackgroundColor())
         }
         
         // Create suggestion bar
-        createSuggestionBar(mainLayout)
+        createSuggestionBarWithLanguageSwitch(mainLayout)
+        
+        // Create CleverType toolbar
+        cleverTypeToolbar = createCleverTypeToolbar()
+        mainLayout.addView(cleverTypeToolbar)
+        
+        // Create keyboard view container that will hold either keyboard or media panel
+        val keyboardContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
         
         // Create keyboard view with Google layout and swipe support
         try {
@@ -253,32 +433,104 @@ class AIKeyboardService : InputMethodService(),
             isPreviewEnabled = keyPreviewEnabled
         }
         
+        // Create media panel manager (but don't add to layout yet)
+        createMediaPanel()
+        
+        // Initially show keyboard
+        keyboardView?.let { keyboardContainer.addView(it) }
+        mainLayout.addView(keyboardContainer)
+        
+        // Store reference to container for switching views
+        this.keyboardContainer = keyboardContainer
+        
         // Apply theme
         applyTheme()
         
-        keyboardView?.let { mainLayout.addView(it) }
         return mainLayout
     }
     
+    private fun createSuggestionBarWithLanguageSwitch(parent: LinearLayout) {
+        Log.d(TAG, "Creating suggestion bar with language switch")
+        
+        // Create container for language switch and suggestions
+        topContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(getThemeKeyColor())
+            setPadding(4, 4, 4, 4)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        
+        // Create language switch view
+        languageSwitchView = LanguageSwitchView(this).apply {
+            setLanguageManager(languageManager)
+            setOnLanguageChangeListener { newLanguage ->
+                Log.d(TAG, "Language switched to: $newLanguage")
+            }
+        }
+        
+        // Set layout params for language switch view
+        val languageSwitchParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.MATCH_PARENT
+        ).apply {
+            setMargins(4, 0, 8, 0)
+        }
+        languageSwitchView?.layoutParams = languageSwitchParams
+        
+        // Create suggestions container
+        suggestionContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f
+            )
+        }
+        
+        // Add components to top container
+        topContainer!!.addView(languageSwitchView)
+        topContainer!!.addView(suggestionContainer)
+        
+        // Add to parent
+        parent.addView(topContainer)
+        
+        // Now create the actual suggestion bar
+        createSuggestionBar(suggestionContainer!!)
+    }
+    
     private fun createSuggestionBar(parent: LinearLayout) {
+        Log.d(TAG, "Creating suggestion bar")
+        
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(getThemeKeyColor())
-            setPadding(16, 8, 16, 8)
+            setPadding(8, 4, 8, 4)
+            visibility = View.VISIBLE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                height = 100 // Set minimum height
+            }
         }
         
-        // Add three suggestion text views
-        repeat(3) { index ->
+        // Add five suggestion text views for more suggestions
+        repeat(5) { index ->
             val suggestion = TextView(this).apply {
                 setTextColor(getThemeTextColor())
                 textSize = 16f
                 setPadding(16, 8, 16, 8)
                 setBackgroundResource(R.drawable.suggestion_background)
                 isClickable = true
+                text = "Suggestion ${index + 1}" // Default text for testing
+                visibility = View.VISIBLE
                 
-                setOnClickListener {
-                    if (index < currentSuggestions.size) {
-                        applySuggestion(currentSuggestions[index])
+                setOnClickListener { view ->
+                    val suggestionText = (view as TextView).text.toString()
+                    Log.d(TAG, "Suggestion clicked: '$suggestionText'")
+                    if (suggestionText.isNotEmpty() && !suggestionText.startsWith("Suggestion")) {
+                        applySuggestion(suggestionText)
                     }
                 }
             }
@@ -293,7 +545,254 @@ class AIKeyboardService : InputMethodService(),
             suggestionContainer?.addView(suggestion)
         }
         
-        suggestionContainer?.let { parent.addView(it) }
+        suggestionContainer?.let { 
+            parent.addView(it)
+            Log.d(TAG, "Suggestion bar added to parent with ${it.childCount} children")
+        }
+        
+        // Show initial suggestions immediately
+        updateSuggestionUI(listOf("I", "The", "And", "Hello", "How"))
+        
+        // Test suggestions after a short delay
+        coroutineScope.launch {
+            delay(2000)
+            withContext(Dispatchers.Main) {
+                updateSuggestionUI(listOf("Hello", "World", "Test", "✓ Correct", "Predict"))
+                Log.d(TAG, "Test suggestions updated with autocorrect example")
+            }
+        }
+    }
+    
+    private fun createMediaPanel() {
+        Log.d(TAG, "Creating media panel")
+        
+        mediaPanelManager = SimpleMediaPanel(this).apply {
+            setOnMediaSelectedListener { mediaType, content, data ->
+                handleMediaSelection(mediaType, content, data)
+            }
+            setOnKeyboardSwitchRequestedListener {
+                // Switch back to keyboard when ABC button is tapped
+                if (isMediaPanelVisible) {
+                    toggleMediaPanel()
+                }
+            }
+            // Set proper layout params for full keyboard replacement
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        
+        Log.d(TAG, "Media panel created (not added to layout yet)")
+    }
+    
+    private fun toggleMediaPanel() {
+        try {
+            isMediaPanelVisible = !isMediaPanelVisible
+            keyboardContainer?.let { container ->
+                container.removeAllViews()
+                
+                if (isMediaPanelVisible) {
+                    // Get current text from input field for AI processing
+                    val currentText = getCurrentInputText()
+                    
+                    // Show media panel instead of keyboard (Google Keyboard style)
+                    mediaPanelManager?.let { mediaPanel ->
+                        // Pass current text to AI features panel
+                        mediaPanel.setInputText(currentText)
+                        container.addView(mediaPanel)
+                        Log.d(TAG, "Switched to media panel view with text: '${currentText.take(50)}${if (currentText.length > 50) "..." else ""}'")
+                    }
+                    // Hide entire suggestion bar (including language switch) in emoji mode
+                    topContainer?.visibility = View.GONE
+                } else {
+                    // Show keyboard instead of media panel
+                    keyboardView?.let { keyboard ->
+                        container.addView(keyboard)
+                        Log.d(TAG, "Switched back to keyboard view")
+                    }
+                    // Show entire suggestion bar (including language switch) in keyboard mode
+                    topContainer?.visibility = View.VISIBLE
+                }
+                
+                // Request layout update
+                container.requestLayout()
+            }
+            
+            Log.d(TAG, "Media panel toggled: visible=$isMediaPanelVisible, suggestion bar hidden=${isMediaPanelVisible}")
+            Log.d(TAG, "TopContainer visibility: ${topContainer?.visibility}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error toggling media panel", e)
+        }
+    }
+    
+    /**
+     * Get current text from input field for AI processing
+     */
+    private fun getCurrentInputText(): String {
+        return try {
+            val ic = currentInputConnection ?: return ""
+            
+            // Try to get selected text first
+            val selectedText = ic.getSelectedText(0)
+            if (!selectedText.isNullOrBlank()) {
+                Log.d(TAG, "Found selected text: '${selectedText.take(100)}...'")
+                return selectedText.toString()
+            }
+            
+            // If no selection, get text around cursor (last sentence/paragraph)
+            val beforeCursor = ic.getTextBeforeCursor(500, 0)?.toString() ?: ""
+            val afterCursor = ic.getTextAfterCursor(100, 0)?.toString() ?: ""
+            
+            // Try to extract the current sentence or paragraph
+            val currentText = when {
+                // If there's substantial text before cursor, get the last sentence/paragraph
+                beforeCursor.isNotEmpty() -> {
+                    val sentences = beforeCursor.split(Regex("[.!?]\\s+"))
+                    val lastSentence = sentences.lastOrNull()?.trim() ?: ""
+                    
+                    // If last sentence is too short, get more context
+                    if (lastSentence.length < 10 && sentences.size > 1) {
+                        sentences.takeLast(2).joinToString(". ").trim()
+                    } else {
+                        lastSentence
+                    }
+                }
+                // If there's text after cursor, include it
+                afterCursor.isNotEmpty() -> {
+                    val nextWords = afterCursor.split("\\s+".toRegex()).take(10).joinToString(" ")
+                    "$beforeCursor$nextWords".trim()
+                }
+                else -> beforeCursor.trim()
+            }
+            
+            // Clean up the text
+            val cleanText = currentText.replace(Regex("\\s+"), " ").trim()
+            
+            Log.d(TAG, "Retrieved input text (${cleanText.length} chars): '${cleanText.take(100)}${if (cleanText.length > 100) "..." else ""}'")
+            
+            cleanText
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting current input text", e)
+            ""
+        }
+    }
+    
+    private fun handleMediaSelection(mediaType: SimpleMediaPanel.MediaType, content: String, data: Any?) {
+        try {
+            Log.d(TAG, "Media selected - Type: $mediaType, Content: $content")
+            
+            when (mediaType) {
+                SimpleMediaPanel.MediaType.EMOJI -> {
+                    // Insert emoji directly
+                    currentInputConnection?.commitText(content, 1)
+                    Log.d(TAG, "Inserted emoji: $content")
+                }
+                SimpleMediaPanel.MediaType.GIF -> {
+                    // Handle GIF insertion
+                    currentInputConnection?.commitText(content, 1)
+                    Log.d(TAG, "Inserted GIF: $content")
+                }
+                SimpleMediaPanel.MediaType.STICKER -> {
+                    // Handle sticker insertion
+                    currentInputConnection?.commitText(content, 1)
+                    Log.d(TAG, "Inserted sticker: $content")
+                }
+                SimpleMediaPanel.MediaType.AI_FEATURES -> {
+                    // Handle AI-processed text insertion
+                    currentInputConnection?.commitText(content, 1)
+                    Log.d(TAG, "Inserted AI-processed text: $content")
+                }
+            }
+            
+            // Keep media panel visible after selection (Google Keyboard behavior)
+            // User must manually switch back to keyboard
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling media selection", e)
+        }
+    }
+    
+    private fun insertGifContent(content: String, gifData: GifData?) {
+        try {
+            when {
+                content.startsWith("http") -> {
+                    // Network URL - insert as text link for now
+                    currentInputConnection?.commitText("GIF: $content", 1)
+                }
+                content.startsWith("/") -> {
+                    // Local file path - try to insert as rich content
+                    // For now, insert as text placeholder
+                    val title = gifData?.title ?: "GIF"
+                    currentInputConnection?.commitText("[$title GIF]", 1)
+                }
+                else -> {
+                    currentInputConnection?.commitText("[GIF]", 1)
+                }
+            }
+            
+            // Record usage if we have GIF data
+            gifData?.let { gif ->
+                Thread {
+                    try {
+                        val gifManager = GifManager(this)
+                        gifManager.recordGifUsage(gif.id)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error recording GIF usage", e)
+                    }
+                }.start()
+            }
+            
+            Log.d(TAG, "Inserted GIF content: $content")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting GIF content", e)
+            currentInputConnection?.commitText("[GIF]", 1)
+        }
+    }
+    
+    private fun insertStickerContent(content: String, stickerData: StickerData?) {
+        try {
+            when {
+                content.startsWith("emoji://") -> {
+                    // It's an emoji-based sticker, just insert the emoji
+                    currentInputConnection?.commitText(content, 1)
+                }
+                content.startsWith("/") -> {
+                    // Local file path - insert as placeholder for now
+                    currentInputConnection?.commitText("[Sticker]", 1)
+                }
+                content.startsWith("http") -> {
+                    // Network URL - insert as text link
+                    currentInputConnection?.commitText("Sticker: $content", 1)
+                }
+                else -> {
+                    // Direct content (emoji)
+                    currentInputConnection?.commitText(content, 1)
+                }
+            }
+            
+            // Record usage if we have sticker data
+            stickerData?.let { sticker ->
+                Thread {
+                    try {
+                        val stickerManager = StickerManager(this)
+                        stickerManager.recordStickerUsage(sticker.id)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error recording sticker usage", e)
+                    }
+                }.start()
+            }
+            
+            Log.d(TAG, "Inserted sticker content: $content")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting sticker content", e)
+            currentInputConnection?.commitText("[Sticker]", 1)
+        }
+    }
+    
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
     }
     
     private fun loadSettings() {
@@ -385,8 +884,8 @@ class AIKeyboardService : InputMethodService(),
                 handleLanguageSwitch()
             }
             KEYCODE_EMOJI -> {
-                // Emoji picker - show emoji selection or insert common emoji
-                handleEmojiKey()
+                // Toggle media panel (emoji, GIF, stickers)
+                toggleMediaPanel()
             }
             else -> handleCharacter(primaryCode, ic)
         }
@@ -423,6 +922,13 @@ class AIKeyboardService : InputMethodService(),
         // Update current word
         if (Character.isLetter(code)) {
             currentWord += Character.toLowerCase(code)
+            Log.d(TAG, "Updated currentWord: '$currentWord'")
+        } else if (Character.isSpaceChar(code) || code == ' ' || isPunctuation(code)) {
+            // Non-letter character ends current word
+            if (currentWord.isNotEmpty()) {
+                Log.d(TAG, "Non-letter character '$code' - finishing word: '$currentWord'")
+                finishCurrentWord()
+            }
         }
         
         // Insert character with enhanced text processing
@@ -433,6 +939,9 @@ class AIKeyboardService : InputMethodService(),
         
         // Update keyboard visual state
         updateKeyboardState()
+        
+        // Update suggestions in real-time as user types
+        updateAISuggestions()
     }
     
     private fun insertCharacterWithProcessing(ic: InputConnection, code: Char) {
@@ -482,6 +991,17 @@ class AIKeyboardService : InputMethodService(),
     private fun isAutoCorrectEnabled(): Boolean = settings.getBoolean("auto_correct", true)
     private fun isCapslockEnabled(): Boolean = settings.getBoolean("caps_lock_active", false)
     private fun isPunctuation(c: Char): Boolean = ".,!?;:".contains(c)
+    
+    private fun shouldCapitalizeAfterSpace(ic: InputConnection): Boolean {
+        val textBefore = ic.getTextBeforeCursor(10, 0)?.toString() ?: ""
+        
+        // Capitalize at start of input
+        if (textBefore.isEmpty()) return true
+        
+        // Capitalize after sentence-ending punctuation
+        val trimmed = textBefore.trimEnd()
+        return trimmed.endsWith(".") || trimmed.endsWith("!") || trimmed.endsWith("?")
+    }
     
     private fun handleSmartPunctuation(ic: InputConnection, code: Char, context: String) {
         // Smart spacing around punctuation
@@ -584,7 +1104,20 @@ class AIKeyboardService : InputMethodService(),
             finishCurrentWord()
         }
         
+        // Handle double space for period (like iOS/GBoard)
+        val textBefore = ic.getTextBeforeCursor(2, 0)?.toString() ?: ""
+        if (textBefore.endsWith("  ")) {
+            // Replace double space with period + space
+            ic.deleteSurroundingText(2, 0)
+            ic.commitText(". ", 1)
+        } else {
         ic.commitText(" ", 1)
+        }
+        
+        // Update auto-capitalization after space
+        caps = shouldCapitalizeAfterSpace(ic)
+        keyboardView?.isShifted = caps
+        
         updateAISuggestions()
     }
     
@@ -771,12 +1304,29 @@ class AIKeyboardService : InputMethodService(),
     
     
     private fun updateAISuggestions() {
-        if (!aiSuggestionsEnabled || !isAIReady) return
+        Log.d(TAG, "updateAISuggestions called - aiSuggestionsEnabled: $aiSuggestionsEnabled, isAIReady: $isAIReady, currentWord: '$currentWord'")
+        
+        if (!aiSuggestionsEnabled) {
+            Log.d(TAG, "AI suggestions disabled in settings")
+            return
+        }
+        
+        // Always try to show suggestions, even if AI is not fully ready
+        if (!isAIReady) {
+            Log.d(TAG, "AI not ready - showing enhanced basic suggestions with autocorrect")
+            val enhancedSuggestions = generateEnhancedBasicSuggestions(currentWord)
+            updateSuggestionUI(enhancedSuggestions)
+            return
+        }
         
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 // Get AI-powered suggestions
                 val context = getRecentContext()
+                Log.d(TAG, "Getting AI suggestions for word: '$currentWord', context: $context")
+                
+                // Also try enhanced suggestions even if AI bridge isn't fully ready
+                val fallbackSuggestions = generateEnhancedBasicSuggestions(currentWord)
                 
                 aiBridge.getSuggestions(currentWord, context, object : AIServiceBridge.AICallback {
                     override fun onSuggestionsReady(suggestions: List<AIServiceBridge.AISuggestion>) {
@@ -803,10 +1353,9 @@ class AIKeyboardService : InputMethodService(),
                     
                     override fun onError(error: String) {
                         Log.w(TAG, "AI suggestion error: $error")
-                        // Fallback to basic suggestions
+                        // Fallback to enhanced basic suggestions
                         coroutineScope.launch(Dispatchers.Main) {
-                            val fallback = generateBasicSuggestions(currentWord)
-                            updateSuggestionUI(fallback)
+                            updateSuggestionUI(fallbackSuggestions)
                         }
                     }
                 })
@@ -834,6 +1383,8 @@ class AIKeyboardService : InputMethodService(),
         // Basic fallback suggestions when AI is not available - Google style
         val suggestions = mutableListOf<String>()
         
+        Log.d(TAG, "Generating basic suggestions for: '$currentWord'")
+        
         if (currentWord.isEmpty()) {
             // Default Google-style suggestions
             suggestions.addAll(listOf("I", "The", "In"))
@@ -852,34 +1403,250 @@ class AIKeyboardService : InputMethodService(),
             }
         }
         
-        return suggestions.take(3)
+        return suggestions.take(5)
+    }
+    
+    /**
+     * Load dictionaries from assets
+     */
+    private fun loadDictionaries() {
+        try {
+            // Load common words
+            val commonWordsJson = assets.open("dictionaries/common_words.json").bufferedReader().use { it.readText() }
+            val commonWordsData = org.json.JSONObject(commonWordsJson)
+            
+            // Extract words array (check for both old and new format)
+            val wordsList = mutableListOf<String>()
+            val frequencyMap = mutableMapOf<String, Int>()
+            
+            if (commonWordsData.has("basic_words")) {
+                // New format with categories
+                val basicWordsArray = commonWordsData.getJSONArray("basic_words")
+                for (i in 0 until basicWordsArray.length()) {
+                    val wordObj = basicWordsArray.getJSONObject(i)
+                    val word = wordObj.getString("word")
+                    val frequency = wordObj.getInt("frequency")
+                    wordsList.add(word)
+                    frequencyMap[word] = frequency
+                }
+                
+                // Load business words if available
+                if (commonWordsData.has("business_words")) {
+                    val businessWordsArray = commonWordsData.getJSONArray("business_words")
+                    val businessList = mutableListOf<String>()
+                    for (i in 0 until businessWordsArray.length()) {
+                        val wordObj = businessWordsArray.getJSONObject(i)
+                        val word = wordObj.getString("word")
+                        val frequency = wordObj.getInt("frequency")
+                        businessList.add(word)
+                        wordsList.add(word)
+                        frequencyMap[word] = frequency
+                    }
+                    businessWords = businessList
+                }
+            } else {
+                // Old format - simple array
+                val wordsArray = commonWordsData.getJSONArray("words")
+                for (i in 0 until wordsArray.length()) {
+                    wordsList.add(wordsArray.getString(i))
+                }
+            }
+            commonWords = wordsList
+            
+            // Extract frequency data if available in old format
+            if (commonWordsData.has("frequency")) {
+                val frequencyData = commonWordsData.getJSONObject("frequency")
+                val keys = frequencyData.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    frequencyMap[key] = frequencyData.getInt(key)
+                }
+            }
+            wordFrequencies = frequencyMap
+            
+            // Load corrections
+            val correctionsJson = assets.open("dictionaries/corrections.json").bufferedReader().use { it.readText() }
+            val correctionsData = org.json.JSONObject(correctionsJson)
+            
+            // Extract corrections
+            val correctionsObj = correctionsData.getJSONObject("corrections")
+            val correctionsMap = mutableMapOf<String, String>()
+            val correctionKeys = correctionsObj.keys()
+            while (correctionKeys.hasNext()) {
+                val key = correctionKeys.next()
+                correctionsMap[key] = correctionsObj.getString(key)
+            }
+            corrections = correctionsMap
+            
+            // Extract contractions
+            val contractionsObj = correctionsData.getJSONObject("contractions")
+            val contractionsMap = mutableMapOf<String, List<String>>()
+            val contractionKeys = contractionsObj.keys()
+            while (contractionKeys.hasNext()) {
+                val key = contractionKeys.next()
+                val array = contractionsObj.getJSONArray(key)
+                val list = mutableListOf<String>()
+                for (i in 0 until array.length()) {
+                    list.add(array.getString(i))
+                }
+                contractionsMap[key] = list
+            }
+            contractions = contractionsMap
+            
+            // Load technology words
+            try {
+                val techWordsJson = assets.open("dictionaries/technology_words.json").bufferedReader().use { it.readText() }
+                val techWordsData = org.json.JSONObject(techWordsJson)
+                val techWordsArray = techWordsData.getJSONArray("technology_words")
+                val techList = mutableListOf<String>()
+                for (i in 0 until techWordsArray.length()) {
+                    val wordObj = techWordsArray.getJSONObject(i)
+                    val word = wordObj.getString("word")
+                    val frequency = wordObj.getInt("frequency")
+                    techList.add(word)
+                    wordsList.add(word)
+                    frequencyMap[word] = frequency
+                }
+                technologyWords = techList
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load technology words: ${e.message}")
+            }
+            
+            // Combine all words for comprehensive suggestions
+            allWords = (commonWords + businessWords + technologyWords).distinct()
+            
+            Log.d(TAG, "Loaded ${commonWords.size} common words, ${businessWords.size} business words, ${technologyWords.size} tech words, ${corrections.size} corrections, ${contractions.size} contractions")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading dictionaries from assets", e)
+            // Fallback to basic words
+            commonWords = listOf("the", "and", "to", "of", "in", "is", "it", "you", "that", "he", "was", "for", "on", "are", "as", "with", "his", "they", "i", "at", "be", "this", "have", "from", "or", "one", "had", "by", "word", "but", "not", "what", "all", "were", "we", "when", "your", "can", "said")
+            corrections = mapOf("teh" to "the", "adn" to "and", "hte" to "the", "nad" to "and", "yuo" to "you", "taht" to "that")
+        }
+    }
+    
+    /**
+     * Get built-in correction for a word using loaded corrections dictionary
+     */
+    private fun getBuiltInCorrection(word: String): String? {
+        return corrections[word.lowercase()]
+    }
+    
+    /**
+     * Generate enhanced basic suggestions with autocorrect when AI engines aren't ready
+     */
+    private fun generateEnhancedBasicSuggestions(currentWord: String): List<String> {
+        val suggestions = mutableListOf<String>()
+        
+        Log.d(TAG, "Generating enhanced basic suggestions for: '$currentWord' using ${allWords.size} dictionary words")
+        
+        if (currentWord.isEmpty()) {
+            // Default suggestions when no word - use most frequent words
+            val topWords = if (commonWords.isNotEmpty()) {
+                commonWords.sortedByDescending { wordFrequencies[it] ?: 0 }.take(5)
+            } else {
+                listOf("I", "The", "In", "And", "To")
+            }
+            suggestions.addAll(topWords)
+        } else {
+            val word = currentWord.lowercase()
+            
+            // First, check for autocorrect using loaded corrections dictionary
+            val correction = getBuiltInCorrection(word)
+            if (correction != null && correction != word) {
+                suggestions.add("✓ $correction") // Mark as correction
+                Log.d(TAG, "Added autocorrect from dictionary: $word -> $correction")
+            }
+            
+            // Find word completions from the comprehensive dictionary
+            val matchingWords = allWords.filter { dictWord ->
+                dictWord.lowercase().startsWith(word) && dictWord.lowercase() != word
+            }.sortedByDescending { wordFrequencies[it] ?: 0 } // Sort by frequency
+            
+            // Add the matching words
+            suggestions.addAll(matchingWords.take(4)) // Take top 4 matches
+            
+            // If we don't have enough suggestions, add some fallback completions
+            if (suggestions.size < 3) {
+                val fallbackWords = when {
+                    word.startsWith("h") -> listOf("hello", "how", "have", "here", "help")
+                    word.startsWith("w") -> listOf("what", "when", "where", "why", "will")
+                    word.startsWith("t") -> listOf("the", "that", "this", "they", "then")
+                    word.startsWith("i") -> listOf("I", "in", "is", "it", "if")
+                    word.startsWith("a") -> listOf("and", "are", "all", "about", "as")
+                    word.startsWith("s") -> listOf("so", "some", "see", "should", "said")
+                    word.startsWith("c") -> listOf("can", "could", "come", "call", "change")
+                    word.startsWith("m") -> listOf("make", "more", "may", "might", "most")
+                    word.startsWith("n") -> listOf("not", "now", "new", "need", "never")
+                    word.startsWith("g") -> listOf("get", "go", "good", "give", "great")
+                    word.startsWith("b") -> listOf("be", "but", "by", "been", "before")
+                    word.startsWith("d") -> listOf("do", "don't", "did", "does", "down")
+                    word.startsWith("f") -> listOf("for", "from", "first", "find", "feel")
+                    word.startsWith("l") -> listOf("like", "look", "let", "long", "little")
+                    word.startsWith("o") -> listOf("of", "on", "or", "one", "only")
+                    word.startsWith("p") -> listOf("people", "put", "part", "place", "point")
+                    word.startsWith("r") -> listOf("right", "really", "run", "read", "remember")
+                    word.startsWith("u") -> listOf("up", "use", "used", "under", "until")
+                    word.startsWith("v") -> listOf("very", "view", "visit", "voice", "value")
+                    word.startsWith("y") -> listOf("you", "your", "yes", "year", "yet")
+                    else -> listOf("the", "and", "to", "of", "in")
+                }
+                
+                // Add fallback words that start with the current word and aren't already in suggestions
+                val fallbackMatches = fallbackWords.filter { fallback ->
+                    fallback.lowercase().startsWith(word) && 
+                    !suggestions.any { existing -> existing.replace("✓ ", "").lowercase() == fallback.lowercase() }
+                }
+                suggestions.addAll(fallbackMatches.take(5 - suggestions.size))
+            }
+        }
+        
+        Log.d(TAG, "Generated ${suggestions.size} suggestions: $suggestions")
+        return suggestions.take(5)
     }
     
     private fun updateSuggestionUI(suggestions: List<String>) {
+        Log.d(TAG, "updateSuggestionUI called with suggestions: $suggestions")
+        Log.d(TAG, "suggestionContainer is null: ${suggestionContainer == null}")
+        
         suggestionContainer?.let { container ->
-            for (i in 0 until minOf(container.childCount, 3)) {
+            Log.d(TAG, "Container child count: ${container.childCount}")
+            for (i in 0 until minOf(container.childCount, 5)) {
                 val suggestionView = container.getChildAt(i) as TextView
                 if (i < suggestions.size) {
                     suggestionView.text = suggestions[i]
                     suggestionView.visibility = View.VISIBLE
+                    Log.d(TAG, "Set suggestion $i: ${suggestions[i]}")
                 } else {
                     suggestionView.visibility = View.INVISIBLE
                 }
             }
+            container.visibility = View.VISIBLE
+            Log.d(TAG, "Suggestion container made visible")
+        } ?: run {
+            Log.e(TAG, "suggestionContainer is null - cannot update suggestions")
         }
     }
     
     private fun applySuggestion(suggestion: String) {
-        val ic = currentInputConnection ?: return
+        Log.d(TAG, "applySuggestion called with: '$suggestion', currentWord: '$currentWord'")
+        
+        val ic = currentInputConnection ?: run {
+            Log.e(TAG, "No input connection available")
+            return
+        }
         
         // Clean suggestion text (remove correction indicators)
-        val cleanSuggestion = suggestion.replace("✓ ", "")
+        val cleanSuggestion = suggestion.replace("✓ ", "").trim()
+        Log.d(TAG, "Clean suggestion: '$cleanSuggestion'")
         
         // Replace current word with suggestion
         if (currentWord.isNotEmpty()) {
+            Log.d(TAG, "Deleting current word of length: ${currentWord.length}")
             ic.deleteSurroundingText(currentWord.length, 0)
         }
         
+        Log.d(TAG, "Committing text: '$cleanSuggestion '")
         ic.commitText("$cleanSuggestion ", 1)
         
         // Learn from user selection if AI is ready
@@ -1302,6 +2069,11 @@ class AIKeyboardService : InputMethodService(),
         // Reset keyboard state
         caps = false
         keyboardView?.isShifted = caps
+        
+        // Reset current word and show initial suggestions
+        currentWord = ""
+        Log.d(TAG, "onStartInput - showing initial suggestions")
+        updateAISuggestions()
         
         // Auto-capitalize for sentence start
         attribute?.let { info ->
@@ -1797,6 +2569,328 @@ class AIKeyboardService : InputMethodService(),
             accentPopup = null
         } catch (e: Exception) {
             // Ignore dismissal errors
+        }
+    }
+    
+    /**
+     * Initialize CleverType AI Service
+     */
+    private fun initializeCleverTypeService() {
+        try {
+            cleverTypeService = CleverTypeAIService(this)
+            Log.d(TAG, "CleverType AI Service initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing CleverType AI Service", e)
+        }
+    }
+    
+    /**
+     * Create CleverType toolbar with Grammar and Tone buttons
+     */
+    private fun createCleverTypeToolbar(): LinearLayout {
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            setBackgroundColor(Color.parseColor("#f8f9fa"))
+        }
+        
+        // Grammar correction button
+        val grammarButton = createToolbarButton(
+            text = "✅ Grammar",
+            description = "Fix grammar & spelling",
+            onClick = { handleGrammarCorrection() }
+        )
+        
+        // Tone adjustment button
+        val toneButton = createToolbarButton(
+            text = "🎭 Tone",
+            description = "Adjust writing tone",
+            onClick = { handleToneAdjustment() }
+        )
+        
+        // Add buttons to toolbar
+        toolbar.addView(grammarButton)
+        toolbar.addView(toneButton)
+        
+        Log.d(TAG, "CleverType toolbar created")
+        return toolbar
+    }
+    
+    /**
+     * Create toolbar button
+     */
+    private fun createToolbarButton(
+        text: String,
+        description: String,
+        onClick: () -> Unit
+    ): LinearLayout {
+        val buttonContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(dpToPx(4), 0, dpToPx(4), 0)
+            }
+            setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
+            background = createToolbarButtonBackground(Color.parseColor("#ffffff"))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        
+        val buttonText = TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#1a73e8"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            gravity = Gravity.CENTER
+        }
+        
+        val descText = TextView(this).apply {
+            this.text = description
+            textSize = 10f
+            setTextColor(Color.parseColor("#5f6368"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            gravity = Gravity.CENTER
+            setPadding(0, dpToPx(2), 0, 0)
+        }
+        
+        buttonContainer.addView(buttonText)
+        buttonContainer.addView(descText)
+        
+        return buttonContainer
+    }
+    
+    /**
+     * Handle grammar correction
+     */
+    private fun handleGrammarCorrection() {
+        coroutineScope.launch {
+            try {
+                val selectedText = getSelectedText()
+                if (selectedText.isEmpty()) {
+                    Toast.makeText(this@AIKeyboardService, "Select text to fix grammar", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                
+                Log.d(TAG, "Grammar correction requested for: $selectedText")
+                
+                // Show loading
+                showCleverTypePreview()
+                cleverTypePreview?.showLoading("Fixing grammar...")
+                
+                // Process with AI
+                val result = cleverTypeService.fixGrammar(selectedText)
+                
+                // Show preview
+                cleverTypePreview?.hideLoading()
+                cleverTypePreview?.showGrammarPreview(result)
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in grammar correction", e)
+                Toast.makeText(this@AIKeyboardService, "Grammar correction failed", Toast.LENGTH_SHORT).show()
+                hideCleverTypePreview()
+            }
+        }
+    }
+    
+    /**
+     * Handle tone adjustment
+     */
+    private fun handleToneAdjustment() {
+        val selectedText = getSelectedText()
+        if (selectedText.isEmpty()) {
+            Toast.makeText(this, "Select text to adjust tone", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        Log.d(TAG, "Tone adjustment requested for: $selectedText")
+        showCleverTypeToneSelector()
+    }
+    
+    /**
+     * Get selected text or text around cursor
+     */
+    private fun getSelectedText(): String {
+        val ic = currentInputConnection ?: return ""
+        
+        try {
+            // Try to get selected text first
+            val selectedText = ic.getSelectedText(0)
+            if (!selectedText.isNullOrEmpty()) {
+                return selectedText.toString()
+            }
+            
+            // If no selection, get text around cursor (sentence)
+            val beforeCursor = ic.getTextBeforeCursor(100, 0)?.toString() ?: ""
+            val afterCursor = ic.getTextAfterCursor(100, 0)?.toString() ?: ""
+            
+            // Find sentence boundaries
+            val sentences = (beforeCursor + afterCursor).split(Regex("[.!?]\\s*"))
+            if (sentences.isNotEmpty()) {
+                // Return the sentence that contains the cursor
+                val cursorPos = beforeCursor.length
+                var charCount = 0
+                for (sentence in sentences) {
+                    charCount += sentence.length + 1
+                    if (charCount > cursorPos) {
+                        return sentence.trim()
+                    }
+                }
+            }
+            
+            // Fallback: return text around cursor
+            return (beforeCursor + afterCursor).trim()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting selected text", e)
+            return ""
+        }
+    }
+    
+    /**
+     * Show CleverType preview
+     */
+    private fun showCleverTypePreview() {
+        if (cleverTypePreview == null) {
+            cleverTypePreview = CleverTypePreview(this).apply {
+                setOnApplyListener { processedText ->
+                    applyProcessedText(processedText)
+                    hideCleverTypePreview()
+                }
+                setOnCancelListener {
+                    hideCleverTypePreview()
+                }
+                setOnCloseListener {
+                    hideCleverTypePreview()
+                }
+            }
+        }
+        
+        // Add to keyboard container
+        keyboardContainer?.addView(cleverTypePreview)
+    }
+    
+    /**
+     * Hide CleverType preview
+     */
+    private fun hideCleverTypePreview() {
+        cleverTypePreview?.let { preview ->
+            keyboardContainer?.removeView(preview)
+            preview.hide()
+        }
+    }
+    
+    /**
+     * Show CleverType tone selector
+     */
+    private fun showCleverTypeToneSelector() {
+        if (cleverTypeToneSelector == null) {
+            cleverTypeToneSelector = CleverTypeToneSelector(this).apply {
+                setOnToneSelectedListener { tone ->
+                    handleToneSelected(tone)
+                }
+                setOnCloseListener {
+                    hideCleverTypeToneSelector()
+                }
+            }
+        }
+        
+        // Add to keyboard container
+        keyboardContainer?.addView(cleverTypeToneSelector)
+        cleverTypeToneSelector?.show()
+    }
+    
+    /**
+     * Hide CleverType tone selector
+     */
+    private fun hideCleverTypeToneSelector() {
+        cleverTypeToneSelector?.let { selector ->
+            keyboardContainer?.removeView(selector)
+            selector.hide()
+        }
+    }
+    
+    /**
+     * Handle tone selection
+     */
+    private fun handleToneSelected(tone: CleverTypeAIService.ToneType) {
+        coroutineScope.launch {
+            try {
+                val selectedText = getSelectedText()
+                if (selectedText.isEmpty()) return@launch
+                
+                Log.d(TAG, "Tone selected: ${tone.displayName}")
+                
+                // Hide tone selector
+                hideCleverTypeToneSelector()
+                
+                // Show loading preview
+                showCleverTypePreview()
+                cleverTypePreview?.showLoading("Adjusting tone to ${tone.displayName}...")
+                
+                // Process with AI
+                val result = cleverTypeService.adjustTone(selectedText, tone)
+                
+                // Show preview
+                cleverTypePreview?.hideLoading()
+                cleverTypePreview?.showTonePreview(result)
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in tone adjustment", e)
+                Toast.makeText(this@AIKeyboardService, "Tone adjustment failed", Toast.LENGTH_SHORT).show()
+                hideCleverTypePreview()
+            }
+        }
+    }
+    
+    /**
+     * Apply processed text to input field
+     */
+    private fun applyProcessedText(processedText: String) {
+        val ic = currentInputConnection ?: return
+        
+        try {
+            // Get current selection
+            val selectedText = ic.getSelectedText(0)
+            
+            if (!selectedText.isNullOrEmpty()) {
+                // Replace selected text
+                ic.commitText(processedText, 1)
+            } else {
+                // If no selection, replace text around cursor
+                val beforeCursor = ic.getTextBeforeCursor(100, 0)?.toString() ?: ""
+                val afterCursor = ic.getTextAfterCursor(100, 0)?.toString() ?: ""
+                
+                // Simple replacement: delete some text and insert processed text
+                ic.deleteSurroundingText(beforeCursor.length, afterCursor.length)
+                ic.commitText(processedText, 1)
+            }
+            
+            Log.d(TAG, "Processed text applied: $processedText")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying processed text", e)
+        }
+    }
+    
+    /**
+     * Create rounded background for toolbar buttons
+     */
+    private fun createToolbarButtonBackground(color: Int): android.graphics.drawable.GradientDrawable {
+        return android.graphics.drawable.GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dpToPx(8).toFloat()
+            setStroke(dpToPx(1), Color.parseColor("#e8eaed"))
         }
     }
 }

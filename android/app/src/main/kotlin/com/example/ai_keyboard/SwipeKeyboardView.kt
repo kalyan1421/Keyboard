@@ -56,7 +56,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private val keyTextPaint = Paint().apply {
         isAntiAlias = true
         textAlign = Paint.Align.CENTER
-        textSize = 48f
+        textSize = 56f
         typeface = Typeface.DEFAULT
     }
     
@@ -171,17 +171,26 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     override fun onDraw(canvas: Canvas) {
-        // Draw custom themed keys
-        keyboard?.let { kbd ->
-            val keys = kbd.keys
-            keys?.forEach { key ->
-                drawThemedKey(canvas, key)
+        try {
+            // Draw custom themed keys
+            keyboard?.let { kbd ->
+                val keys = kbd.keys
+                keys?.forEach { key ->
+                    try {
+                        drawThemedKey(canvas, key)
+                    } catch (e: StringIndexOutOfBoundsException) {
+                        // Skip keys that cause issues with empty labels
+                    }
+                }
             }
-        }
-        
-        // Draw swipe trail if in progress
-        if (isSwipeInProgress && swipePoints.isNotEmpty()) {
-            canvas.drawPath(swipePath, swipePaint)
+            
+            // Draw swipe trail if in progress
+            if (isSwipeInProgress && swipePoints.isNotEmpty()) {
+                canvas.drawPath(swipePath, swipePaint)
+            }
+        } catch (e: Exception) {
+            // General drawing exception handling
+            // Continue with basic functionality
         }
     }
     
@@ -270,13 +279,13 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val centerX = keyRect.centerX()
         val centerY = keyRect.centerY()
         
-        if (key.label != null) {
+        if (key.label != null && key.label.isNotEmpty()) {
             // Much larger text sizing for better readability
             val textSize = when {
-                isSpaceKey -> 30f  // Smaller for space bar text
-                key.label.length > 3 -> 30f  // Larger for labels like "123"
-                key.label.length > 1 -> 30f  // Much larger for multi-char labels
-                else -> 32f  // Very large for single characters (letters/numbers)
+                isSpaceKey -> 36f  // Smaller for space bar text
+                key.label.length > 3 -> 36f  // Larger for labels like "123"
+                key.label.length > 1 -> 36f  // Much larger for multi-char labels
+                else -> 40f  // Very large for single characters (letters/numbers)
             }
             
             // Create Gboard-style text paint
@@ -359,12 +368,21 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     override fun onTouchEvent(me: MotionEvent): Boolean {
-        if (!swipeEnabled) {
-            return super.onTouchEvent(me)
+        return try {
+            if (!swipeEnabled) {
+                return super.onTouchEvent(me)
+            }
+            
+            val handled = handleSwipeTouch(me)
+            if (handled) true else super.onTouchEvent(me)
+        } catch (e: StringIndexOutOfBoundsException) {
+            // Handle the case where KeyboardView tries to access empty key labels
+            // This prevents crashes when caps lock is pressed
+            false
+        } catch (e: Exception) {
+            // General exception handling for touch events
+            false
         }
-        
-        val handled = handleSwipeTouch(me)
-        return if (handled) true else super.onTouchEvent(me)
     }
     
     private fun handleSwipeTouch(event: MotionEvent): Boolean {
