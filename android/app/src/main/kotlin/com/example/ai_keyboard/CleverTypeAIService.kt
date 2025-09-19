@@ -26,6 +26,30 @@ class CleverTypeAIService(private val context: Context) {
     private val config = OpenAIConfig.getInstance(context)
     private val cache = AIResponseCache(context)
     
+    init {
+        // Ensure API key is properly configured on service initialization
+        Log.d(TAG, "CleverTypeAIService initializing...")
+        try {
+            if (!config.hasApiKey() || config.getApiKey() == null) {
+                Log.w(TAG, "API key not found, force reinitializing...")
+                config.forceReinitializeApiKey()
+            } else {
+                Log.d(TAG, "API key exists: ${config.getApiKey()?.take(10)}...")
+            }
+            
+            val authHeader = config.getAuthorizationHeader()
+            Log.d(TAG, "Authorization header available: ${authHeader != null}")
+            
+            if (authHeader == null) {
+                Log.e(TAG, "Failed to get authorization header, forcing reinitialization...")
+                config.forceReinitializeApiKey()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during initialization", e)
+            config.forceReinitializeApiKey()
+        }
+    }
+    
     /**
      * Grammar correction result
      */
@@ -239,8 +263,22 @@ class CleverTypeAIService(private val context: Context) {
      */
     private suspend fun makeOpenAIRequest(systemPrompt: String, userText: String): String {
         return withContext(Dispatchers.IO) {
-            val authHeader = config.getAuthorizationHeader()
-                ?: throw Exception("API key not configured")
+            // Double-check API key configuration
+            var authHeader = config.getAuthorizationHeader()
+            if (authHeader == null) {
+                Log.w(TAG, "Authorization header is null, attempting to reinitialize API key...")
+                config.forceReinitializeApiKey()
+                authHeader = config.getAuthorizationHeader()
+            }
+            
+            if (authHeader == null) {
+                val apiKey = config.getApiKey()
+                Log.e(TAG, "API key retrieval failed:")
+                Log.e(TAG, "  - Has API key: ${config.hasApiKey()}")
+                Log.e(TAG, "  - API key length: ${apiKey?.length ?: 0}")
+                Log.e(TAG, "  - API key prefix: ${apiKey?.take(10) ?: "null"}")
+                throw Exception("API key not configured")
+            }
 
             val url = URL(OpenAIConfig.CHAT_COMPLETIONS_ENDPOINT)
             val connection = url.openConnection() as HttpURLConnection
