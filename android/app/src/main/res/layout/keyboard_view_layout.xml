@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.example.ai_keyboard.SwipeKeyboardView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/keyboard_view"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/key_background"
+    android:keyBackground="@drawable/key_background_stable"
+    android:keyTextSize="@dimen/key_text_size"
+    android:keyTextColor="@android:color/black"
+    android:labelTextSize="@dimen/key_label_text_size"
+    android:verticalCorrection="0dp"
+    android:shadowColor="@android:color/transparent"
+    android:shadowRadius="0" />
