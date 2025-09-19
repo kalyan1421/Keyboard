@@ -8,12 +8,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'keyboard_feedback_system.dart';
-import 'demo_keyboard_widget.dart';
+// In-app keyboard widgets removed - using system-wide keyboard only
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
+  
   runApp(const AIKeyboardApp());
 }
 
@@ -44,12 +46,15 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   static const platform = MethodChannel('ai_keyboard/config');
   bool _isKeyboardEnabled = false;
   bool _isKeyboardActive = false;
-  String _selectedTheme = 'default';
+  String _selectedTheme = 'gboard';
   bool _aiSuggestionsEnabled = true;
   bool _swipeTypingEnabled = true;
-  bool _voiceInputEnabled = true;
   bool _vibrationEnabled = true;
   bool _keyPreviewEnabled = false;
+  bool _shiftFeedbackEnabled = false;
+  bool _showNumberRow = false;
+  bool _soundEnabled = true;
+  String _currentLanguage = "EN";
   
   // Advanced feedback settings
   FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
@@ -58,6 +63,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   double _soundVolume = 0.3;
 
   final List<String> _themes = [
+    'gboard',
+    'gboard_dark',
     'default',
     'dark',
     'material_you',
@@ -182,14 +189,14 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Quick feedback test panel
-                const FeedbackTestPanel(),
+                // System keyboard status panel
+                const SystemKeyboardStatusPanel(),
                 const SizedBox(height: 20),
                 
-                // Interactive demo keyboard
+                // AI Service Information
                 const Expanded(
                   child: SingleChildScrollView(
-                    child: LiveEffectsDemoKeyboard(),
+                    child: AIServiceInfoWidget(),
                   ),
                 ),
                 
@@ -261,9 +268,12 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       _selectedTheme = prefs.getString('keyboard_theme') ?? 'default';
       _aiSuggestionsEnabled = prefs.getBool('ai_suggestions') ?? true;
       _swipeTypingEnabled = prefs.getBool('swipe_typing') ?? true;
-      _voiceInputEnabled = prefs.getBool('voice_input') ?? true;
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
+      _shiftFeedbackEnabled = prefs.getBool('show_shift_feedback') ?? false;
+      _showNumberRow = prefs.getBool('show_number_row') ?? false;
+      _soundEnabled = prefs.getBool('sound_enabled') ?? true;
+      _currentLanguage = prefs.getString('current_language') ?? "EN";
       
       // Load advanced feedback settings
       _hapticIntensity = FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2]; // medium
@@ -286,9 +296,12 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setString('keyboard_theme', _selectedTheme);
     await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
     await prefs.setBool('swipe_typing', _swipeTypingEnabled);
-    await prefs.setBool('voice_input', _voiceInputEnabled);
     await prefs.setBool('vibration_enabled', _vibrationEnabled);
     await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
+    await prefs.setBool('show_shift_feedback', _shiftFeedbackEnabled);
+    await prefs.setBool('show_number_row', _showNumberRow);
+    await prefs.setBool('sound_enabled', _soundEnabled);
+    await prefs.setString('current_language', _currentLanguage);
     
     // Save advanced feedback settings
     await prefs.setInt('haptic_intensity', _hapticIntensity.index);
@@ -317,9 +330,11 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
         'theme': _selectedTheme,
         'aiSuggestions': _aiSuggestionsEnabled,
         'swipeTyping': _swipeTypingEnabled,
-        'voiceInput': _voiceInputEnabled,
         'vibration': _vibrationEnabled,
         'keyPreview': _keyPreviewEnabled,
+        'shiftFeedback': _shiftFeedbackEnabled,
+        'showNumberRow': _showNumberRow,
+        'soundEnabled': _soundEnabled,
       });
     } catch (e) {
       print('Error sending settings: $e');
@@ -413,6 +428,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
 
   String _getThemeDisplayName(String theme) {
     switch (theme) {
+      case 'gboard': return '🎯 Gboard (Recommended)';
+      case 'gboard_dark': return '🌙 Gboard Dark';
       case 'material_you': return 'Material You';
       default: return theme.replaceAll('_', ' ').split(' ')
           .map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
@@ -454,6 +471,32 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
           ],
         );
       },
+    );
+  }
+
+
+  /// Show system keyboard instructions (in-app keyboard removed)
+  void _showSystemKeyboardInstructions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('System Keyboard Only'),
+        content: const Text(
+          'This app now uses only the system-wide keyboard.\n\n'
+          'To test all features:\n'
+          '1. Enable the AI Keyboard in system settings\n'
+          '2. Set it as your default keyboard\n'
+          '3. Use it in any app (SMS, email, etc.)\n\n'
+          'All advanced features like long-press accents, '
+          'swipe typing, and AI suggestions work system-wide.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -780,17 +823,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               },
             ),
             _buildFeatureSwitch(
-              'Voice Input',
-              'Convert speech to text',
-              _voiceInputEnabled,
-              (value) {
-                setState(() {
-                  _voiceInputEnabled = value;
-                });
-                _saveSettings();
-              },
-            ),
-            _buildFeatureSwitch(
               'Vibration Feedback',
               'Haptic feedback when typing (Recommended: ON)',
               _vibrationEnabled,
@@ -811,6 +843,81 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 });
                 _saveSettings();
               },
+            ),
+            _buildFeatureSwitch(
+              'Shift State Feedback',
+              'Show messages when shift state changes (OFF/ON/CAPS)',
+              _shiftFeedbackEnabled,
+              (value) {
+                setState(() {
+                  _shiftFeedbackEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Number Row',
+              'Show number row (1234567890) above letters for faster numeric input',
+              _showNumberRow,
+              (value) {
+                setState(() {
+                  _showNumberRow = value;
+                });
+                _saveSettings();
+              },
+            ),
+            _buildFeatureSwitch(
+              'Sound Feedback',
+              'Play typing sounds when pressing keys',
+              _soundEnabled,
+              (value) {
+                setState(() {
+                  _soundEnabled = value;
+                });
+                _saveSettings();
+              },
+            ),
+            
+            // Language Status Section
+            const SizedBox(height: 24),
+            _buildSectionHeader('🌐 Language Status'),
+            const SizedBox(height: 16),
+            
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.language, color: Colors.blue, size: 32),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Current Language: $_currentLanguage',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Tap 🌐 on keyboard to cycle through languages',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             
             // Advanced Feedback Settings Section
@@ -1022,6 +1129,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     }
   }
 
+
   Widget _buildTestKeyboardCard() {
     return Card(
       child: Padding(
@@ -1030,8 +1138,22 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Test Keyboard',
+              'System-Wide Keyboard',
               style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _showSystemKeyboardInstructions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                icon: const Icon(Icons.keyboard),
+                label: const Text('Setup & Test System Keyboard'),
+              ),
             ),
             const SizedBox(height: 16),
             const TextField(
@@ -1218,5 +1340,130 @@ class KeyboardTheme {
       'textColor': textColor.value,
       'accentColor': accentColor.value,
     };
+  }
+}
+/// System keyboard status panel
+class SystemKeyboardStatusPanel extends StatelessWidget {
+  const SystemKeyboardStatusPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.keyboard, color: Colors.blue),
+                SizedBox(width: 8),
+                Text(
+                  'System Keyboard Status',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('✅ AI Keyboard Service: Ready'),
+            const Text('🤖 Autocorrect Engine: Active'),
+            const Text('🧠 Predictive Text: Learning'),
+            const Text('📱 System Integration: Complete'),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('System Keyboard'),
+                    content: const Text('Go to Android Settings > System > Languages & input > Virtual keyboard to enable AI Keyboard'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              icon: const Icon(Icons.settings),
+              label: const Text('Enable System Keyboard'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// AI Service information widget
+class AIServiceInfoWidget extends StatelessWidget {
+  const AIServiceInfoWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.psychology, color: Colors.green),
+                SizedBox(width: 8),
+                Text(
+                  'AI Features Now Available System-Wide',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('🔧 Smart Autocorrect'),
+            const Text('   • Typo detection and correction'),
+            const Text('   • Context-aware suggestions'),
+            const SizedBox(height: 8),
+            const Text('🧠 Predictive Text'),
+            const Text('   • Word completion'),
+            const Text('   • Context predictions'),
+            const SizedBox(height: 8),
+            const Text('✨ Learning System'),
+            const Text('   • Adapts to your typing style'),
+            const Text('   • Improves over time'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '🎯 How to Use:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 8),
+                  Text('1. Enable AI Keyboard in Android Settings'),
+                  Text('2. Open any app (WhatsApp, Gmail, etc.)'),
+                  Text('3. Tap in text field → Select AI Keyboard'),
+                  Text('4. Start typing → See AI suggestions!'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

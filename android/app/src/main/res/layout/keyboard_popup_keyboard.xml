@@ -7,5 +7,5 @@
     android:keyTextSize="22sp"
     android:keyTextColor="#FF000000"
     android:labelTextSize="14sp"
-    android:popupLayout="@layout/keyboard_popup_keyboard"
+    android:popupLayout="@layout/keyboard_key_preview"
     android:verticalCorrection="0dp" />

@@ -115,6 +115,7 @@ class KeyboardFeedbackSystem {
   static FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
   static FeedbackIntensity _visualIntensity = FeedbackIntensity.medium;
   static double _soundVolume = 0.3;
+  static bool _soundEnabled = true;
   
   // Animation controllers cache
   static final Map<String, AnimationController> _animationControllers = {};
@@ -343,12 +344,16 @@ class KeyboardFeedbackSystem {
     }
     
     try {
-      await _audioPlayer.play(
-        AssetSource('sounds/$soundFile'),
-        volume: _soundVolume * _getIntensityMultiplier(_soundIntensity),
-      );
+      if (_soundEnabled) {
+        await _audioPlayer.play(
+          AssetSource('sounds/$soundFile'),
+          volume: _soundVolume * _getIntensityMultiplier(_soundIntensity),
+        );
+      }
     } catch (e) {
-      // Fallback to system sound - use haptic feedback instead
+      // Fallback to system sound - use haptic feedback instead and disable future sound attempts
+      print('Sound playback failed for $soundFile: $e');
+      _soundEnabled = false;
       HapticFeedback.lightImpact();
     }
   }
@@ -442,20 +447,28 @@ class KeyboardFeedbackSystem {
   }
   
   static void _preloadSounds() {
-    // Preload sound effects
-    final sounds = [
-      'key_press.wav',
-      'space_press.wav',
-      'enter_press.wav',
-      'special_key_press.wav',
-    ];
-    
-    for (final sound in sounds) {
-      try {
-        _audioPlayer.setSource(AssetSource('sounds/$sound'));
-      } catch (e) {
-        // Sound files not found, will use system sounds as fallback
+    // Preload sound effects - disabled to prevent crashes
+    try {
+      final sounds = [
+        'key_press.wav',
+        'space_press.wav', 
+        'enter_press.wav',
+        'special_key_press.wav',
+      ];
+      
+      for (final sound in sounds) {
+        try {
+          _audioPlayer.setSource(AssetSource('sounds/$sound'));
+          break; // Only load the first successful sound
+        } catch (e) {
+          // Sound files not found, continue to next or use system sounds as fallback
+          print('Could not load sound: $sound - $e');
+        }
       }
+    } catch (e) {
+      // Completely disable audio if there are any issues
+      print('Audio system disabled due to errors: $e');
+      _soundEnabled = false;
     }
   }
 }
