@@ -378,6 +378,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             setBackgroundResource(R.drawable.emoji_touch_feedback)
             
             setOnClickListener {
+                Log.d(TAG, "Emoji clicked: ${emoji.unicode}")
                 onEmojiSelected?.invoke(emoji.unicode)
                 emojiDatabase.recordEmojiUsage(emoji.unicode)
                 
@@ -388,13 +389,23 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             }
             
             setOnLongClickListener { view ->
+                Log.d(TAG, "Long press detected on emoji: ${emoji.unicode} with ${emoji.skinToneVariants.size} variants")
                 if (emoji.skinToneVariants.isNotEmpty()) {
                     showSkinTonePopup(emoji, view)
                     true
                 } else {
-                    // Show emoji description
-                    Toast.makeText(context, emoji.description, Toast.LENGTH_SHORT).show()
-                    true
+                    // Check if this emoji should have skin tone variants and generate them if missing
+                    val generatedVariants = generateSkinToneVariants(emoji.unicode)
+                    if (generatedVariants.isNotEmpty()) {
+                        val emojiWithVariants = emoji.copy(skinToneVariants = generatedVariants)
+                        Log.d(TAG, "Generated ${generatedVariants.size} skin tone variants for ${emoji.unicode}")
+                        showSkinTonePopup(emojiWithVariants, view)
+                        true
+                    } else {
+                        // Show emoji description for emojis without skin tone variants
+                        Toast.makeText(context, emoji.description, Toast.LENGTH_SHORT).show()
+                        true
+                    }
                 }
             }
         }
@@ -417,6 +428,48 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     
     fun setOnKeyboardSwitchRequestedListener(listener: () -> Unit) {
         onKeyboardSwitchRequested = listener
+    }
+    
+    private fun generateSkinToneVariants(baseEmoji: String): List<String> {
+        // List of emojis that support skin tone modifiers
+        val skinToneSupportedEmojis = listOf(
+            "👋", "🤚", "🖐", "✋", "🖖", "👌", "🤌", "🤏", "✌", "🤞", "🤟", "🤘", "🤙",
+            "👈", "👉", "👆", "🖕", "👇", "☝", "👍", "👎", "✊", "👊", "🤛", "🤜",
+            "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍", "💅", "🤳", "💪", "🦾", "🦿",
+            "🦵", "🦶", "👂", "🦻", "👃", "👶", "👧", "🧒", "👦", "👩", "🧑", "👨",
+            "👩‍🦱", "🧑‍🦱", "👨‍🦱", "👩‍🦰", "🧑‍🦰", "👨‍🦰", "👱‍♀️", "👱", "👱‍♂️",
+            "👩‍🦳", "🧑‍🦳", "👨‍🦳", "👩‍🦲", "🧑‍🦲", "👨‍🦲", "🧔", "👵", "🧓", "👴",
+            "👲", "👳‍♀️", "👳", "👳‍♂️", "🧕", "👮‍♀️", "👮", "👮‍♂️", "👷‍♀️", "👷", "👷‍♂️",
+            "💂‍♀️", "💂", "💂‍♂️", "🕵‍♀️", "🕵", "🕵‍♂️", "👩‍⚕️", "🧑‍⚕️", "👨‍⚕️",
+            "👩‍🌾", "🧑‍🌾", "👨‍🌾", "👩‍🍳", "🧑‍🍳", "👨‍🍳", "👩‍🎓", "🧑‍🎓", "👨‍🎓",
+            "👩‍🎤", "🧑‍🎤", "👨‍🎤", "👩‍🏫", "🧑‍🏫", "👨‍🏫", "👩‍🏭", "🧑‍🏭", "👨‍🏭",
+            "👩‍💻", "🧑‍💻", "👨‍💻", "👩‍💼", "🧑‍💼", "👨‍💼", "👩‍🔧", "🧑‍🔧", "👨‍🔧",
+            "👩‍🔬", "🧑‍🔬", "👨‍🔬", "👩‍🎨", "🧑‍🎨", "👨‍🎨", "👩‍🚒", "🧑‍🚒", "👨‍🚒",
+            "👩‍✈️", "🧑‍✈️", "👨‍✈️", "👩‍🚀", "🧑‍🚀", "👨‍🚀", "👩‍⚖️", "🧑‍⚖️", "👨‍⚖️",
+            "👰", "🤵", "👸", "🤴", "🦸‍♀️", "🦸", "🦸‍♂️", "🦹‍♀️", "🦹", "🦹‍♂️",
+            "🤶", "🎅", "🧙‍♀️", "🧙", "🧙‍♂️", "🧝‍♀️", "🧝", "🧝‍♂️", "🧛‍♀️", "🧛", "🧛‍♂️",
+            "🧟‍♀️", "🧟", "🧟‍♂️", "🧞‍♀️", "🧞", "🧞‍♂️", "🧜‍♀️", "🧜", "🧜‍♂️",
+            "🙍‍♀️", "🙍", "🙍‍♂️", "🙎‍♀️", "🙎", "🙎‍♂️", "🙅‍♀️", "🙅", "🙅‍♂️",
+            "🙆‍♀️", "🙆", "🙆‍♂️", "💁‍♀️", "💁", "💁‍♂️", "🙋‍♀️", "🙋", "🙋‍♂️",
+            "🧏‍♀️", "🧏", "🧏‍♂️", "🙇‍♀️", "🙇", "🙇‍♂️", "🤦‍♀️", "🤦", "🤦‍♂️",
+            "🤷‍♀️", "🤷", "🤷‍♂️", "💆‍♀️", "💆", "💆‍♂️", "💇‍♀️", "💇", "💇‍♂️",
+            "🚶‍♀️", "🚶", "🚶‍♂️", "🧍‍♀️", "🧍", "🧍‍♂️", "🧎‍♀️", "🧎", "🧎‍♂️",
+            "🏃‍♀️", "🏃", "🏃‍♂️", "💃", "🕺", "🕴", "👯‍♀️", "👯", "👯‍♂️",
+            "🧖‍♀️", "🧖", "🧖‍♂️", "🧗‍♀️", "🧗", "🧗‍♂️", "🤺", "🏇", "⛷",
+            "🏂", "🏌‍♀️", "🏌", "🏌‍♂️", "🏄‍♀️", "🏄", "🏄‍♂️", "🚣‍♀️", "🚣", "🚣‍♂️",
+            "🏊‍♀️", "🏊", "🏊‍♂️", "⛹‍♀️", "⛹", "⛹‍♂️", "🏋‍♀️", "🏋", "🏋‍♂️",
+            "🚴‍♀️", "🚴", "🚴‍♂️", "🚵‍♀️", "🚵", "🚵‍♂️", "🤸‍♀️", "🤸", "🤸‍♂️",
+            "🤼‍♀️", "🤼", "🤼‍♂️", "🤽‍♀️", "🤽", "🤽‍♂️", "🤾‍♀️", "🤾", "🤾‍♂️",
+            "🤹‍♀️", "🤹", "🤹‍♂️", "🧘‍♀️", "🧘", "🧘‍♂️", "🛀", "🛌"
+        )
+        
+        // Check if this emoji supports skin tones
+        if (skinToneSupportedEmojis.contains(baseEmoji)) {
+            val skinToneModifiers = listOf("🏻", "🏼", "🏽", "🏾", "🏿")
+            return skinToneModifiers.map { modifier -> baseEmoji + modifier }
+        }
+        
+        return emptyList()
     }
     
     private fun dpToPx(dp: Int): Int {
@@ -493,8 +546,10 @@ class SkinTonePopup(private val context: Context) {
     
     fun showForEmoji(emoji: EmojiData, anchorView: View, onEmojiSelected: (String) -> Unit) {
         try {
-        val popupLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+            Log.d(TAG, "Showing skin tone popup for emoji: ${emoji.unicode} with ${emoji.skinToneVariants.size} variants")
+            
+            val popupLayout = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
                 setBackgroundResource(R.drawable.skin_tone_popup_bg)
                 setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
                 elevation = dpToPx(8).toFloat()
@@ -505,6 +560,7 @@ class SkinTonePopup(private val context: Context) {
             
             // Add skin tone variants
             emoji.skinToneVariants.forEach { variant ->
+                Log.d(TAG, "Adding skin tone variant: $variant")
                 addEmojiVariant(popupLayout, variant, onEmojiSelected)
             }
             
@@ -515,18 +571,24 @@ class SkinTonePopup(private val context: Context) {
                 true
             ).apply {
                 elevation = dpToPx(8).toFloat()
-                setBackgroundDrawable(null)
+                setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
                 isOutsideTouchable = true
                 isFocusable = true
                 
-                // Show above the anchor view
+                // Calculate position to show above the anchor view
                 val location = IntArray(2)
-                anchorView.getLocationInWindow(location)
-                showAsDropDown(anchorView, 0, -anchorView.height - dpToPx(60))
+                anchorView.getLocationOnScreen(location)
+                val popupHeight = dpToPx(60)
+                val yOffset = -anchorView.height - popupHeight
+                
+                Log.d(TAG, "Showing popup at offset: $yOffset")
+                showAsDropDown(anchorView, 0, yOffset)
             }
             
         } catch (e: Exception) {
             Log.e(TAG, "Error showing skin tone popup", e)
+            // Show a toast as fallback to indicate the issue
+            android.widget.Toast.makeText(context, "Skin tone variants: ${emoji.skinToneVariants.size}", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -540,6 +602,7 @@ class SkinTonePopup(private val context: Context) {
             layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
             
             setOnClickListener {
+                Log.d(TAG, "Skin tone variant selected: $emoji")
                 onSelected(emoji)
                 dismiss()
             }
