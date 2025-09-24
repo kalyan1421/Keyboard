@@ -77,14 +77,15 @@ class CleverTypeAIService(private val context: Context) {
     }
     
     /**
-     * Tone adjustment result
+     * Tone adjustment result with multiple variations
      */
     data class ToneResult(
         val originalText: String,
         val adjustedText: String,
         val tone: ToneType,
         val processingTimeMs: Long,
-        val fromCache: Boolean = false
+        val fromCache: Boolean = false,
+        val variations: List<String> = listOf(adjustedText) // Default to single variation for backwards compatibility
     )
     
     /**
@@ -159,64 +160,93 @@ class CleverTypeAIService(private val context: Context) {
     }
     
     /**
-     * Adjust text tone (CleverType-style)
+     * Adjust text tone with 3 variations (enhanced CleverType-style)
      */
     suspend fun adjustTone(text: String, tone: ToneType): ToneResult {
         val startTime = System.currentTimeMillis()
         
         return withContext(Dispatchers.IO) {
             try {
-                // Check cache first
-                val cacheKey = "tone_${tone.name}_${text.hashCode()}"
+                // Check cache first for variations
+                val cacheKey = "tone_variations_${tone.name}_${text.hashCode()}"
                 cache.get(cacheKey)?.let { cachedResponse ->
-                    Log.d(TAG, "Tone adjustment from cache")
+                    Log.d(TAG, "Tone variations from cache")
+                    val variations = cachedResponse.split("|||").filter { it.isNotBlank() }
                     return@withContext ToneResult(
                         originalText = text,
-                        adjustedText = cachedResponse,
+                        adjustedText = variations.firstOrNull()?.trim() ?: text,
                         tone = tone,
                         processingTimeMs = System.currentTimeMillis() - startTime,
-                        fromCache = true
+                        fromCache = true,
+                        variations = variations.map { it.trim() }
                     )
                 }
                 
-                // Build tone adjustment prompt
+                // Build enhanced tone adjustment prompt for 3 variations
                 val systemPrompt = """
-                    You are a text tone adjustment assistant. Your task is to rewrite text in a specific tone while:
-                    1. Preserving the core meaning
-                    2. Maintaining appropriate length
-                    3. Using natural language
-                    4. Matching the requested tone perfectly
+                    You are a text tone adjustment assistant. Your task is to rewrite the same text in 3 different variations of the requested tone.
                     
-                    Return ONLY the rewritten text, nothing else.
+                    Requirements:
+                    1. Generate exactly 3 distinct variations
+                    2. All variations should match the requested tone perfectly  
+                    3. Preserve the core meaning in all versions
+                    4. Make each variation unique but appropriate
+                    5. Use natural, conversational language
+                    6. Maintain similar length to the original
+                    
+                    Format your response as 3 separate lines, each containing one variation.
                 """.trimIndent()
                 
-                val userPrompt = "Rewrite this text in a ${tone.displayName.lowercase()} tone (${tone.description}):\n\n$text"
+                val userPrompt = """Generate 3 ${tone.displayName.lowercase()} variations (${tone.description}) of this text:
                 
-                // Make API request
+$text
+
+Return exactly 3 variations, one per line."""
+                
+                // Make API request for multiple variations
                 val response = makeOpenAIRequest(systemPrompt, userPrompt)
                 
-                // Cache the response
-                cache.put(cacheKey, response)
+                // Parse response into variations
+                val variations = response.split('\n').filter { it.trim().isNotEmpty() }.take(3)
+                
+                // Ensure we have at least one variation
+                val finalVariations = if (variations.isEmpty()) {
+                    // Fallback: generate single variation with original prompt
+                    val fallbackPrompt = "Rewrite this text in a ${tone.displayName.lowercase()} tone (${tone.description}):\n\n$text"
+                    val fallbackResponse = makeOpenAIRequest(
+                        "You are a text tone adjustment assistant. Return ONLY the rewritten text, nothing else.",
+                        fallbackPrompt
+                    )
+                    listOf(fallbackResponse.trim())
+                } else {
+                    variations.map { it.trim() }
+                }
+                
+                // Cache the variations (join with separator)
+                val cacheValue = finalVariations.joinToString("|||")
+                cache.put(cacheKey, cacheValue)
                 
                 val processingTime = System.currentTimeMillis() - startTime
-                Log.d(TAG, "Tone adjustment completed in ${processingTime}ms")
+                Log.d(TAG, "Tone adjustment with ${finalVariations.size} variations completed in ${processingTime}ms")
                 
                 ToneResult(
                     originalText = text,
-                    adjustedText = response.trim(),
+                    adjustedText = finalVariations.first(),
                     tone = tone,
                     processingTimeMs = processingTime,
-                    fromCache = false
+                    fromCache = false,
+                    variations = finalVariations
                 )
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error in tone adjustment", e)
+                Log.e(TAG, "Error in tone adjustment with variations", e)
                 ToneResult(
                     originalText = text,
                     adjustedText = text,
                     tone = tone,
                     processingTimeMs = System.currentTimeMillis() - startTime,
-                    fromCache = false
+                    fromCache = false,
+                    variations = listOf(text)
                 )
             }
         }

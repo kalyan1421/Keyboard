@@ -65,7 +65,7 @@ class MultilingualAutocorrectEngine(private val context: Context) {
                 original = word,
                 suggestion = correction.correctedWord,
                 confidence = correction.confidence,
-                type = CorrectionType.DIRECT,
+                type = MultilingualCorrectionType.DIRECT,
                 language = targetLanguage
             ))
         }
@@ -83,7 +83,7 @@ class MultilingualAutocorrectEngine(private val context: Context) {
             val detectedLanguage = languageDetector.detectWordLanguage(word)
             if (detectedLanguage != null && detectedLanguage != targetLanguage && enabledLanguages.contains(detectedLanguage)) {
                 val crossLanguageCorrections = getCorrections(word, context, detectedLanguage)
-                suggestions.addAll(crossLanguageCorrections.map { it.copy(type = CorrectionType.CROSS_LANGUAGE) })
+                suggestions.addAll(crossLanguageCorrections.map { it.copy(type = MultilingualCorrectionType.CROSS_LANGUAGE) })
             }
         }
         
@@ -125,7 +125,7 @@ class MultilingualAutocorrectEngine(private val context: Context) {
                             original = word,
                             suggestion = candidate,
                             confidence = confidence,
-                            type = CorrectionType.EDIT_DISTANCE,
+                            type = MultilingualCorrectionType.EDIT_DISTANCE,
                             language = language
                         ))
                     }
@@ -159,7 +159,7 @@ class MultilingualAutocorrectEngine(private val context: Context) {
                             original = word,
                             suggestion = candidate,
                             confidence = confidence,
-                            type = CorrectionType.PHONETIC,
+                            type = MultilingualCorrectionType.PHONETIC,
                             language = language
                         ))
                     }
@@ -501,14 +501,14 @@ data class CorrectionSuggestion(
     val original: String,
     val suggestion: String,
     var confidence: Double,
-    val type: CorrectionType,
+    val type: MultilingualCorrectionType,
     val language: String
 )
 
 /**
- * Types of corrections
+ * Types of corrections for multilingual system
  */
-enum class CorrectionType {
+enum class MultilingualCorrectionType {
     DIRECT,           // Direct dictionary correction
     EDIT_DISTANCE,    // Based on edit distance
     PHONETIC,         // Based on phonetic similarity

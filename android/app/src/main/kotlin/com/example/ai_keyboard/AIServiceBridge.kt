@@ -142,15 +142,12 @@ class AIServiceBridge private constructor() {
                     callback.onSuggestionsReady(suggestions)
                 }
                 
-                // Handle autocorrect
+                // Handle autocorrect with new API
                 if (isEnhancedMode && autocorrectEngine != null) {
-                    val shouldCorrect = autocorrectEngine!!.shouldAutocorrect(currentWord)
-                    if (shouldCorrect) {
-                        val correction = autocorrectEngine!!.getBestAutocorrect(currentWord, context)
-                        if (correction != null && correction != currentWord) {
-                            withContext(Dispatchers.Main) {
-                                callback.onCorrectionReady(currentWord, correction, 0.9)
-                            }
+                    val result = autocorrectEngine!!.processBoundary(currentWord)
+                    if (result.shouldAutoCorrect && result.topCorrection != null) {
+                        withContext(Dispatchers.Main) {
+                            callback.onCorrectionReady(currentWord, result.topCorrection!!, 0.9)
                         }
                     }
                 } else {
@@ -245,9 +242,17 @@ class AIServiceBridge private constructor() {
                 ))
             }
             
-            // Get autocorrect suggestions if word might be misspelled
-            if (currentWord.isNotEmpty() && autocorrectEngine?.shouldAutocorrect(currentWord) == true) {
-                val corrections = autocorrectEngine?.getAutocorrectSuggestions(currentWord) ?: emptyList()
+            // Get autocorrect suggestions using new API
+            if (currentWord.isNotEmpty() && autocorrectEngine != null) {
+                val candidates = autocorrectEngine!!.getCandidates(currentWord)
+                val corrections = candidates.drop(1).map { candidate ->
+                    AutocorrectSuggestion(
+                        word = candidate.word,
+                        confidence = candidate.confidence,
+                        editDistance = candidate.editDistance,
+                        type = CorrectionType.EDIT_DISTANCE
+                    )
+                }
                 
                 corrections.take(2).forEach { correction ->
                     if (!suggestions.any { it.word == correction.word }) {

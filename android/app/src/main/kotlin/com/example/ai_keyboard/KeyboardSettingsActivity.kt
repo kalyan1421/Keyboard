@@ -2,11 +2,11 @@ package com.example.ai_keyboard
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.widget.CheckBox
-import android.widget.CompoundButton
-import android.widget.LinearLayout
+import android.widget.*
+import com.google.android.material.button.MaterialButton
 
 class KeyboardSettingsActivity : Activity() {
     
@@ -16,6 +16,9 @@ class KeyboardSettingsActivity : Activity() {
     private lateinit var keyPreviewCheckbox: CheckBox
     private lateinit var aiSuggestionsCheckbox: CheckBox
     private lateinit var voiceInputCheckbox: CheckBox
+    private lateinit var autoCapitalizationCheckbox: CheckBox
+    private lateinit var contextAwareCapitalizationCheckbox: CheckBox
+    private lateinit var shiftFeedbackCheckbox: CheckBox
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +69,26 @@ class KeyboardSettingsActivity : Activity() {
         }
         layout.addView(voiceInputCheckbox)
         
+        // Auto-capitalization setting
+        autoCapitalizationCheckbox = CheckBox(this).apply {
+            text = "Auto-Capitalization"
+        }
+        layout.addView(autoCapitalizationCheckbox)
+        
+        // Context-aware capitalization setting
+        contextAwareCapitalizationCheckbox = CheckBox(this).apply {
+            text = "Context-Aware Capitalization"
+        }
+        layout.addView(contextAwareCapitalizationCheckbox)
+        
+        // Shift feedback setting
+        shiftFeedbackCheckbox = CheckBox(this).apply {
+            text = "Show Shift State Feedback"
+        }
+        layout.addView(shiftFeedbackCheckbox)
+        
+        // Note: Theme editing is now handled in the Flutter app
+        
         setContentView(layout)
     }
     
@@ -75,6 +98,9 @@ class KeyboardSettingsActivity : Activity() {
         keyPreviewCheckbox.isChecked = settings.getBoolean("key_preview_enabled", false)
         aiSuggestionsCheckbox.isChecked = settings.getBoolean("ai_suggestions", true)
         voiceInputCheckbox.isChecked = settings.getBoolean("voice_input", true)
+        autoCapitalizationCheckbox.isChecked = settings.getBoolean("auto_capitalization", true)
+        contextAwareCapitalizationCheckbox.isChecked = settings.getBoolean("context_aware_capitalization", true)
+        shiftFeedbackCheckbox.isChecked = settings.getBoolean("show_shift_feedback", false)
     }
     
     private fun setupListeners() {
@@ -87,6 +113,9 @@ class KeyboardSettingsActivity : Activity() {
         keyPreviewCheckbox.setOnCheckedChangeListener(listener)
         aiSuggestionsCheckbox.setOnCheckedChangeListener(listener)
         voiceInputCheckbox.setOnCheckedChangeListener(listener)
+        autoCapitalizationCheckbox.setOnCheckedChangeListener(listener)
+        contextAwareCapitalizationCheckbox.setOnCheckedChangeListener(listener)
+        shiftFeedbackCheckbox.setOnCheckedChangeListener(listener)
     }
     
     private fun saveSettings() {
@@ -96,6 +125,9 @@ class KeyboardSettingsActivity : Activity() {
             putBoolean("key_preview_enabled", keyPreviewCheckbox.isChecked)
             putBoolean("ai_suggestions", aiSuggestionsCheckbox.isChecked)
             putBoolean("voice_input", voiceInputCheckbox.isChecked)
+            putBoolean("auto_capitalization", autoCapitalizationCheckbox.isChecked)
+            putBoolean("context_aware_capitalization", contextAwareCapitalizationCheckbox.isChecked)
+            putBoolean("show_shift_feedback", shiftFeedbackCheckbox.isChecked)
             apply()
         }
     }

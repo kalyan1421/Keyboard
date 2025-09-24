@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'predictive_engine.dart';
+import 'theme_manager.dart';
 
 /// Animated suggestion bar widget for displaying autocorrect and predictive text
 class SuggestionBarWidget extends StatefulWidget {
@@ -35,6 +36,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
 
   List<PredictionResult> _currentSuggestions = [];
   List<PredictionResult> _previousSuggestions = [];
+  final FlutterThemeManager _themeManager = FlutterThemeManager.instance;
 
   @override
   void initState() {
@@ -92,49 +94,54 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
       return SizedBox(height: widget.height);
     }
 
-    return Container(
-      height: widget.height,
-      padding: widget.padding,
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).dividerColor,
-            width: 0.5,
-          ),
-        ),
-      ),
-      child: SlideTransition(
-        position: _slideAnimation,
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Row(
-            children: [
-              Expanded(
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _currentSuggestions.length,
-                  itemBuilder: (context, index) {
-                    final suggestion = _currentSuggestions[index];
-                    return _buildSuggestionChip(suggestion, index);
-                  },
-                ),
+    return ListenableBuilder(
+      listenable: _themeManager,
+      builder: (context, _) {
+        final theme = _themeManager.currentTheme;
+        
+        return Container(
+          height: widget.height,
+          padding: widget.padding,
+          decoration: BoxDecoration(
+            color: theme.suggestionBarColor,
+            border: Border(
+              bottom: BorderSide(
+                color: theme.keyTextColor.withOpacity(0.2),
+                width: 0.5,
               ),
-              if (_currentSuggestions.isNotEmpty)
-                _buildDismissButton(),
-            ],
+            ),
           ),
-        ),
-      ),
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _currentSuggestions.length,
+                      itemBuilder: (context, index) {
+                        final suggestion = _currentSuggestions[index];
+                        return _buildSuggestionChip(suggestion, index, theme);
+                      },
+                    ),
+                  ),
+                  if (_currentSuggestions.isNotEmpty)
+                    _buildDismissButton(theme),
+                ],
+              ),
+            ),
+          ),
     );
   }
 
-  Widget _buildSuggestionChip(PredictionResult suggestion, int index) {
+  Widget _buildSuggestionChip(PredictionResult suggestion, int index, KeyboardThemeData theme) {
     final isCorrection = suggestion.isCorrection;
     final isHighConfidence = suggestion.confidence > 0.8;
     
-    Color chipColor = _getChipColor(suggestion);
-    Color textColor = _getTextColor(suggestion);
+    Color chipColor = _getChipColor(suggestion, theme);
+    Color textColor = _getTextColor(suggestion, theme);
     
     return Padding(
       padding: const EdgeInsets.only(right: 8.0),
@@ -147,7 +154,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
             color: chipColor,
             borderRadius: BorderRadius.circular(20.0),
             border: isCorrection
-                ? Border.all(color: Colors.orange, width: 1.5)
+                ? Border.all(color: theme.accentColor, width: 1.5)
                 : null,
             boxShadow: isHighConfidence
                 ? [
@@ -166,7 +173,8 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
                 suggestion.word,
                 style: TextStyle(
                   color: textColor,
-                  fontSize: 16.0,
+                  fontSize: theme.fontSize,
+                  fontFamily: theme.fontFamily,
                   fontWeight: isCorrection ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
@@ -203,62 +211,38 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
     );
   }
 
-  Widget _buildDismissButton() {
+  Widget _buildDismissButton(KeyboardThemeData theme) {
     return GestureDetector(
       onTap: _dismissSuggestions,
       child: Container(
         padding: const EdgeInsets.all(8.0),
         child: Icon(
           Icons.keyboard_arrow_down,
-          color: Theme.of(context).iconTheme.color?.withOpacity(0.6),
+          color: theme.keyTextColor.withOpacity(0.6),
           size: 20.0,
         ),
       ),
     );
   }
 
-  Color _getChipColor(PredictionResult suggestion) {
+  Color _getChipColor(PredictionResult suggestion, KeyboardThemeData theme) {
     if (suggestion.isCorrection) {
       return suggestion.confidence > 0.8
-          ? Colors.orange.shade100
-          : Colors.orange.shade50;
+          ? theme.accentColor.withOpacity(0.3)
+          : theme.accentColor.withOpacity(0.1);
     }
     
-    switch (suggestion.source) {
-      case PredictionSource.prefix:
-        return Colors.blue.shade50;
-      case PredictionSource.bigram:
-      case PredictionSource.trigram:
-        return Colors.green.shade50;
-      case PredictionSource.pattern:
-        return Colors.purple.shade50;
-      case PredictionSource.frequent:
-        return Colors.grey.shade100;
-      case PredictionSource.autocorrect:
-        return Colors.orange.shade100;
-    }
+    return theme.keyBackgroundColor.withOpacity(0.8);
   }
 
-  Color _getTextColor(PredictionResult suggestion) {
+  Color _getTextColor(PredictionResult suggestion, KeyboardThemeData theme) {
     if (suggestion.isCorrection) {
       return suggestion.confidence > 0.8
-          ? Colors.orange.shade800
-          : Colors.orange.shade600;
+          ? theme.accentColor
+          : theme.accentColor.withOpacity(0.8);
     }
     
-    switch (suggestion.source) {
-      case PredictionSource.prefix:
-        return Colors.blue.shade700;
-      case PredictionSource.bigram:
-      case PredictionSource.trigram:
-        return Colors.green.shade700;
-      case PredictionSource.pattern:
-        return Colors.purple.shade700;
-      case PredictionSource.frequent:
-        return Colors.grey.shade700;
-      case PredictionSource.autocorrect:
-        return Colors.orange.shade700;
-    }
+    return theme.keyTextColor;
   }
 
   Color _getConfidenceColor(double confidence) {

@@ -89,32 +89,33 @@ class KeyboardLayoutManager(private val context: Context) {
         // Map resource names to actual XML resource IDs
         val resourceId = when (resourceName) {
             // QWERTY layouts
-            "qwerty_letters.xml" -> R.xml.qwerty_google
-            "qwerty_symbols.xml" -> R.xml.symbols_google
+            "qwerty_letters.xml" -> R.xml.qwerty
+            "qwerty_with_numbers.xml" -> R.xml.qwerty_with_numbers
+            "qwerty_symbols.xml" -> R.xml.symbols
             "qwerty_numbers.xml" -> R.xml.numbers
             
             // AZERTY layouts  
-            "azerty_letters.xml" -> R.xml.azerty_google
-            "azerty_symbols.xml" -> R.xml.symbols_google
+            "azerty_letters.xml" -> R.xml.qwerty
+            "azerty_symbols.xml" -> R.xml.symbols
             "azerty_numbers.xml" -> R.xml.numbers
             
             // QWERTZ layouts
-            "qwertz_letters.xml" -> R.xml.qwertz_google
-            "qwertz_symbols.xml" -> R.xml.symbols_google
+            "qwertz_letters.xml" -> R.xml.qwerty
+            "qwertz_symbols.xml" -> R.xml.symbols
             "qwertz_numbers.xml" -> R.xml.numbers
             
             // Devanagari layouts
-            "devanagari_letters.xml" -> R.xml.devanagari_google
-            "devanagari_symbols.xml" -> R.xml.symbols_google
+            "devanagari_letters.xml" -> R.xml.qwerty
+            "devanagari_symbols.xml" -> R.xml.symbols
             "devanagari_numbers.xml" -> R.xml.numbers
             
             // Generic fallbacks
-            "symbols.xml" -> R.xml.symbols_google
+            "symbols.xml" -> R.xml.symbols
             "numbers.xml" -> R.xml.numbers
             
             else -> {
                 Log.w(TAG, "Unknown resource name: $resourceName, using QWERTY fallback")
-                R.xml.qwerty_google
+                R.xml.qwerty
             }
         }
         
@@ -142,7 +143,7 @@ class KeyboardLayoutManager(private val context: Context) {
      * Create QWERTY letters keyboard programmatically
      */
     private fun createQwertyLettersKeyboard(): Keyboard {
-        val keyboard = Keyboard(context, R.xml.qwerty_google)
+        val keyboard = Keyboard(context, R.xml.qwerty)
         
         // Customize keys based on current language if needed
         val languageConfig = LanguageConfigs.getLanguageConfig(currentLanguage)
@@ -157,7 +158,7 @@ class KeyboardLayoutManager(private val context: Context) {
      * Create symbols keyboard programmatically
      */
     private fun createSymbolsKeyboard(): Keyboard {
-        return Keyboard(context, R.xml.symbols_google)
+        return Keyboard(context, R.xml.symbols)
     }
     
     /**

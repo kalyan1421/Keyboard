@@ -25,8 +25,24 @@ class KeyboardViewController: UIInputViewController {
         ["123", "globe", "space", "return"]
     ]
     
-    private var isShifted = false
-    private var isCapsLock = false
+    // Enhanced Shift State Management (3-State FSM)
+    private enum ShiftState {
+        case normal      // 0 - Default lowercase
+        case shift       // 1 - Single uppercase (next character only)
+        case capsLock    // 2 - Continuous uppercase
+    }
+    
+    private var shiftState: ShiftState = .normal
+    private var lastShiftPressTime: TimeInterval = 0
+    private var doubleTapTimeout: TimeInterval = 0.3
+    
+    // Backward compatibility
+    private var isShifted: Bool {
+        return shiftState != .normal
+    }
+    private var isCapsLock: Bool {
+        return shiftState == .capsLock
+    }
     
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
@@ -207,25 +223,80 @@ class KeyboardViewController: UIInputViewController {
         // Add visual feedback animation
         animateKeyPress(sender)
         
-        let character = isShifted || isCapsLock ? title.uppercased() : title.lowercased()
-        textDocumentProxy.insertText(character)
-        
-        // Handle shift state
-        if isShifted && !isCapsLock {
-            isShifted = false
+        // Enhanced character handling with new shift state system
+        let character: String
+        switch shiftState {
+        case .normal:
+            character = title.lowercased()
+        case .shift:
+            character = title.uppercased()
+            // Auto-reset to normal after single character (except for caps lock)
+            shiftState = .normal
             updateShiftKey()
+        case .capsLock:
+            character = title.uppercased()
         }
+        
+        textDocumentProxy.insertText(character)
     }
     
     @objc private func shiftPressed() {
-        if isShifted {
-            // Double tap for caps lock
-            isCapsLock = !isCapsLock
-            isShifted = isCapsLock
-        } else {
-            isShifted = true
+        let now = Date().timeIntervalSince1970
+        
+        // Enhanced 3-State Shift Management: normal -> shift -> capsLock -> normal
+        switch shiftState {
+        case .normal:
+            // Single tap: Activate shift for next character only
+            shiftState = .shift
+            lastShiftPressTime = now
+            showShiftFeedback("Shift ON")
+            
+        case .shift:
+            if now - lastShiftPressTime < doubleTapTimeout {
+                // Double tap detected within timeout - activate caps lock
+                shiftState = .capsLock
+                showShiftFeedback("CAPS LOCK")
+            } else {
+                // Single tap after timeout - turn off shift
+                shiftState = .normal
+                lastShiftPressTime = now
+                showShiftFeedback("Shift OFF")
+            }
+            
+        case .capsLock:
+            // Any tap from caps lock - turn off completely
+            shiftState = .normal
+            showShiftFeedback("CAPS LOCK OFF")
         }
+        
         updateShiftKey()
+        provideShiftHapticFeedback()
+    }
+    
+    private func showShiftFeedback(_ message: String) {
+        // Show feedback if enabled in settings
+        if settingsManager.shiftFeedbackEnabled {
+            print("Shift State: \(message)")
+            // In a real implementation, you might show a brief toast or visual indicator
+        }
+    }
+    
+    private func provideShiftHapticFeedback() {
+        if settingsManager.vibrationEnabled {
+            let intensity: UIImpactFeedbackGenerator.FeedbackStyle
+            
+            switch shiftState {
+            case .normal:
+                intensity = .light      // Light vibration for turning off
+            case .shift:
+                intensity = .medium     // Medium vibration for shift on
+            case .capsLock:
+                intensity = .heavy      // Strong vibration for caps lock
+            }
+            
+            let impactFeedback = UIImpactFeedbackGenerator(style: intensity)
+            impactFeedback.impactOccurred()
+        }
     }
     
     @objc private func deletePressed() {
@@ -251,16 +322,25 @@ class KeyboardViewController: UIInputViewController {
         
         textDocumentProxy.insertText(" ")
         
-        // Auto-capitalize after sentence ending
-        if let textBefore = textDocumentProxy.documentContextBeforeInput,
+        // Enhanced auto-capitalize after sentence ending (if enabled)
+        if settingsManager.autoCapitalizationEnabled,
+           let textBefore = textDocumentProxy.documentContextBeforeInput,
            textBefore.hasSuffix(". ") || textBefore.hasSuffix("! ") || textBefore.hasSuffix("? ") {
-            isShifted = true
-            updateShiftKey()
+            if shiftState == .normal {
+                shiftState = .shift
+                updateShiftKey()
+            }
         }
     }
     
     @objc private func returnPressed() {
         textDocumentProxy.insertText("\n")
+        
+        // Auto-capitalize after new line (if enabled)
+        if settingsManager.autoCapitalizationEnabled && shiftState == .normal {
+            shiftState = .shift
+            updateShiftKey()
+        }
     }
     
     @objc private func numbersPressed() {
@@ -286,7 +366,36 @@ class KeyboardViewController: UIInputViewController {
                 updateShiftButton(in: subview)
             }
         } else if let button = view as? UIButton, button.currentTitle == "⇧" {
-            button.backgroundColor = (isShifted || isCapsLock) ? UIColor.systemBlue : UIColor.systemGray4
+            // Enhanced visual feedback based on shift state
+            switch shiftState {
+            case .normal:
+                // Normal state - dim/unhighlighted
+                button.backgroundColor = UIColor.systemGray4
+                button.tintColor = UIColor.label
+                button.alpha = 0.7
+                
+            case .shift:
+                // Shift state - highlighted once
+                button.backgroundColor = UIColor.systemBlue
+                button.tintColor = UIColor.white
+                button.alpha = 1.0
+                
+            case .capsLock:
+                // Caps lock - strongly highlighted with underline effect
+                button.backgroundColor = UIColor.systemOrange
+                button.tintColor = UIColor.white
+                button.alpha = 1.0
+                
+                // Add visual indicator for caps lock (could be an underline or border)
+                button.layer.borderWidth = 2.0
+                button.layer.borderColor = UIColor.systemOrange.cgColor
+            }
+            
+            // Remove border for non-caps lock states
+            if shiftState != .capsLock {
+                button.layer.borderWidth = 0
+                button.layer.borderColor = UIColor.clear.cgColor
+            }
         }
     }
     

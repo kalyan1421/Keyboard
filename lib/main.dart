@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 import 'keyboard_feedback_system.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   // Initialize the advanced feedback system
@@ -46,7 +46,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   static const platform = MethodChannel('ai_keyboard/config');
   bool _isKeyboardEnabled = false;
   bool _isKeyboardActive = false;
-  String _selectedTheme = 'gboard';
   bool _aiSuggestionsEnabled = true;
   bool _swipeTypingEnabled = true;
   bool _vibrationEnabled = true;
@@ -61,16 +60,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
   FeedbackIntensity _visualIntensity = FeedbackIntensity.medium;
   double _soundVolume = 0.3;
-
-  final List<String> _themes = [
-    'gboard',
-    'gboard_dark',
-    'default',
-    'dark',
-    'material_you',
-    'professional',
-    'colorful'
-  ];
 
   @override
   void initState() {
@@ -265,7 +254,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _selectedTheme = prefs.getString('keyboard_theme') ?? 'default';
+      // Theme removed - using default keyboard styling
       _aiSuggestionsEnabled = prefs.getBool('ai_suggestions') ?? true;
       _swipeTypingEnabled = prefs.getBool('swipe_typing') ?? true;
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
@@ -293,7 +282,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('keyboard_theme', _selectedTheme);
+    // Theme removed - using default styling only
     await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
     await prefs.setBool('swipe_typing', _swipeTypingEnabled);
     await prefs.setBool('vibration_enabled', _vibrationEnabled);
@@ -327,7 +316,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   Future<void> _sendSettingsToKeyboard() async {
     try {
       await platform.invokeMethod('updateSettings', {
-        'theme': _selectedTheme,
+        'theme': 'default',
         'aiSuggestions': _aiSuggestionsEnabled,
         'swipeTyping': _swipeTypingEnabled,
         'vibration': _vibrationEnabled,
@@ -426,15 +415,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     }
   }
 
-  String _getThemeDisplayName(String theme) {
-    switch (theme) {
-      case 'gboard': return '🎯 Gboard (Recommended)';
-      case 'gboard_dark': return '🌙 Gboard Dark';
-      case 'material_you': return 'Material You';
-      default: return theme.replaceAll('_', ' ').split(' ')
-          .map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
-    }
-  }
+  // Theme methods removed - using single default keyboard
 
   void _showIOSInstructions() {
     showDialog(
@@ -520,7 +501,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               _buildIOSSetupCard(),
               const SizedBox(height: 20),
             ],
-            _buildThemeSelectionCard(),
+            // Theme selection removed - using single default keyboard
             const SizedBox(height: 20),
             _buildFeaturesCard(),
             const SizedBox(height: 20),
@@ -750,43 +731,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     );
   }
 
-  Widget _buildThemeSelectionCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Keyboard Theme',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              children: _themes.map((theme) {
-                return ChoiceChip(
-                  label: Text(_getThemeDisplayName(theme)),
-                  selected: _selectedTheme == theme,
-                  onSelected: (selected) {
-                    setState(() {
-                      _selectedTheme = theme;
-                    });
-                    _saveSettings();
-                  },
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Current theme: ${_getThemeDisplayName(_selectedTheme)}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Theme selection UI removed - using single default keyboard
 
   Widget _buildFeaturesCard() {
     return Card(
@@ -1186,7 +1131,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue[800]),
                   ),
                   const SizedBox(height: 8),
-                  const Text('• Try different themes from above'),
+                  const Text('• Use swipe gestures for typing'),
                   const Text('• Use swipe gestures for quick actions'),
                   const Text('• Test AI suggestions while typing'),
                   const Text('• Try caps lock (double-tap shift)'),
@@ -1271,77 +1216,7 @@ class AIService {
   }
 }
 
-// Keyboard theme configuration
-class KeyboardTheme {
-  final String name;
-  final Color backgroundColor;
-  final Color keyColor;
-  final Color textColor;
-  final Color accentColor;
-
-  KeyboardTheme({
-    required this.name,
-    required this.backgroundColor,
-    required this.keyColor,
-    required this.textColor,
-    required this.accentColor,
-  });
-
-  static KeyboardTheme getTheme(String themeName) {
-    switch (themeName) {
-      case 'dark':
-        return KeyboardTheme(
-          name: 'Dark',
-          backgroundColor: const Color(0xFF1E1E1E),
-          keyColor: const Color(0xFF2D2D2D),
-          textColor: Colors.white,
-          accentColor: Colors.blue,
-        );
-      case 'material_you':
-        return KeyboardTheme(
-          name: 'Material You',
-          backgroundColor: const Color(0xFF6750A4),
-          keyColor: const Color(0xFF7C4DFF),
-          textColor: Colors.white,
-          accentColor: const Color(0xFFBB86FC),
-        );
-      case 'professional':
-        return KeyboardTheme(
-          name: 'Professional',
-          backgroundColor: const Color(0xFF37474F),
-          keyColor: const Color(0xFF455A64),
-          textColor: Colors.white,
-          accentColor: const Color(0xFF26A69A),
-        );
-      case 'colorful':
-        return KeyboardTheme(
-          name: 'Colorful',
-          backgroundColor: const Color(0xFFE1F5FE),
-          keyColor: const Color(0xFF81D4FA),
-          textColor: const Color(0xFF0D47A1),
-          accentColor: const Color(0xFFFF6B35),
-        );
-      default:
-        return KeyboardTheme(
-          name: 'Default',
-          backgroundColor: const Color(0xFFF5F5F5),
-          keyColor: Colors.white,
-          textColor: Colors.black87,
-          accentColor: Colors.blue,
-        );
-    }
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'name': name,
-      'backgroundColor': backgroundColor.value,
-      'keyColor': keyColor.value,
-      'textColor': textColor.value,
-      'accentColor': accentColor.value,
-    };
-  }
-}
+// Theme configuration removed - using single default keyboard style
 /// System keyboard status panel
 class SystemKeyboardStatusPanel extends StatelessWidget {
   const SystemKeyboardStatusPanel({super.key});

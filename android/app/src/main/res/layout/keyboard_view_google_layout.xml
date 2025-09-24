@@ -4,6 +4,7 @@
     android:id="@+id/keyboard_view"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:fitsSystemWindows="true"
     android:keyBackground="@drawable/key_background_stable"
     android:keyPreviewLayout="@layout/keyboard_key_preview"
     android:keyPreviewOffset="-12dp"

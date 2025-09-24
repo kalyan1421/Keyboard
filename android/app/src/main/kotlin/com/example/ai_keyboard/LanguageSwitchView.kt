@@ -43,7 +43,7 @@ class LanguageSwitchView @JvmOverloads constructor(
         
         // Set background and text colors
         try {
-            setBackgroundResource(R.drawable.language_switch_background)
+            setBackgroundResource(R.drawable.key_background_default)
             setTextColor(context.resources.getColor(R.color.language_switch_text_color))
         } catch (e: Exception) {
             Log.w(TAG, "Could not set themed colors, using defaults", e)
@@ -165,7 +165,7 @@ class LanguageSwitchView @JvmOverloads constructor(
                     // Highlight current language
                     if (isCurrentLanguage) {
                         try {
-                            setBackgroundResource(R.drawable.suggestion_background)
+                            setBackgroundResource(R.drawable.key_background_default)
                         } catch (e: Exception) {
                             setBackgroundColor(0xFFE3F2FD.toInt()) // Light blue background
                         }

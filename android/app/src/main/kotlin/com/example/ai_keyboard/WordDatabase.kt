@@ -369,6 +369,18 @@ class WordDatabase private constructor(context: Context) : SQLiteOpenHelper(cont
         }
     }
     
+    fun getWordFrequency(word: String): Int {
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT $WORD_FREQUENCY FROM $TABLE_WORDS WHERE $WORD_TEXT = ? LIMIT 1", arrayOf(word.lowercase()))
+        cursor.use {
+            return if (it.moveToFirst()) {
+                it.getInt(0)
+            } else {
+                0
+            }
+        }
+    }
+    
     // Bigram operations
     fun addBigram(word1: String, word2: String) {
         val db = writableDatabase
@@ -628,4 +640,22 @@ enum class SuggestionType {
     BIGRAM,
     TRIGRAM,
     USER
+}
+
+/**
+ * Extension to get words by prefix for swipe typing
+ */
+fun WordDatabase.getWordsByPrefix(prefix: String, limit: Int = 50): List<String> {
+    val words = mutableListOf<String>()
+    val db = readableDatabase
+    val cursor = db.rawQuery(
+        "SELECT word_text FROM words WHERE word_text LIKE ? ORDER BY frequency DESC LIMIT ?",
+        arrayOf("${prefix.lowercase()}%", limit.toString())
+    )
+    cursor.use {
+        while (it.moveToNext()) {
+            words.add(it.getString(0))
+        }
+    }
+    return words
 }

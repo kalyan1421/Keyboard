@@ -308,7 +308,7 @@ class AIFeaturesPanel(context: Context) : LinearLayout(context) {
             setBackgroundColor(Color.parseColor(tone.color))
             
             // Add rounded corners
-            background = context.getDrawable(R.drawable.tone_button_background)?.apply {
+            background = context.getDrawable(R.drawable.key_background_default)?.apply {
                 setTint(Color.parseColor(tone.color))
             }
             
@@ -676,7 +676,7 @@ class AIFeaturesPanel(context: Context) : LinearLayout(context) {
                 layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                     setMargins(dpToPx(0), dpToPx(4), dpToPx(0), dpToPx(4))
                 }
-                setBackgroundResource(R.drawable.space_button_background)
+                setBackgroundResource(R.drawable.key_background_default)
                 
                 setOnClickListener {
                     onSmartReplySelected?.invoke(reply)

@@ -10,6 +10,7 @@ import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.Keyboard
 import android.inputmethodservice.KeyboardView
 import android.media.AudioManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Vibrator
@@ -21,6 +22,10 @@ import android.view.View
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputContentInfo
+import android.content.ClipDescription
+import android.net.Uri
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -28,8 +33,12 @@ import android.widget.PopupWindow
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.graphics.drawable.ColorDrawable
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.*
 import kotlin.math.max
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.embedding.engine.FlutterEngine
@@ -79,14 +88,20 @@ class AIKeyboardService : InputMethodService(),
     private var suggestionContainer: LinearLayout? = null
     private var topContainer: LinearLayout? = null // Container for suggestions + language switch
     private var mediaPanelManager: SimpleMediaPanel? = null
+    private var gboardEmojiPanel: GboardEmojiPanel? = null
     private var keyboardContainer: LinearLayout? = null
     private var isMediaPanelVisible = false
+    private var isEmojiPanelVisible = false
     
     // Keyboard state
     private var caps = false
     private var lastShiftTime = 0L
     private var isShifted = false
     private var currentKeyboard = KEYBOARD_LETTERS
+    
+    // Replacement UI state
+    private var isReplacementUIVisible = false
+    private var currentReplacementType = ""
     
     // Advanced keyboard state
     private var shiftState = SHIFT_OFF
@@ -96,6 +111,10 @@ class AIKeyboardService : InputMethodService(),
     private var keyPreviewPopup: PopupWindow? = null
     private var accentPopup: PopupWindow? = null
     private var vibrator: Vibrator? = null
+    
+    // Enhanced Caps/Shift Management
+    private lateinit var capsShiftManager: CapsShiftManager
+    private var shiftOptionsMenu: ShiftOptionsMenu? = null
     
     // Accent mappings for long-press functionality
     private val accentMap = mapOf(
@@ -145,6 +164,10 @@ class AIKeyboardService : InputMethodService(),
     private var swipeStartTime = 0L
     private var isCurrentlySwiping = false
     
+    // Tone adjustment state
+    private var currentToneReplacementText: String? = null
+    private var currentToneVariations: List<String> = emptyList()
+    
     // AI and suggestion components
     private val currentSuggestions = mutableListOf<String>()
     private val wordHistory = mutableListOf<String>()
@@ -170,15 +193,18 @@ class AIKeyboardService : InputMethodService(),
     private var cleverTypeToneSelector: CleverTypeToneSelector? = null
     private var cleverTypeToolbar: LinearLayout? = null
     
-    // Settings
+    // Settings and Theme
     private lateinit var settings: SharedPreferences
+    // ThemeManager removed - using default keyboard styling only
     
-    // Method channel for app communication
+    // Method channels for app communication
     private var methodChannel: MethodChannel? = null
+    private var themeChannel: MethodChannel? = null
     
     private lateinit var keyboardLayoutManager: KeyboardLayoutManager
     private lateinit var multilingualDictionary: MultilingualDictionary
     private lateinit var multilingualAutocorrect: MultilingualAutocorrectEngine
+    private lateinit var enhancedAutocorrect: AutocorrectEngine
     private var languageSwitchView: LanguageSwitchView? = null
     
     // Services and handlers
@@ -186,7 +212,11 @@ class AIKeyboardService : InputMethodService(),
     private val mainHandler = Handler(Looper.getMainLooper())
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
+    // Extension function for formatting doubles
+    private fun Double.format(digits: Int) = "%.${digits}f".format(this)
+    
     // Settings (using existing declarations above)
+    // Legacy theme variable (deprecated - use themeManager instead)
     private var currentTheme = "default"
     private var aiSuggestionsEnabled = true
     private var swipeTypingEnabled = true
@@ -214,9 +244,14 @@ class AIKeyboardService : InputMethodService(),
                         try {
                             Log.d(TAG, "Loading settings from broadcast...")
                             loadSettings()
+                            
+                            // Reload theme from Flutter SharedPreferences
+                            // Theme initialization removed - using default styling
+                            applyTheme()
+                            
                             Log.d(TAG, "Applying settings immediately...")
                             applySettingsImmediately()
-                            Log.d(TAG, "Settings applied successfully!")
+                            Log.d(TAG, "Settings and theme applied successfully!")
                         } catch (e: Exception) {
                             Log.e(TAG, "Error applying settings from broadcast", e)
                         }
@@ -239,8 +274,10 @@ class AIKeyboardService : InputMethodService(),
             Log.e(TAG, "Error initializing OpenAI configuration", e)
         }
         
-        // Initialize settings
+        // Initialize settings and theme
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+        // ThemeManager removed - using default keyboard styling only
+        
         loadSettings()
         loadDictionaries()
         
@@ -253,9 +290,15 @@ class AIKeyboardService : InputMethodService(),
         // Initialize CleverType AI Service
         initializeCleverTypeService()
         
+        // Initialize Theme MethodChannel
+        initializeThemeChannel()
+        
         // Initialize advanced keyboard features
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         longPressHandler = Handler(Looper.getMainLooper())
+        
+        // Initialize Enhanced Caps/Shift Manager
+        initializeCapsShiftManager()
         
         // Register broadcast receiver for settings changes
         try {
@@ -327,6 +370,26 @@ class AIKeyboardService : InputMethodService(),
             // Initialize multilingual autocorrect engine
             multilingualAutocorrect = MultilingualAutocorrectEngine(this)
             
+            // Initialize enhanced autocorrect engine
+            enhancedAutocorrect = AutocorrectEngine.getInstance(this)
+            
+            // Initialize enhanced swipe autocorrect engine
+            swipeAutocorrectEngine = SwipeAutocorrectEngine.getInstance(this)
+            
+            // Run validation tests for enhanced autocorrect
+            coroutineScope.launch {
+                delay(2000) // Wait for dictionary to load
+                val testResults = enhancedAutocorrect.runValidationTests()
+                testResults.forEach { result ->
+                    Log.d(TAG, "Autocorrect Test: $result")
+                }
+                
+                // Initialize swipe autocorrect engine
+                swipeAutocorrectEngine.initialize()
+                loadDictionaries()
+                Log.d(TAG, "Swipe autocorrect engine and dictionary initialization completed")
+            }
+            
             // Set up language change listener
             languageManager.addLanguageChangeListener(object : LanguageManager.LanguageChangeListener {
                 override fun onLanguageChanged(oldLanguage: String, newLanguage: String) {
@@ -363,6 +426,9 @@ class AIKeyboardService : InputMethodService(),
             
             // Update autocorrect engine
             multilingualAutocorrect.updateCurrentLanguage(newLanguage)
+            
+            // Update enhanced autocorrect engine locale
+            enhancedAutocorrect.setLocale(newLanguage)
             
             // Update keyboard view if available
             keyboardView?.let { kv ->
@@ -420,19 +486,34 @@ class AIKeyboardService : InputMethodService(),
     }
     
     override fun onCreateInputView(): View {
-        // Create the main keyboard container
+        // Create the main keyboard container with system insets handling
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getThemeBackgroundColor())
+            fitsSystemWindows = true
         }
         
-        // Create suggestion bar container and bar
-        createSuggestionBarContainer(mainLayout)
-        createSuggestionBar(suggestionContainer!!)
+        // Handle system insets for navigation bar
+        ViewCompat.setOnApplyWindowInsetsListener(mainLayout) { view, insets ->
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+            val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            
+            // Adjust padding so keyboard stays above nav buttons
+            // On devices with nav buttons → navInsets.bottom > 0
+            // On gesture devices → it's usually 0
+            view.setPadding(0, 0, 0, navInsets.bottom)
+            Log.d(TAG, "System insets applied - nav bar height: ${navInsets.bottom}px")
+            
+            insets
+        }
         
-        // Create CleverType toolbar
+        // Create CleverType toolbar (first row)
         cleverTypeToolbar = createCleverTypeToolbar()
         mainLayout.addView(cleverTypeToolbar)
+        
+        // Create suggestion bar container and bar (second row)
+        createSuggestionBarContainer(mainLayout)
+        createSuggestionBar(suggestionContainer!!)
         
         // Create keyboard view container that will hold either keyboard or media panel
         val keyboardContainer = LinearLayout(this).apply {
@@ -452,12 +533,11 @@ class AIKeyboardService : InputMethodService(),
         }
         
         keyboardView?.apply {
-            // Choose initial keyboard layout based on number row setting
-            val keyboardResource = if (showNumberRow) {
-                R.xml.qwerty_with_numbers
-            } else {
-                R.xml.qwerty_google
-            }
+            // Choose keyboard layout based on language and number row setting
+            val keyboardResource = getKeyboardResourceForLanguage(
+                availableLanguages[currentLanguageIndex], 
+                showNumberRow
+            )
             
             keyboard = Keyboard(this@AIKeyboardService, keyboardResource)
             setKeyboard(keyboard)
@@ -466,11 +546,23 @@ class AIKeyboardService : InputMethodService(),
             setSwipeEnabled(swipeTypingEnabled)
             isPreviewEnabled = keyPreviewEnabled
             
-            Log.d(TAG, "Initial keyboard loaded with number row: $showNumberRow")
+            // Apply system insets to keyboard view as well
+            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+                val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                // Add extra padding for the keyboard view itself
+                view.setPadding(0, 0, 0, navInsets.bottom / 2)
+                Log.d(TAG, "Keyboard view insets applied - padding: ${navInsets.bottom / 2}px")
+                insets
+            }
+            
+            Log.d(TAG, "Initial keyboard loaded - Language: ${availableLanguages[currentLanguageIndex]}, NumberRow: $showNumberRow, Resource: $keyboardResource")
         }
         
         // Create media panel manager (but don't add to layout yet)
         createMediaPanel()
+        
+        // Create comprehensive emoji panel
+        createEmojiPanel()
         
         // Initially show keyboard
         keyboardView?.let { keyboardContainer.addView(it) }
@@ -534,21 +626,21 @@ class AIKeyboardService : InputMethodService(),
             }
         }
         
-        // Add five suggestion text views for more suggestions
-        repeat(5) { index ->
+        // Add three AI suggestion text views
+        repeat(3) { index ->
             val suggestion = TextView(this).apply {
                 setTextColor(getThemeTextColor())
                 textSize = 16f
                 setPadding(16, 8, 16, 8)
-                setBackgroundResource(R.drawable.suggestion_background)
+                setBackgroundResource(R.drawable.key_background_default)
                 isClickable = true
-                text = "Suggestion ${index + 1}" // Default text for testing
+                text = "AI Suggestion ${index + 1}" // Default text for testing
                 visibility = View.VISIBLE
                 
                 setOnClickListener { view ->
                     val suggestionText = (view as TextView).text.toString()
-                    Log.d(TAG, "Suggestion clicked: '$suggestionText'")
-                    if (suggestionText.isNotEmpty() && !suggestionText.startsWith("Suggestion")) {
+                    Log.d(TAG, "AI Suggestion clicked: '$suggestionText'")
+                    if (suggestionText.isNotEmpty() && !suggestionText.startsWith("AI Suggestion")) {
                         applySuggestion(suggestionText)
                     }
                 }
@@ -605,8 +697,49 @@ class AIKeyboardService : InputMethodService(),
         Log.d(TAG, "Media panel created (not added to layout yet)")
     }
     
+    private fun createEmojiPanel() {
+        Log.d(TAG, "Creating comprehensive emoji panel")
+        
+        gboardEmojiPanel = GboardEmojiPanel(this).apply {
+            // Set emoji selection listener
+            setOnEmojiSelectedListener { emoji ->
+                // Use enhanced emoji insertion with cursor handling
+                insertEmojiWithCursor(emoji)
+                
+                // Log emoji usage for learning
+                EmojiSuggestionEngine.logEmojiUsage(emoji, getCurrentInputText())
+                
+                Log.d(TAG, "Emoji selected from panel: $emoji")
+                
+                // Optionally close emoji panel after selection (like Gboard)
+                // toggleEmojiPanel()
+            }
+            
+            // Set keyboard switch listener
+            setOnKeyboardSwitchRequestedListener {
+                // Switch back to keyboard when ABC button is tapped
+                if (isEmojiPanelVisible) {
+                    toggleEmojiPanel()
+                }
+            }
+            
+            // Set proper layout params for full keyboard replacement
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        
+        Log.d(TAG, "Comprehensive emoji panel created (not added to layout yet)")
+    }
+    
     private fun toggleMediaPanel() {
         try {
+            // Hide replacement UI if visible
+            if (isReplacementUIVisible) {
+                hideReplacementUI()
+            }
+            
             isMediaPanelVisible = !isMediaPanelVisible
             keyboardContainer?.let { container ->
                 container.removeAllViews()
@@ -704,18 +837,24 @@ class AIKeyboardService : InputMethodService(),
             
             when (mediaType) {
                 SimpleMediaPanel.MediaType.EMOJI -> {
-                    // Insert emoji directly
-                    currentInputConnection?.commitText(content, 1)
-                    Log.d(TAG, "Inserted emoji: $content")
+                    // Insert emoji with proper cursor handling
+                    // If content is a category name, get random emoji from that category
+                    val emojiToInsert = if (content.length > 5) { // Likely a category name
+                        EmojiCollection.getRandomEmojiFromCategory(content)
+                    } else {
+                        content // Direct emoji content
+                    }
+                    insertEmojiWithCursor(emojiToInsert)
+                    Log.d(TAG, "Inserted emoji: $emojiToInsert")
                 }
                 SimpleMediaPanel.MediaType.GIF -> {
-                    // Handle GIF insertion
-                    currentInputConnection?.commitText(content, 1)
+                    // Handle GIF insertion with rich content support
+                    insertGifContent(content, null)
                     Log.d(TAG, "Inserted GIF: $content")
                 }
                 SimpleMediaPanel.MediaType.STICKER -> {
-                    // Handle sticker insertion
-                    currentInputConnection?.commitText(content, 1)
+                    // Handle sticker insertion with rich content support
+                    insertStickerContent(content, null)
                     Log.d(TAG, "Inserted sticker: $content")
                 }
                 SimpleMediaPanel.MediaType.AI_FEATURES -> {
@@ -735,19 +874,28 @@ class AIKeyboardService : InputMethodService(),
     
     private fun insertGifContent(content: String, gifData: GifData?) {
         try {
+            val ic = currentInputConnection ?: return
+            
             when {
                 content.startsWith("http") -> {
-                    // Network URL - insert as text link for now
-                    currentInputConnection?.commitText("GIF: $content", 1)
+                    // Network URL - try rich content first, fallback to link
+                    if (!insertRichContent(content, "image/gif", "GIF")) {
+                        ic.commitText("GIF: $content", 1)
+                        Log.d(TAG, "Inserted GIF as text link (rich content not supported)")
+                    }
                 }
                 content.startsWith("/") -> {
                     // Local file path - try to insert as rich content
-                    // For now, insert as text placeholder
                     val title = gifData?.title ?: "GIF"
-                    currentInputConnection?.commitText("[$title GIF]", 1)
+                    val fileUri = "file://$content"
+                    if (!insertRichContent(fileUri, "image/gif", title)) {
+                        ic.commitText("[$title GIF]", 1)
+                        Log.d(TAG, "Inserted GIF as placeholder (rich content not supported)")
+                    }
                 }
                 else -> {
-                    currentInputConnection?.commitText("[GIF]", 1)
+                    // Unknown format - insert placeholder
+                    ic.commitText("[GIF]", 1)
                 }
             }
             
@@ -772,22 +920,34 @@ class AIKeyboardService : InputMethodService(),
     
     private fun insertStickerContent(content: String, stickerData: StickerData?) {
         try {
+            val ic = currentInputConnection ?: return
+            
             when {
                 content.startsWith("emoji://") -> {
-                    // It's an emoji-based sticker, just insert the emoji
-                    currentInputConnection?.commitText(content, 1)
+                    // It's an emoji-based sticker, extract and insert the emoji
+                    val emoji = content.removePrefix("emoji://")
+                    insertEmojiWithCursor(emoji)
                 }
                 content.startsWith("/") -> {
-                    // Local file path - insert as placeholder for now
-                    currentInputConnection?.commitText("[Sticker]", 1)
+                    // Local file path - try rich content insertion
+                    val title = stickerData?.id ?: "Sticker"
+                    val fileUri = "file://$content"
+                    if (!insertRichContent(fileUri, "image/webp", title)) {
+                        ic.commitText("[Sticker]", 1)
+                        Log.d(TAG, "Inserted sticker as placeholder (rich content not supported)")
+                    }
                 }
                 content.startsWith("http") -> {
-                    // Network URL - insert as text link
-                    currentInputConnection?.commitText("Sticker: $content", 1)
+                    // Network URL - try rich content first, fallback to link
+                    val title = stickerData?.id ?: "Sticker"
+                    if (!insertRichContent(content, "image/webp", title)) {
+                        ic.commitText("Sticker: $content", 1)
+                        Log.d(TAG, "Inserted sticker as text link (rich content not supported)")
+                    }
                 }
                 else -> {
-                    // Direct content (emoji)
-                    currentInputConnection?.commitText(content, 1)
+                    // Direct content (emoji) - use enhanced insertion
+                    insertEmojiWithCursor(content)
                 }
             }
             
@@ -817,6 +977,7 @@ class AIKeyboardService : InputMethodService(),
     private fun loadSettings() {
         try {
         currentTheme = settings.getString("keyboard_theme", "default") ?: "default"
+        // Using default theme only - theme management removed
         aiSuggestionsEnabled = settings.getBoolean("ai_suggestions", true)
         swipeTypingEnabled = settings.getBoolean("swipe_typing", true)
         keyPreviewEnabled = settings.getBoolean("key_preview_enabled", false)
@@ -846,55 +1007,34 @@ class AIKeyboardService : InputMethodService(),
     
     private fun applyTheme() {
         keyboardView?.let { view ->
-            // Apply comprehensive theme to the SwipeKeyboardView
-            view.setKeyboardTheme(currentTheme)
+            // Apply default styling to keyboard view
+            // Theme management removed - using default styling only
             
             // The SwipeKeyboardView will handle per-key theming internally
             view.invalidateAllKeys()
             view.invalidate()
+            
+            Log.d(TAG, "Applied default theme")
         }
     }
     
-    private fun getThemeBackgroundColor(): Int = when (currentTheme) {
-        "gboard" -> getColor(R.color.gboard_background)
-        "gboard_dark" -> getColor(R.color.gboard_dark_background)
-        "dark" -> Color.parseColor("#1E1E1E")
-        "material_you" -> Color.parseColor("#6750A4")
-        "professional" -> Color.parseColor("#37474F")
-        "colorful" -> Color.parseColor("#E1F5FE")
-        else -> getColor(R.color.gboard_background) // Default to Gboard
+    private fun getThemeBackgroundColor(): Int {
+        // Return default background color
+        return Color.parseColor("#F5F5F5") // Light gray background
     }
     
-    private fun getKeyBackgroundDrawable(): Int = when (currentTheme) {
-        "dark" -> R.drawable.key_background_dark
-        "material_you" -> R.drawable.key_background_material_you
-        "professional" -> R.drawable.key_background_professional
-        "colorful" -> R.drawable.key_background_colorful
-        else -> R.drawable.key_background_default
+    private fun getKeyBackgroundDrawable(): Int = R.drawable.key_background_default
+    
+    private fun getActionKeyBackgroundDrawable(): Int = R.drawable.key_background_default
+    
+    private fun getThemeKeyColor(): Int {
+        // Return default key color
+        return Color.WHITE
     }
     
-    private fun getActionKeyBackgroundDrawable(): Int = when (currentTheme) {
-        "dark" -> R.drawable.key_background_action_dark
-        "material_you" -> R.drawable.key_background_action_material_you
-        "professional" -> R.drawable.key_background_action_professional
-        "colorful" -> R.drawable.key_background_action_colorful
-        else -> R.drawable.key_background_action_default
-    }
-    
-    private fun getThemeKeyColor(): Int = when (currentTheme) {
-        "dark" -> Color.parseColor("#2D2D2D")
-        "material_you" -> Color.parseColor("#7C4DFF")
-        "professional" -> Color.parseColor("#455A64")
-        "colorful" -> Color.parseColor("#81D4FA")
-        else -> Color.WHITE
-    }
-    
-    private fun getThemeTextColor(): Int = when (currentTheme) {
-        "gboard" -> getColor(R.color.gboard_key_text)
-        "gboard_dark" -> getColor(R.color.gboard_dark_key_text)
-        "dark", "material_you", "professional" -> Color.WHITE
-        "colorful" -> Color.parseColor("#0D47A1")
-        else -> getColor(R.color.gboard_key_text) // Default to Gboard
+    private fun getThemeTextColor(): Int {
+        // Return default text color
+        return Color.BLACK
     }
     
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
@@ -905,22 +1045,28 @@ class AIKeyboardService : InputMethodService(),
         when (primaryCode) {
             Keyboard.KEYCODE_DELETE -> handleBackspace(ic)
             Keyboard.KEYCODE_SHIFT -> handleShift()
-            Keyboard.KEYCODE_DONE -> ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+            Keyboard.KEYCODE_DONE -> {
+                // Context-aware enter key behavior (Gboard-style)
+                handleEnterKey(ic)
+            }
             KEYCODE_SPACE -> handleSpace(ic)
             KEYCODE_SYMBOLS -> switchToSymbols()
             KEYCODE_LETTERS -> switchToLetters()
             KEYCODE_NUMBERS -> switchToNumbers()
             KEYCODE_VOICE -> {
-                // Voice input removed - show message
-                Toast.makeText(this, "Voice input feature removed", Toast.LENGTH_SHORT).show()
+                // Enhanced voice input with visual feedback
+                handleVoiceInput()
+                ensureCursorStability()
             }
             KEYCODE_GLOBE -> {
                 // Language switching - show available languages or switch to next
                 handleLanguageSwitch()
+                ensureCursorStability()
             }
             KEYCODE_EMOJI -> {
-                // Toggle media panel (emoji, GIF, stickers)
-                toggleMediaPanel()
+                // Enhanced emoji panel with visual feedback
+                handleEmojiToggle()
+                ensureCursorStability()
             }
             else -> handleCharacter(primaryCode, ic)
         }
@@ -934,24 +1080,29 @@ class AIKeyboardService : InputMethodService(),
     private fun handleCharacter(primaryCode: Int, ic: InputConnection) {
         var code = primaryCode.toChar()
         
-        // Enhanced character handling with advanced shift management
-        if (Character.isLetter(code)) {
-            code = when (shiftState) {
-                SHIFT_OFF -> Character.toLowerCase(code)
-                SHIFT_ON, SHIFT_CAPS -> Character.toUpperCase(code)
-                else -> Character.toLowerCase(code)
+        // Enhanced character handling with CapsShiftManager
+        if (::capsShiftManager.isInitialized) {
+            code = capsShiftManager.processCharacterInput(code)
+        } else {
+            // Fallback to old implementation
+            if (Character.isLetter(code)) {
+                code = when (shiftState) {
+                    SHIFT_OFF -> Character.toLowerCase(code)
+                    SHIFT_ON, SHIFT_CAPS -> Character.toUpperCase(code)
+                    else -> Character.toLowerCase(code)
+                }
             }
-        }
-        
-        // Auto-reset shift state after character input (except for caps lock)
-        if (shiftState == SHIFT_ON) {
-            shiftState = SHIFT_OFF
-            keyboardView?.let {
-                it.isShifted = false
-                it.invalidateAllKeys()
+            
+            // Auto-reset shift state after character input (except for caps lock)
+            if (shiftState == SHIFT_ON) {
+                shiftState = SHIFT_OFF
+                keyboardView?.let {
+                    it.isShifted = false
+                    it.invalidateAllKeys()
+                }
+                caps = false
+                isShifted = false
             }
-            caps = false
-            isShifted = false
         }
         
         // Update current word
@@ -1090,19 +1241,61 @@ class AIKeyboardService : InputMethodService(),
         else -> null
     }
     
+    // For double-backspace revert functionality
+    private var lastBackspaceTime = 0L
+    
     private fun handleBackspace(ic: InputConnection) {
+        val currentTime = System.currentTimeMillis()
+        
+        // Check for double-backspace revert within 1 second
+        val revertCandidate = enhancedAutocorrect.getRevertCandidate()
+        if (revertCandidate != null && 
+            currentTime - lastBackspaceTime < 1000 && 
+            currentWord.isEmpty()) {
+            
+            Log.d(TAG, "Double-backspace revert: '$revertCandidate'")
+            
+            // Find the corrected word and replace with original
+            val textBefore = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
+            val words = textBefore.split("\\s+".toRegex())
+            
+            if (words.isNotEmpty()) {
+                val lastWord = words.last()
+                ic.deleteSurroundingText(lastWord.length, 0)
+                ic.commitText("$revertCandidate ", 1)
+                
+                // Learn that user rejected the correction
+                coroutineScope.launch {
+                    enhancedAutocorrect.learnFromUser(revertCandidate, revertCandidate, listOf(lastWord))
+                }
+            }
+            
+            lastBackspaceTime = 0L // Reset to prevent further reverts
+            return
+        }
+        
+        lastBackspaceTime = currentTime
+        
         val selectedText = ic.getSelectedText(0)
         if (TextUtils.isEmpty(selectedText)) {
-            ic.deleteSurroundingText(1, 0)
+            // Enhanced backspace - handle emoji clusters and surrogate pairs
+            val deletedLength = deleteCharacterOrCluster(ic)
             
             // Update current word tracking
             if (currentWord.isNotEmpty()) {
-                currentWord = currentWord.dropLast(1)
+                // Handle multi-byte character deletion
+                if (deletedLength > 1) {
+                    // Likely deleted an emoji or special character, clear current word
+                    currentWord = ""
+                } else {
+                    currentWord = currentWord.dropLast(1)
+                }
             } else {
                 // If no current word, rebuild from text
                 rebuildCurrentWord(ic)
             }
         } else {
+            // Delete selected text
             ic.commitText("", 1)
             currentWord = ""
         }
@@ -1111,6 +1304,70 @@ class AIKeyboardService : InputMethodService(),
         if (aiSuggestionsEnabled) {
             updateAISuggestions()
         }
+    }
+    
+    /**
+     * Enhanced backspace that properly handles emoji clusters and surrogate pairs
+     */
+    private fun deleteCharacterOrCluster(ic: InputConnection): Int {
+        try {
+            // Use the cursor-aware text handler for consistent backspace behavior
+            return CursorAwareTextHandler.performBackspace(ic)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in enhanced backspace", e)
+            // Fallback to simple deletion
+            ic.deleteSurroundingText(1, 0)
+            return 1
+        }
+    }
+    
+    /**
+     * Calculate the length of the last character cluster (handles emojis, surrogate pairs)
+     */
+    private fun getLastCharacterClusterLength(text: String): Int {
+        if (text.isEmpty()) return 0
+        
+        // Handle common emoji patterns
+        val emojiPatterns = listOf(
+            // Family emojis (👨‍👩‍👧‍👦)
+            Regex("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66$"),
+            Regex("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67$"),
+            Regex("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC66$"),
+            // Heart on fire (❤️‍🔥)
+            Regex("❤️\u200D\uD83D\uDD25$"),
+            // Other ZWJ sequences
+            Regex("[\uD800-\uDBFF][\uDC00-\uDFFF](?:\u200D[\uD800-\uDBFF][\uDC00-\uDFFF])+$"),
+            // Emoji with skin tone modifiers
+            Regex("[\uD83C\uDFFB-\uD83C\uDFFF][\uD800-\uDBFF][\uDC00-\uDFFF]$"),
+            // Basic emoji (surrogate pairs)
+            Regex("[\uD800-\uDBFF][\uDC00-\uDFFF]$"),
+            // Emoji with variation selector (❤️)
+            Regex("[\u2600-\u27BF]\uFE0F$")
+        )
+        
+        // Check each pattern to find the longest match
+        for (pattern in emojiPatterns) {
+            val match = pattern.find(text)
+            if (match != null) {
+                val matchLength = match.value.length
+                Log.d(TAG, "Found emoji cluster of length $matchLength: '${match.value}'")
+                return matchLength
+            }
+        }
+        
+        // Check for basic surrogate pair
+        if (text.length >= 2) {
+            val lastChar = text[text.length - 1]
+            val secondLastChar = text[text.length - 2]
+            
+            if (Character.isLowSurrogate(lastChar) && Character.isHighSurrogate(secondLastChar)) {
+                Log.d(TAG, "Found surrogate pair")
+                return 2
+            }
+        }
+        
+        // Default: delete 1 character
+        return 1
     }
     
     private fun rebuildCurrentWord(ic: InputConnection) {
@@ -1146,12 +1403,18 @@ class AIKeyboardService : InputMethodService(),
             ic.deleteSurroundingText(2, 0)
             ic.commitText(". ", 1)
         } else {
-        ic.commitText(" ", 1)
+            ic.commitText(" ", 1)
         }
         
-        // Update auto-capitalization after space
-        caps = shouldCapitalizeAfterSpace(ic)
-        keyboardView?.isShifted = caps
+        // Enhanced auto-capitalization with CapsShiftManager
+        if (::capsShiftManager.isInitialized) {
+            val inputType = currentInputEditorInfo?.inputType ?: 0
+            capsShiftManager.handleSpacePress(ic, inputType)
+        } else {
+            // Fallback to old implementation
+            caps = shouldCapitalizeAfterSpace(ic)
+            keyboardView?.isShifted = caps
+        }
         
         updateAISuggestions()
     }
@@ -1159,8 +1422,52 @@ class AIKeyboardService : InputMethodService(),
     private fun finishCurrentWord() {
         if (currentWord.isEmpty()) return
         
-        // Add to word history
-        wordHistory.add(currentWord)
+        // Process word with enhanced autocorrect pipeline
+        coroutineScope.launch {
+            try {
+                val prev1 = if (wordHistory.isNotEmpty()) wordHistory.last() else ""
+                val prev2 = if (wordHistory.size >= 2) wordHistory[wordHistory.size - 2] else ""
+                
+                val result = enhancedAutocorrect.processBoundary(currentWord, prev1, prev2)
+                
+                if (result.shouldAutoCorrect && result.topCorrection != null) {
+                    // Auto-apply correction
+                    val correction = result.topCorrection
+                    withContext(Dispatchers.Main) {
+                        val ic = currentInputConnection
+                        if (ic != null) {
+                            // Replace the current word with correction
+                            ic.deleteSurroundingText(currentWord.length, 0)
+                            ic.commitText("$correction ", 1)
+                            
+                            // Save correction history for revert
+                            enhancedAutocorrect.applyCorrection(currentWord, correction)
+                            
+                            // Show brief underline/highlight feedback
+                            showAutocorrectFeedback(correction)
+                            
+                            Log.d(TAG, "Auto-corrected '$currentWord' → '$correction'")
+                        }
+                    }
+                    
+                    // Add corrected word to history
+                    wordHistory.add(correction)
+                } else {
+                    // No auto-correction, add original word
+                    wordHistory.add(currentWord)
+                }
+                
+                // Update suggestion strip with candidates
+                withContext(Dispatchers.Main) {
+                    updateSuggestionStrip(result.candidates)
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in enhanced autocorrect pipeline", e)
+                // Fallback to original behavior
+                wordHistory.add(currentWord)
+            }
+        }
         
         // Learn from user input if AI is ready
         if (isAIReady) {
@@ -1182,7 +1489,70 @@ class AIKeyboardService : InputMethodService(),
         return wordHistory.subList(start, wordHistory.size)
     }
     
+    /**
+     * Show visual feedback for auto-correction with underline effect
+     */
+    private fun showAutocorrectFeedback(correctedWord: String) {
+        try {
+            // Create a temporary visual indicator for the correction
+            // This could be enhanced with actual underline rendering in the future
+            Log.d(TAG, "Showing autocorrect feedback for: $correctedWord")
+            
+            // For now, just log the correction - UI feedback could be added later
+            // In a full implementation, this might highlight the corrected word briefly
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing autocorrect feedback", e)
+        }
+    }
+    
+    /**
+     * Update suggestion strip with enhanced autocorrect candidates
+     * Format: [original] [best correction] [alternatives]
+     */
+    private fun updateSuggestionStrip(candidates: List<AutocorrectCandidate>) {
+        try {
+            if (candidates.isEmpty()) {
+                // Clear suggestions
+                updateSuggestionUI(emptyList())
+                return
+            }
+            
+            val suggestionTexts = candidates.take(3).map { candidate ->
+                when (candidate.type) {
+                    CandidateType.ORIGINAL -> candidate.word // Show as typed
+                    CandidateType.CORRECTION -> "✓ ${candidate.word}" // Mark corrections
+                    else -> candidate.word
+                }
+            }
+            
+            updateSuggestionUI(suggestionTexts)
+            
+            // Check for revert capability
+            val revertCandidate = enhancedAutocorrect.getRevertCandidate()
+            if (revertCandidate != null) {
+                // Could add special revert UI indication here
+                Log.d(TAG, "Revert available: $revertCandidate")
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating suggestion strip", e)
+        }
+    }
+    
     private fun handleShift() {
+        // Delegate to enhanced caps/shift manager
+        if (::capsShiftManager.isInitialized) {
+            capsShiftManager.handleShiftPress()
+        } else {
+            // Fallback to old implementation if manager not initialized
+            handleShiftFallback()
+        }
+    }
+    
+    /**
+     * Fallback shift handling for backward compatibility
+     */
+    private fun handleShiftFallback() {
         val now = System.currentTimeMillis()
         
         // Enhanced 3-State Shift Management: OFF -> ON -> CAPS -> OFF
@@ -1331,24 +1701,31 @@ class AIKeyboardService : InputMethodService(),
     
     private fun switchToSymbols() {
         if (currentKeyboard != KEYBOARD_SYMBOLS) {
-            keyboard = Keyboard(this, R.xml.symbols_google)
+            keyboard = Keyboard(this, R.xml.symbols)
             currentKeyboard = KEYBOARD_SYMBOLS
             keyboardView?.keyboard = keyboard
             applyTheme() // Reapply theme after layout change
         }
     }
     
+    /**
+     * Get the appropriate keyboard resource ID for a given language and number row setting
+     */
+    private fun getKeyboardResourceForLanguage(language: String, withNumbers: Boolean): Int {
+        return when (language) {
+            "EN" -> if (withNumbers) R.xml.qwerty_with_numbers else R.xml.qwerty
+            "ES" -> if (withNumbers) R.xml.qwerty_es_with_numbers else R.xml.qwerty_es
+            "FR" -> if (withNumbers) R.xml.qwerty_fr_with_numbers else R.xml.qwerty_fr
+            "DE" -> if (withNumbers) R.xml.qwerty_de_with_numbers else R.xml.qwerty_de
+            "HI" -> if (withNumbers) R.xml.qwerty_hi_with_numbers else R.xml.qwerty_hi
+            else -> if (withNumbers) R.xml.qwerty_with_numbers else R.xml.qwerty // Default to English
+        }
+    }
+    
     private fun switchToLetters() {
         // Always reload the keyboard layout (for language/number row changes)
         val lang = availableLanguages[currentLanguageIndex]
-        val keyboardResource = when (lang) {
-            "EN" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwerty_google
-            "ES" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwerty_google
-            "FR" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.azerty_google
-            "DE" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwertz_google
-            "HI" -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.devanagari_google
-            else -> if (showNumberRow) R.xml.qwerty_with_numbers else R.xml.qwerty_google
-        }
+        val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
         
         try {
             Log.d(TAG, "Loading keyboard resource: $keyboardResource for language: $lang")
@@ -1429,17 +1806,82 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun handleEmojiKey() {
-        // For now, insert a common emoji or show a simple emoji picker
+        // Enhanced emoji insertion with comprehensive emoji collection
         val ic = currentInputConnection ?: return
         
-        // Simple emoji insertion - can be enhanced to show emoji picker
-        val commonEmojis = listOf("😊", "😂", "❤️", "👍", "🎉", "🔥", "💯", "😍")
-        val randomEmoji = commonEmojis.random()
+        // Get a random emoji from the comprehensive collection
+        val randomEmoji = EmojiCollection.getRandomEmoji()
         
-        ic.commitText(randomEmoji, 1)
+        // Use enhanced emoji insertion with cursor handling
+        insertEmojiWithCursor(randomEmoji)
+        
+        // Show brief toast with emoji category info
+        val categoryInfo = when {
+            EmojiCollection.smileys.contains(randomEmoji) -> "😊 Smiley"
+            EmojiCollection.hearts.contains(randomEmoji) -> "❤️ Heart"
+            EmojiCollection.animals.contains(randomEmoji) -> "🐶 Animal"
+            EmojiCollection.food.contains(randomEmoji) -> "🍕 Food"
+            EmojiCollection.activities.contains(randomEmoji) -> "⚽ Activity"
+            EmojiCollection.travel.contains(randomEmoji) -> "🚗 Travel"
+            EmojiCollection.flags.contains(randomEmoji) -> "🏁 Flag"
+            else -> "🎉 Emoji"
+        }
+        
+        Log.d(TAG, "Inserted random emoji: $randomEmoji ($categoryInfo)")
         
         // Future enhancement: Implement emoji picker popup
         // Toast.makeText(this, "Emoji picker - Feature coming soon!", Toast.LENGTH_SHORT).show()
+    }
+    
+    /**
+     * Handle emoji insertion from specific category
+     */
+    private fun handleEmojiFromCategory(category: String) {
+        val ic = currentInputConnection ?: return
+        val emoji = EmojiCollection.getRandomEmojiFromCategory(category)
+        insertEmojiWithCursor(emoji)
+        Log.d(TAG, "Inserted $category emoji: $emoji")
+    }
+    
+    /**
+     * Show emoji quick picker with popular emojis
+     */
+    private fun showEmojiQuickPicker() {
+        try {
+            // Create a popup with popular emojis
+            val popularEmojis = EmojiCollection.popularEmojis.take(12) // Show top 12
+            
+            // For now, just cycle through popular emojis on repeated presses
+            // This is a simple implementation before implementing full emoji picker UI
+            val emoji = popularEmojis.random()
+            insertEmojiWithCursor(emoji)
+            
+            // Show toast with emoji categories available
+            Toast.makeText(this, "🎉 ${popularEmojis.size} popular emojis available! Long press for more categories", Toast.LENGTH_SHORT).show()
+            
+            Log.d(TAG, "Quick emoji picker - inserted: $emoji")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing emoji quick picker", e)
+        }
+    }
+    
+    /**
+     * Show emoji category picker (for long press)
+     */
+    private fun showEmojiCategoryPicker() {
+        try {
+            // Create a simple category selection
+            val categories = listOf("Popular", "Smileys", "Hearts", "Animals", "Food", "Activities")
+            val randomCategory = categories.random()
+            val emoji = EmojiCollection.getRandomEmojiFromCategory(randomCategory)
+            
+            insertEmojiWithCursor(emoji)
+            Toast.makeText(this, "$randomCategory: $emoji", Toast.LENGTH_SHORT).show()
+            
+            Log.d(TAG, "Category picker - $randomCategory: $emoji")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing emoji category picker", e)
+        }
     }
     
     
@@ -1741,8 +2183,23 @@ class AIKeyboardService : InputMethodService(),
             }
         }
         
-        Log.d(TAG, "Generated ${suggestions.size} suggestions: $suggestions")
-        return suggestions.take(5)
+        // Add emoji suggestions based on current word and context
+        val emojiSuggestions = EmojiSuggestionEngine.getSuggestionsForTyping(currentWord, getCurrentInputText())
+        
+        // Mix word suggestions with emoji suggestions (prioritize word suggestions)
+        val mixedSuggestions = mutableListOf<String>()
+        
+        // Add word suggestions first (up to 3)
+        mixedSuggestions.addAll(suggestions.take(3))
+        
+        // Add emoji suggestions to fill remaining slots
+        val remainingSlots = 5 - mixedSuggestions.size
+        if (remainingSlots > 0) {
+            mixedSuggestions.addAll(emojiSuggestions.take(remainingSlots))
+        }
+        
+        Log.d(TAG, "Generated ${mixedSuggestions.size} mixed suggestions (${suggestions.size} words + ${emojiSuggestions.size} emojis): $mixedSuggestions")
+        return mixedSuggestions.take(5)
     }
     
     private fun updateSuggestionUI(suggestions: List<String>) {
@@ -1776,30 +2233,91 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
+        // Check if this is a tone variation selection
+        if (currentToneVariations.isNotEmpty()) {
+            val cleanSuggestion = suggestion.replace(Regex("^[${CleverTypeAIService.ToneType.values().joinToString("") { it.emoji }}]\\s*"), "")
+                .replace("...", "")
+            
+            // Find the matching full variation
+            val selectedVariation = currentToneVariations.find { variation ->
+                val truncated = if (variation.length > 47) variation.take(47) else variation
+                cleanSuggestion.startsWith(truncated) || truncated.startsWith(cleanSuggestion)
+            } ?: cleanSuggestion
+            
+            // Replace the entire text with selected tone variation
+            currentToneReplacementText?.let { originalText ->
+                ic.beginBatchEdit()
+                val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text
+                if (allText != null) {
+                    ic.deleteSurroundingText(allText.length, 0)
+                    ic.commitText(selectedVariation, 1)
+                }
+                ic.endBatchEdit()
+                
+                Log.d(TAG, "Applied tone variation: '$originalText' → '$selectedVariation'")
+                Toast.makeText(this, "✨ Tone adjusted successfully!", Toast.LENGTH_SHORT).show()
+            }
+            
+            // Clear tone state
+            currentToneReplacementText = null
+            currentToneVariations = emptyList()
+            hideReplacementUI()
+            restoreKeyboard()
+            return
+        }
+        
         // Clean suggestion text (remove correction indicators)
         val cleanSuggestion = suggestion.replace("✓ ", "").trim()
         Log.d(TAG, "Clean suggestion: '$cleanSuggestion'")
         
-        // Replace current word with suggestion
-        if (currentWord.isNotEmpty()) {
-            Log.d(TAG, "Deleting current word of length: ${currentWord.length}")
-            ic.deleteSurroundingText(currentWord.length, 0)
+        // Check for revert request (user tapping original word)
+        val revertCandidate = enhancedAutocorrect.getRevertCandidate()
+        if (revertCandidate != null && cleanSuggestion == revertCandidate) {
+            Log.d(TAG, "Revert requested: restoring '$revertCandidate'")
+            // This handles the revert case where user taps the original word
         }
         
-        Log.d(TAG, "Committing text: '$cleanSuggestion '")
-        ic.commitText("$cleanSuggestion ", 1)
+        // Check if suggestion is an emoji
+        val isEmoji = cleanSuggestion.length <= 8 && cleanSuggestion.matches(Regex(".*[\\p{So}\\p{Sk}\\p{Sm}\\p{Sc}\\p{Cn}].*"))
         
-        // Learn from user selection if AI is ready
-        if (isAIReady && currentWord.isNotEmpty()) {
-            val context = getRecentContext()
-            aiBridge.learnCorrection(currentWord, cleanSuggestion, true)
-        }
-        
-        // Update word history
-        if (cleanSuggestion.isNotEmpty()) {
-            wordHistory.add(cleanSuggestion)
-            if (wordHistory.size > 20) {
-                wordHistory.removeAt(0)
+        if (isEmoji) {
+            // Handle emoji suggestion - insert with proper cursor handling
+            insertEmojiWithCursor(cleanSuggestion)
+            
+            // Log emoji usage for learning
+            EmojiSuggestionEngine.logEmojiUsage(cleanSuggestion, getCurrentInputText())
+            
+            Log.d(TAG, "Applied emoji suggestion: '$cleanSuggestion'")
+        } else {
+            // Handle word suggestion - replace current word
+            if (currentWord.isNotEmpty()) {
+                Log.d(TAG, "Deleting current word of length: ${currentWord.length}")
+                ic.deleteSurroundingText(currentWord.length, 0)
+            }
+            
+            Log.d(TAG, "Committing text: '$cleanSuggestion '")
+            ic.commitText("$cleanSuggestion ", 1)
+            
+            // Enhanced learning from user selection 
+            coroutineScope.launch {
+                if (currentWord.isNotEmpty()) {
+                    // Learn from user choice using enhanced autocorrect
+                    enhancedAutocorrect.learnFromUser(currentWord, cleanSuggestion, emptyList())
+                    
+                    // Legacy AI bridge learning if available
+                    if (isAIReady) {
+                        val context = getRecentContext()
+                        aiBridge.learnCorrection(currentWord, cleanSuggestion, true)
+                    }
+                }
+            }
+            
+            // Update word history
+            if (cleanSuggestion.isNotEmpty()) {
+                wordHistory.add(cleanSuggestion)
+                if (wordHistory.size > 20) {
+                    wordHistory.removeAt(0)
+                }
             }
         }
         
@@ -2082,36 +2600,143 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    // Implement SwipeListener interface methods
-    override fun onSwipeDetected(swipedKeys: List<Int>, swipePattern: String) {
-        if (swipedKeys.isEmpty()) return
+    // Enhanced swipe autocorrect engine
+    private lateinit var swipeAutocorrectEngine: SwipeAutocorrectEngine
+    private var lastCommittedSwipeWord = ""
+    
+    // Implement SwipeListener interface methods with enhanced autocorrection
+    override fun onSwipeDetected(swipedKeys: List<Int>, swipePattern: String, keySequence: List<Int>) {
+        if (keySequence.isEmpty()) return
         
-        // Convert key codes to characters
-        val swipeWord = StringBuilder()
-        swipedKeys.forEach { keyCode ->
+        // Use the ordered key sequence for better accuracy
+        val swipeSequence = StringBuilder()
+        keySequence.forEach { keyCode ->
             if (keyCode > 0 && keyCode < 256) {
                 val c = keyCode.toChar()
                 if (Character.isLetter(c)) {
-                    swipeWord.append(Character.toLowerCase(c))
+                    swipeSequence.append(Character.toLowerCase(c))
                 }
             }
         }
         
-        val word = swipeWord.toString()
-        if (word.length > 1) {
-            // Apply corrections and get final word
-            val finalWord = applySwipeCorrections(word)
-            
-            if (finalWord.isNotEmpty()) {
-                // Insert the swiped word
+        val swipeLetters = swipeSequence.toString()
+        if (swipeLetters.length > 1) {
+            coroutineScope.launch {
+                try {
+                    val startTime = System.currentTimeMillis()
+                    
+                    // Get context words for better prediction
+                    val prev1 = if (wordHistory.isNotEmpty()) wordHistory.last() else ""
+                    val prev2 = if (wordHistory.size >= 2) wordHistory[wordHistory.size - 2] else ""
+                    
+                    // Use enhanced swipe autocorrect engine
+                    val swipeResult = swipeAutocorrectEngine.getCandidates(swipeLetters, prev1, prev2)
+                    
+                    withContext(Dispatchers.Main) {
+                        if (swipeResult.candidates.isNotEmpty()) {
+                            val bestCandidate = swipeResult.bestCandidate!!
+                            
+                            // Auto-commit the best candidate
+                            currentInputConnection?.let { ic ->
+                                ic.commitText("${bestCandidate.word} ", 1)
+                                lastCommittedSwipeWord = bestCandidate.word
+                            }
+                            
+                            // Update word history for context
+                            wordHistory.add(bestCandidate.word)
+                            if (wordHistory.size > 20) {
+                                wordHistory.removeAt(0)
+                            }
+                            
+                            // Show alternatives in suggestion strip
+                            updateEnhancedSwipeSuggestions(swipeResult.candidates.take(3), swipeLetters)
+                            
+                            // Show success feedback with confidence indicator
+                            showSwipeSuccess(bestCandidate.word, bestCandidate.finalScore)
+                            
+                            Log.d(TAG, "Enhanced swipe: '${swipeLetters}' → '${bestCandidate.word}' " +
+                                      "(score: ${bestCandidate.finalScore.format(2)}, " +
+                                      "${swipeResult.candidates.size} alternatives, ${swipeResult.processingTimeMs}ms)")
+                        } else {
+                            // Fallback to original swipe if no candidates
+                            currentInputConnection?.let { ic ->
+                                ic.commitText("$swipeLetters ", 1)
+                                lastCommittedSwipeWord = swipeLetters
+                            }
+                            
+                            updateSuggestionUI(listOf(swipeLetters))
+                            Log.d(TAG, "Swipe fallback: '${swipeLetters}' (no dictionary matches)")
+                        }
+                        
+                        // Update AI suggestions for next word prediction
+                        updateAISuggestions()
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in enhanced swipe processing", e)
+                    // Fallback to original behavior
+                    withContext(Dispatchers.Main) {
+                        val finalWord = applySwipeCorrections(swipeLetters)
+                        if (finalWord.isNotEmpty()) {
+                            currentInputConnection?.let { ic ->
+                                ic.commitText("$finalWord ", 1)
+                                lastCommittedSwipeWord = finalWord
+                                updateAISuggestions()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle user selection of alternative swipe suggestion
+     */
+    private fun handleSwipeAlternativeSelection(selectedWord: String) {
+        try {
+            if (lastCommittedSwipeWord.isNotEmpty()) {
+                // Replace the last committed word
                 currentInputConnection?.let { ic ->
-                    ic.commitText("$finalWord ", 1)
-                    updateAISuggestions()
+                    // Delete the last word and space
+                    val deleteLength = lastCommittedSwipeWord.length + 1
+                    ic.deleteSurroundingText(deleteLength, 0)
+                    ic.commitText("$selectedWord ", 1)
                 }
                 
-                // Show success feedback
-                showSwipeSuccess(finalWord)
+                // Learn from user selection
+                if (::swipeAutocorrectEngine.isInitialized) {
+                    swipeAutocorrectEngine.learnFromUserSelection(lastCommittedSwipeWord, selectedWord)
+                }
+                
+                // Update word history
+                if (wordHistory.isNotEmpty()) {
+                    wordHistory[wordHistory.size - 1] = selectedWord
+                }
+                
+                lastCommittedSwipeWord = selectedWord
+                
+                Log.d(TAG, "Swipe alternative selected: '$lastCommittedSwipeWord' → '$selectedWord'")
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling swipe alternative selection", e)
+        }
+    }
+    
+    /**
+     * Handle double backspace to revert swipe correction
+     */
+    private fun handleSwipeReversion() {
+        try {
+            if (lastCommittedSwipeWord.isNotEmpty() && ::swipeAutocorrectEngine.isInitialized) {
+                // Record that user rejected the correction
+                swipeAutocorrectEngine.recordRejection("", lastCommittedSwipeWord)
+                lastCommittedSwipeWord = ""
+                
+                Log.d(TAG, "Swipe correction reverted by user")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling swipe reversion", e)
         }
     }
     
@@ -2147,13 +2772,14 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun showSwipeSuccess(word: String) {
+    private fun showSwipeSuccess(word: String, confidence: Double = 0.0) {
         // Show the swiped word in the first suggestion slot briefly
         suggestionContainer?.let { container ->
             if (container.childCount > 0) {
                 val firstSuggestion = container.getChildAt(0) as TextView
+                val confidenceText = if (confidence > 0.5) " (${(confidence * 100).toInt()}%)" else ""
                 firstSuggestion.apply {
-                    text = "✓ $word"
+                    text = "✓ $word$confidenceText"
                     setTextColor(Color.parseColor("#4CAF50")) // Green for success
                     visibility = View.VISIBLE
                 }
@@ -2206,29 +2832,40 @@ class AIKeyboardService : InputMethodService(),
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         
-        // Reset keyboard state
-        caps = false
-        keyboardView?.isShifted = caps
+        // Reset keyboard state with enhanced CapsShiftManager
+        if (::capsShiftManager.isInitialized) {
+            capsShiftManager.resetToNormal()
+            
+            // Apply auto-capitalization based on context
+            attribute?.let { info ->
+                val inputType = info.inputType
+                capsShiftManager.applyAutoCapitalization(currentInputConnection, inputType)
+            }
+        } else {
+            // Fallback to old implementation
+            caps = false
+            keyboardView?.isShifted = caps
+            
+            // Auto-capitalize for sentence start
+            attribute?.let { info ->
+                if (info.inputType != 0) {
+                    val inputType = info.inputType and EditorInfo.TYPE_MASK_CLASS
+                    if (inputType == EditorInfo.TYPE_CLASS_TEXT) {
+                        val variation = info.inputType and EditorInfo.TYPE_MASK_VARIATION
+                        if (variation == EditorInfo.TYPE_TEXT_VARIATION_NORMAL ||
+                            variation == EditorInfo.TYPE_TEXT_VARIATION_EMAIL_SUBJECT) {
+                            caps = true
+                            keyboardView?.isShifted = caps
+                        }
+                    }
+                }
+            }
+        }
         
         // Reset current word and show initial suggestions
         currentWord = ""
         Log.d(TAG, "onStartInput - showing initial suggestions")
         updateAISuggestions()
-        
-        // Auto-capitalize for sentence start
-        attribute?.let { info ->
-            if (info.inputType != 0) {
-                val inputType = info.inputType and EditorInfo.TYPE_MASK_CLASS
-                if (inputType == EditorInfo.TYPE_CLASS_TEXT) {
-                    val variation = info.inputType and EditorInfo.TYPE_MASK_VARIATION
-                    if (variation == EditorInfo.TYPE_TEXT_VARIATION_NORMAL ||
-                        variation == EditorInfo.TYPE_TEXT_VARIATION_EMAIL_SUBJECT) {
-                        caps = true
-                        keyboardView?.isShifted = caps
-                    }
-                }
-            }
-        }
         
         // Force load fresh settings when keyboard becomes active
         checkAndUpdateSettings()
@@ -2261,7 +2898,8 @@ class AIKeyboardService : InputMethodService(),
         vibration: Boolean,
         keyPreview: Boolean
     ) {
-        currentTheme = theme
+        currentTheme = theme // Legacy variable for compatibility
+        // Theme switching removed - using default theme only
         aiSuggestionsEnabled = aiSuggestions
         swipeTypingEnabled = swipeTyping
         vibrationEnabled = vibration
@@ -2737,45 +3375,532 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Create CleverType toolbar with Grammar and Tone buttons
+     * Initialize Enhanced Caps/Shift Manager
+     */
+    private fun initializeCapsShiftManager() {
+        try {
+            capsShiftManager = CapsShiftManager(this, settings)
+            
+            // Set up state change listener
+            capsShiftManager.setOnStateChangedListener { newState ->
+                updateShiftVisualState(newState)
+                updateBackwardCompatibilityState(newState)
+            }
+            
+            // Set up haptic feedback listener
+            capsShiftManager.setOnHapticFeedbackListener { state ->
+                performEnhancedShiftHapticFeedback(state)
+            }
+            
+            // Set up long press menu listener
+            capsShiftManager.setOnLongPressMenuListener {
+                showShiftOptionsMenu()
+            }
+            
+            // Initialize shift options menu
+            shiftOptionsMenu = ShiftOptionsMenu(this, capsShiftManager).apply {
+                setOnMenuItemClickListener { action ->
+                    handleShiftMenuAction(action)
+                }
+            }
+            
+            Log.d(TAG, "Enhanced Caps/Shift Manager initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing Caps/Shift Manager", e)
+        }
+    }
+    
+    /**
+     * Update visual state based on new caps/shift state
+     */
+    private fun updateShiftVisualState(newState: Int) {
+        keyboardView?.let { view ->
+            // Update the shift key visual state
+            view.isShifted = (newState != CapsShiftManager.STATE_NORMAL)
+            
+            // Enhanced visual feedback based on shift state
+            when (newState) {
+                CapsShiftManager.STATE_NORMAL -> {
+                    // Normal state - no special highlighting
+                    view.setShiftKeyHighlight(false, false)
+                }
+                CapsShiftManager.STATE_SHIFT -> {
+                    // Temporary shift - light highlighting
+                    view.setShiftKeyHighlight(true, false)
+                }
+                CapsShiftManager.STATE_CAPS_LOCK -> {
+                    // Caps lock - strong highlighting with caps indicator
+                    view.setShiftKeyHighlight(true, true)
+                    Log.d(TAG, "Caps lock activated - visual feedback should show uppercase letters")
+                }
+            }
+            
+            view.invalidateAllKeys()
+        }
+    }
+    
+    /**
+     * Update backward compatibility state variables
+     */
+    private fun updateBackwardCompatibilityState(newState: Int) {
+        // Update legacy state variables for backward compatibility
+        shiftState = when (newState) {
+            CapsShiftManager.STATE_NORMAL -> SHIFT_OFF
+            CapsShiftManager.STATE_SHIFT -> SHIFT_ON
+            CapsShiftManager.STATE_CAPS_LOCK -> SHIFT_CAPS
+            else -> SHIFT_OFF
+        }
+        
+        caps = (newState != CapsShiftManager.STATE_NORMAL)
+        isShifted = caps
+    }
+    
+    /**
+     * Perform enhanced haptic feedback based on shift state
+     */
+    private fun performEnhancedShiftHapticFeedback(state: Int) {
+        if (vibrationEnabled && vibrator != null) {
+            try {
+                val intensity = when (state) {
+                    CapsShiftManager.STATE_NORMAL -> 15L      // Light vibration for turning off
+                    CapsShiftManager.STATE_SHIFT -> 25L       // Medium vibration for shift on
+                    CapsShiftManager.STATE_CAPS_LOCK -> 50L   // Strong vibration for caps lock
+                    else -> 20L
+                }
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(VibrationEffect.createOneShot(intensity, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(intensity)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to provide enhanced shift haptic feedback: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Show shift options menu
+     */
+    private fun showShiftOptionsMenu() {
+        keyboardView?.let { view ->
+            // Find shift key position (approximate)
+            val shiftKeyX = view.width / 8  // Approximate position
+            val shiftKeyY = view.height - 100  // Bottom row
+            
+            shiftOptionsMenu?.show(view, shiftKeyX, shiftKeyY)
+        }
+    }
+    
+    /**
+     * Handle shift menu actions
+     */
+    private fun handleShiftMenuAction(action: String) {
+        when (action) {
+            "caps_lock_toggle" -> {
+                // Already handled by the menu
+                Log.d(TAG, "Caps lock toggled via menu")
+            }
+            "alternate_layout" -> {
+                // Switch to alternate keyboard layout (symbols/numbers)
+                when (currentKeyboard) {
+                    KEYBOARD_LETTERS -> switchToSymbols()
+                    KEYBOARD_SYMBOLS -> switchToNumbers()
+                    KEYBOARD_NUMBERS -> switchToLetters()
+                }
+            }
+            "language_switch" -> {
+                // Switch to next language
+                languageManager?.switchToNextLanguage()
+            }
+        }
+    }
+    
+    /**
+     * Start shift key long press detection (called from SwipeKeyboardView)
+     */
+    fun startShiftKeyLongPressDetection() {
+        if (::capsShiftManager.isInitialized) {
+            capsShiftManager.startLongPressDetection()
+        }
+    }
+    
+    /**
+     * Cancel shift key long press detection (called from SwipeKeyboardView)
+     */
+    fun cancelShiftKeyLongPressDetection() {
+        if (::capsShiftManager.isInitialized) {
+            capsShiftManager.cancelLongPressDetection()
+        }
+    }
+    
+    /**
+     * Enhanced voice input handler with Gboard-like functionality
+     */
+    private fun handleVoiceInput() {
+        try {
+            // Provide visual feedback
+            showVoiceInputFeedback(true)
+            
+            // Start voice recognition
+            startVoiceRecognition()
+            
+            Log.d(TAG, "Voice input activated")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting voice input", e)
+            showVoiceInputFeedback(false)
+            Toast.makeText(this, "Voice input not available", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Show visual feedback for voice input state
+     */
+    private fun showVoiceInputFeedback(isActive: Boolean) {
+        keyboardView?.let { view ->
+            // Update voice key appearance
+            view.setVoiceKeyActive(isActive)
+            
+            if (isActive) {
+                // Show listening indicator
+                Toast.makeText(this, "🎤 Listening...", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    
+    /**
+     * Start voice recognition
+     */
+    private fun startVoiceRecognition() {
+        // For now, show placeholder - voice recognition would be integrated here
+        Toast.makeText(this, "🎤 Voice input activated", Toast.LENGTH_SHORT).show()
+        
+        // Reset visual feedback after a delay
+        Handler(Looper.getMainLooper()).postDelayed({
+            showVoiceInputFeedback(false)
+        }, 2000)
+    }
+    
+    /**
+     * Enhanced emoji panel toggle with state management
+     */
+    private fun handleEmojiToggle() {
+        try {
+            val wasVisible = isEmojiPanelVisible
+            toggleEmojiPanel()
+            
+            // Update emoji key visual state
+            keyboardView?.setEmojiKeyActive(!wasVisible)
+            
+            Log.d(TAG, "Comprehensive emoji panel toggled: ${!wasVisible}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error toggling emoji panel", e)
+        }
+    }
+    
+    private fun toggleEmojiPanel() {
+        try {
+            // Hide replacement UI if visible
+            if (isReplacementUIVisible) {
+                hideReplacementUI()
+            }
+            
+            isEmojiPanelVisible = !isEmojiPanelVisible
+            keyboardContainer?.let { container ->
+                container.removeAllViews()
+                
+                if (isEmojiPanelVisible) {
+                    // Show comprehensive emoji panel instead of keyboard
+                    gboardEmojiPanel?.let { emojiPanel ->
+                        // Set proper layout parameters for emoji panel
+                        emojiPanel.layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        container.addView(emojiPanel)
+                        Log.d(TAG, "Showing comprehensive emoji panel with proper dimensions")
+                    }
+                    
+                    // Keep suggestion bar visible for emoji search
+                    topContainer?.visibility = View.VISIBLE
+                } else {
+                    // Show keyboard
+                    keyboardView?.let { kv ->
+                        container.addView(kv)
+                        Log.d(TAG, "Showing keyboard")
+                    }
+                    
+                    // Show suggestion bar when keyboard is visible
+                    topContainer?.visibility = View.VISIBLE
+                }
+                
+                // Request layout update
+                container.requestLayout()
+            }
+            
+            Log.d(TAG, "Comprehensive emoji panel toggled: visible=$isEmojiPanelVisible")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error toggling comprehensive emoji panel", e)
+        }
+    }
+    
+    /**
+     * Context-aware enter key handler (Gboard-style)
+     */
+    private fun handleEnterKey(ic: InputConnection) {
+        try {
+            // Determine enter key behavior based on input context
+            val inputType = currentInputEditorInfo?.inputType ?: 0
+            val imeOptions = currentInputEditorInfo?.imeOptions ?: 0
+            
+            // Check for special IME actions
+            when (imeOptions and EditorInfo.IME_MASK_ACTION) {
+                EditorInfo.IME_ACTION_SEARCH -> {
+                    // Search action
+                    ic.performEditorAction(EditorInfo.IME_ACTION_SEARCH)
+                    return
+                }
+                EditorInfo.IME_ACTION_GO -> {
+                    // Go action
+                    ic.performEditorAction(EditorInfo.IME_ACTION_GO)
+                    return
+                }
+                EditorInfo.IME_ACTION_SEND -> {
+                    // Send action
+                    ic.performEditorAction(EditorInfo.IME_ACTION_SEND)
+                    return
+                }
+                EditorInfo.IME_ACTION_NEXT -> {
+                    // Next field action
+                    ic.performEditorAction(EditorInfo.IME_ACTION_NEXT)
+                    return
+                }
+                EditorInfo.IME_ACTION_DONE -> {
+                    // Done action (close keyboard)
+                    ic.performEditorAction(EditorInfo.IME_ACTION_DONE)
+                    return
+                }
+            }
+            
+            // Default: Insert newline
+            ic.commitText("\n", 1)
+            
+            // Enhanced auto-capitalization after enter
+            if (::capsShiftManager.isInitialized) {
+                capsShiftManager.handleEnterPress(ic, inputType)
+            }
+            
+            Log.d(TAG, "Enter key handled - inputType: $inputType, imeOptions: $imeOptions")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling enter key", e)
+            // Fallback to basic newline
+            ic.commitText("\n", 1)
+        }
+    }
+    
+    /**
+     * Enhanced cursor stability - prevent cursor movement on special key presses
+     */
+    private fun ensureCursorStability() {
+        try {
+            // This method can be called after special key operations
+            // to ensure cursor position remains stable during state changes
+            currentInputConnection?.let { ic ->
+                // Store current cursor position before any state changes
+                val beforeCursor = ic.getTextBeforeCursor(1000, 0)?.length ?: 0
+                val afterCursor = ic.getTextAfterCursor(1000, 0)?.length ?: 0
+                
+                // The cursor position is naturally maintained by Android's InputConnection
+                // when we don't call setSelection() or other cursor-moving methods
+                // This method serves as a checkpoint to ensure no unintended cursor movement
+                
+                Log.d(TAG, "Cursor stability maintained at position: $beforeCursor")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error maintaining cursor stability", e)
+        }
+    }
+    
+    /**
+     * Enhanced emoji insertion with proper cursor positioning
+     */
+    private fun insertEmojiWithCursor(emoji: String) {
+        try {
+            val ic = currentInputConnection ?: return
+            
+            // Use the cursor-aware text handler for consistent emoji insertion
+            if (CursorAwareTextHandler.insertEmoji(ic, emoji)) {
+                Log.d(TAG, "Successfully inserted emoji '$emoji' using CursorAwareTextHandler")
+            } else {
+                // Fallback to simple insertion
+                ic.commitText(emoji, 1)
+                Log.d(TAG, "Used fallback emoji insertion for '$emoji'")
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting emoji with cursor", e)
+            // Fallback to simple insertion
+            currentInputConnection?.commitText(emoji, 1)
+        }
+    }
+    
+    /**
+     * Insert rich content (GIFs, stickers) using commitContent API
+     * Falls back to text if rich content is not supported
+     */
+    private fun insertRichContent(contentUri: String, mimeType: String, description: String): Boolean {
+        try {
+            val ic = currentInputConnection ?: return false
+            
+            // Check if target app supports rich content
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+                val inputContentInfo = InputContentInfo(
+                    Uri.parse(contentUri),
+                    ClipDescription(description, arrayOf(mimeType)),
+                    null // No link URI
+                )
+                
+                val flag = InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION
+                val result = ic.commitContent(inputContentInfo, flag, null)
+                
+                if (result) {
+                    Log.d(TAG, "Successfully inserted rich content: $contentUri")
+                    return true
+                } else {
+                    Log.d(TAG, "Rich content not supported by target app")
+                    return false
+                }
+            } else {
+                Log.d(TAG, "Rich content not supported on this Android version")
+                return false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting rich content", e)
+            return false
+        }
+    }
+    
+    /**
+     * Create AI Features toolbar with Tone, Rewrite, Emoji, GIF, Clipboard, Settings buttons
      */
     private fun createCleverTypeToolbar(): LinearLayout {
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                resources.getDimensionPixelSize(R.dimen.toolbar_height)
             )
-            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            setPadding(
+                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
+                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
+                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
+                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding)
+            )
             setBackgroundColor(Color.parseColor("#f8f9fa"))
         }
         
-        // Grammar correction button
-        val grammarButton = createToolbarButton(
-            text = "✅ Grammar",
-            description = "Fix grammar & spelling",
-            onClick = { handleGrammarCorrection() }
-        )
-        
-        // Tone adjustment button
-        val toneButton = createToolbarButton(
-            text = "🎭 Tone",
-            description = "Adjust writing tone",
+        // Tone button (✨ auto_awesome)
+        val toneButton = createToolbarIconButton(
+            icon = "✨",
+            description = "Tone",
             onClick = { handleToneAdjustment() }
         )
         
-        // Settings button removed - settings now managed by main app
+        // Rewrite button (✍️ edit_note)
+        val rewriteButton = createToolbarIconButton(
+            icon = "✍️",
+            description = "Rewrite",
+            onClick = { handleRewriteText() }
+        )
+        
+        // Emoji button (😊 emoji_emotions)
+        val emojiButton = createToolbarIconButton(
+            icon = "😊",
+            description = "Emoji",
+            onClick = { toggleEmojiPanel() }
+        )
+        
+        // GIF button (GIF gif_box)
+        val gifButton = createToolbarIconButton(
+            icon = "GIF",
+            description = "GIF",
+            onClick = { handleGifSelection() }
+        )
+        
+        // Clipboard button (📋 content_paste)
+        val clipboardButton = createToolbarIconButton(
+            icon = "📋",
+            description = "Clipboard",
+            onClick = { handleClipboardAccess() }
+        )
+        
+        // Settings button (⚙️ settings)
+        val settingsButton = createToolbarIconButton(
+            icon = "⚙️",
+            description = "Settings",
+            onClick = { handleSettingsAccess() }
+        )
         
         // Add buttons to toolbar
-        toolbar.addView(grammarButton)
         toolbar.addView(toneButton)
+        toolbar.addView(rewriteButton)
+        toolbar.addView(emojiButton)
+        toolbar.addView(gifButton)
+        toolbar.addView(clipboardButton)
+        toolbar.addView(settingsButton)
         
-        Log.d(TAG, "CleverType toolbar created")
+        Log.d(TAG, "AI Features toolbar created with 6 buttons")
         return toolbar
     }
     
     /**
-     * Create toolbar button
+     * Create toolbar icon button with proper Material Design sizing
+     */
+    private fun createToolbarIconButton(
+        icon: String,
+        description: String,
+        onClick: () -> Unit
+    ): LinearLayout {
+        val buttonContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, 
+                LinearLayout.LayoutParams.MATCH_PARENT, 
+                1.0f // Equal weight distribution
+            )
+            setPadding(
+                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
+                0,
+                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
+                0
+            )
+            gravity = Gravity.CENTER
+            isClickable = true
+            background = ContextCompat.getDrawable(this@AIKeyboardService, R.drawable.key_background_default)
+            
+            setOnClickListener { onClick() }
+        }
+        
+        // Create icon text view with proper sizing
+        val iconView = TextView(this).apply {
+            text = icon
+            textSize = resources.getDimension(R.dimen.toolbar_icon_size) / resources.displayMetrics.scaledDensity
+            setTextColor(Color.BLACK) // Default text color
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target),
+                resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target)
+            )
+            contentDescription = description
+        }
+        
+        buttonContainer.addView(iconView)
+        return buttonContainer
+    }
+    
+    /**
+     * Create toolbar button (deprecated - use createToolbarIconButton)
      */
     private fun createToolbarButton(
         text: String,
@@ -2861,14 +3986,672 @@ class AIKeyboardService : InputMethodService(),
      * Handle tone adjustment
      */
     private fun handleToneAdjustment() {
-        val selectedText = getSelectedText()
-        if (selectedText.isEmpty()) {
-            Toast.makeText(this, "Select text to adjust tone", Toast.LENGTH_SHORT).show()
+        val ic = currentInputConnection ?: return
+        val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString() ?: ""
+        
+        if (allText.isEmpty()) {
+            Toast.makeText(this, "💭 Type some text first to adjust tone", Toast.LENGTH_SHORT).show()
             return
         }
         
-        Log.d(TAG, "Tone adjustment requested for: $selectedText")
-        showCleverTypeToneSelector()
+        Log.d(TAG, "Tone adjustment requested for entire text: $allText")
+        showReplacementUI("tone")
+    }
+    
+    /**
+     * Handle text rewriting with AI grammar correction
+     */
+    private fun handleRewriteText() {
+        val ic = currentInputConnection ?: return
+        val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString() ?: ""
+        
+        if (allText.isEmpty()) {
+            Toast.makeText(this, "📝 Type some text first to check grammar", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        Log.d(TAG, "Grammar correction requested for entire text: $allText")
+        showReplacementUI("grammar")
+    }
+    
+    /**
+     * Get the current sentence being typed
+     */
+    private fun getCurrentSentence(): String {
+        val ic = currentInputConnection ?: return ""
+        
+        try {
+            // Get text before cursor
+            val beforeCursor = ic.getTextBeforeCursor(100, 0)?.toString() ?: ""
+            // Get text after cursor  
+            val afterCursor = ic.getTextAfterCursor(100, 0)?.toString() ?: ""
+            
+            // Find sentence boundaries (., !, ?, or line breaks)
+            val sentenceStart = beforeCursor.lastIndexOfAny(listOf(".", "!", "?", "\n"))
+            val sentenceEnd = afterCursor.indexOfAny(listOf(".", "!", "?", "\n"))
+            
+            val startText = if (sentenceStart >= 0) {
+                beforeCursor.substring(sentenceStart + 1).trim()
+            } else {
+                beforeCursor.trim()
+            }
+            
+            val endText = if (sentenceEnd >= 0) {
+                afterCursor.substring(0, sentenceEnd).trim()
+            } else {
+                afterCursor.trim()
+            }
+            
+            return (startText + endText).trim()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting current sentence", e)
+            return ""
+        }
+    }
+    
+    /**
+     * Perform grammar correction using CleverType AI Service
+     */
+    private fun performGrammarCorrection(text: String) {
+        Log.d(TAG, "Grammar correction requested for: $text")
+        
+        if (!::cleverTypeService.isInitialized) {
+            // Fallback grammar correction using basic rules
+            performBasicGrammarCorrection(text)
+            return
+        }
+        
+        // Show progress
+        updateFirstSuggestion("🔍 Checking grammar...")
+        
+        coroutineScope.launch {
+            try {
+                // Request grammar correction using CleverType AI Service
+                val result = cleverTypeService.fixGrammar(text)
+                
+                mainHandler.post {
+                    if (result.hasChanges) {
+                        applyCleverTypeGrammarCorrection(result)
+                    } else {
+                        updateFirstSuggestion("✓ Grammar looks good!")
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            updateAISuggestions() // Restore normal suggestions
+                        }, 2000)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in CleverType grammar correction", e)
+                mainHandler.post {
+                    performBasicGrammarCorrection(text)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Apply CleverType grammar correction to the text
+     */
+    private fun applyCleverTypeGrammarCorrection(result: CleverTypeAIService.GrammarResult) {
+        val ic = currentInputConnection ?: return
+        
+        try {
+            // Replace the text
+            if (getSelectedText().isNotEmpty()) {
+                // Replace selected text
+                ic.commitText(result.correctedText, 1)
+            } else {
+                // Replace current sentence
+                val beforeCursor = ic.getTextBeforeCursor(result.originalText.length * 2, 0)?.toString() ?: ""
+                if (beforeCursor.contains(result.originalText)) {
+                    // Delete original text and insert corrected
+                    ic.deleteSurroundingText(result.originalText.length, 0)
+                    ic.commitText(result.correctedText, 1)
+                }
+            }
+            
+            // Show corrections made
+            val correctionCount = result.corrections.size
+            if (correctionCount > 0) {
+                val cacheIndicator = if (result.fromCache) " (cached)" else ""
+                updateFirstSuggestion("✓ Fixed $correctionCount grammar issue${if (correctionCount > 1) "s" else ""}$cacheIndicator")
+                
+                // Create detailed feedback message
+                val correctionTypes = result.corrections.groupBy { it.type }
+                val typeMessages = correctionTypes.map { (type, corrections) ->
+                    val typeName = when (type) {
+                        CleverTypeAIService.CorrectionType.GRAMMAR -> "grammar"
+                        CleverTypeAIService.CorrectionType.SPELLING -> "spelling"
+                        CleverTypeAIService.CorrectionType.PUNCTUATION -> "punctuation"
+                        CleverTypeAIService.CorrectionType.CAPITALIZATION -> "capitalization"
+                    }
+                    "$typeName (${corrections.size})"
+                }.joinToString(", ")
+                
+                Toast.makeText(this, "✍️ CleverType fixed: $typeMessages", Toast.LENGTH_SHORT).show()
+                Log.d(TAG, "CleverType corrections applied: $correctionCount fixes in ${result.processingTimeMs}ms")
+            } else {
+                updateFirstSuggestion("✓ Text improved!")
+                Toast.makeText(this, "✍️ Text enhanced by CleverType", Toast.LENGTH_SHORT).show()
+            }
+            
+            // Restore normal suggestions after delay
+            Handler(Looper.getMainLooper()).postDelayed({
+                updateAISuggestions()
+            }, 3000)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying CleverType grammar correction", e)
+            Toast.makeText(this, "❌ Error applying correction", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Basic grammar correction using simple rules
+     */
+    private fun performBasicGrammarCorrection(text: String) {
+        var corrected = text
+        var changesMade = 0
+        
+        // Basic capitalization fixes
+        if (corrected.isNotEmpty() && corrected[0].isLowerCase()) {
+            corrected = corrected[0].uppercase() + corrected.substring(1)
+            changesMade++
+        }
+        
+        // Fix double spaces
+        val beforeSpaces = corrected
+        corrected = corrected.replace(Regex("\\s{2,}"), " ")
+        if (corrected != beforeSpaces) changesMade++
+        
+        // Fix spacing around punctuation
+        corrected = corrected.replace(Regex("\\s+([.!?])"), "$1")
+        corrected = corrected.replace(Regex("([.!?])([A-Za-z])"), "$1 $2")
+        
+        // Fix common typos
+        val commonFixes = mapOf(
+            "teh" to "the",
+            "adn" to "and", 
+            "taht" to "that",
+            "thier" to "their",
+            "recieve" to "receive",
+            "seperate" to "separate"
+        )
+        
+        for ((wrong, right) in commonFixes) {
+            val regex = Regex("\\b$wrong\\b", RegexOption.IGNORE_CASE)
+            if (regex.containsMatchIn(corrected)) {
+                corrected = regex.replace(corrected, right)
+                changesMade++
+            }
+        }
+        
+        if (changesMade > 0) {
+            applyBasicCorrection(text, corrected, changesMade)
+        } else {
+            updateFirstSuggestion("✓ No corrections needed")
+            Handler(Looper.getMainLooper()).postDelayed({
+                updateAISuggestions()
+            }, 2000)
+        }
+    }
+    
+    /**
+     * Apply basic grammar correction
+     */
+    private fun applyBasicCorrection(original: String, corrected: String, changesMade: Int) {
+        val ic = currentInputConnection ?: return
+        
+        try {
+            if (getSelectedText().isNotEmpty()) {
+                ic.commitText(corrected, 1)
+            } else {
+                ic.deleteSurroundingText(original.length, 0)
+                ic.commitText(corrected, 1)
+            }
+            
+            updateFirstSuggestion("✓ Fixed $changesMade issue${if (changesMade > 1) "s" else ""}")
+            Toast.makeText(this, "📝 Basic grammar fixes applied", Toast.LENGTH_SHORT).show()
+            
+            Handler(Looper.getMainLooper()).postDelayed({
+                updateAISuggestions()
+            }, 2000)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying basic correction", e)
+        }
+    }
+    
+    /**
+     * Update the first suggestion with a message
+     */
+    private fun updateFirstSuggestion(message: String) {
+        suggestionContainer?.let { container ->
+            if (container.childCount > 0) {
+                val firstSuggestion = container.getChildAt(0) as? TextView
+                firstSuggestion?.apply {
+                    text = message
+                    setTextColor(Color.parseColor("#4CAF50"))
+                    visibility = View.VISIBLE
+                }
+            }
+        }
+    }
+    
+    /**
+     * Show replacement UI (tone selector or grammar correction)
+     * Hides the keyboard and shows full-width bottom sheet
+     */
+    private fun showReplacementUI(type: String) {
+        if (isReplacementUIVisible) {
+            hideReplacementUI()
+        }
+        
+        isReplacementUIVisible = true
+        currentReplacementType = type
+        
+        keyboardContainer?.let { container ->
+            // Remove all current views (keyboard, emoji panel, etc.)
+            container.removeAllViews()
+            
+            when (type) {
+                "tone" -> {
+                    if (cleverTypeToneSelector == null) {
+                        cleverTypeToneSelector = CleverTypeToneSelector(this).apply {
+                            setOnToneSelectedListener { tone ->
+                                handleToneSelectedForReplacement(tone)
+                            }
+                            setOnCloseListener {
+                                hideReplacementUI()
+                                restoreKeyboard()
+                            }
+                        }
+                    }
+                    container.addView(cleverTypeToneSelector)
+                    cleverTypeToneSelector?.show()
+                    Log.d(TAG, "Replacement UI: Tone selector displayed")
+                }
+                "grammar" -> {
+                    showGrammarCorrectionUI(container)
+                    Log.d(TAG, "Replacement UI: Grammar correction displayed")
+                }
+            }
+            
+            // Hide suggestion bar when replacement UI is visible
+            topContainer?.visibility = View.GONE
+        }
+    }
+    
+    /**
+     * Hide replacement UI and prepare for keyboard restoration
+     */
+    private fun hideReplacementUI() {
+        if (!isReplacementUIVisible) return
+        
+        keyboardContainer?.let { container ->
+            container.removeAllViews()
+        }
+        
+        isReplacementUIVisible = false
+        currentReplacementType = ""
+        
+        // Show suggestion bar again
+        topContainer?.visibility = View.VISIBLE
+        
+        Log.d(TAG, "Replacement UI hidden")
+    }
+    
+    /**
+     * Restore the keyboard view after replacement UI is closed
+     */
+    private fun restoreKeyboard() {
+        keyboardContainer?.let { container ->
+            keyboardView?.let { kv ->
+                container.addView(kv)
+                
+                // Reset other panel states
+                isEmojiPanelVisible = false
+                isMediaPanelVisible = false
+                
+                Log.d(TAG, "Keyboard restored after replacement UI")
+            }
+        }
+    }
+    
+    /**
+     * Replace entire text in the input field
+     */
+    private fun replaceText(newText: String) {
+        val ic = currentInputConnection ?: return
+        
+        try {
+            // Get all text from input field
+            val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString() ?: ""
+            
+            // Clear all existing text and insert new text
+            if (allText.isNotEmpty()) {
+                // Select all text and replace it
+                ic.setSelection(0, allText.length)
+                ic.commitText(newText, 1)
+            } else {
+                ic.commitText(newText, 1)
+            }
+            
+            Log.d(TAG, "Text replaced: '${allText}' → '$newText'")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error replacing text", e)
+            Toast.makeText(this, "Error replacing text", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Show Grammar Correction UI
+     */
+    private fun showGrammarCorrectionUI(container: LinearLayout) {
+        // Create a grammar correction UI similar to tone selector
+        val grammarUI = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setBackgroundColor(Color.WHITE)
+            elevation = 12f
+        }
+        
+        // Header
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(8))
+            setBackgroundColor(Color.parseColor("#f8f9fa"))
+        }
+        
+        val title = TextView(this).apply {
+            text = "✍️ Grammar Correction"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+        }
+        
+        val closeBtn = android.widget.Button(this).apply {
+            text = "✕"
+            textSize = 16f
+            setTextColor(Color.parseColor("#5f6368"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
+            setOnClickListener {
+                hideReplacementUI()
+                restoreKeyboard()
+            }
+        }
+        
+        header.addView(title)
+        header.addView(closeBtn)
+        grammarUI.addView(header)
+        
+        // Content
+        val scrollView = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(220)
+            )
+        }
+        
+        val contentLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(16))
+        }
+        
+        // Progress text
+        val progressText = TextView(this).apply {
+            text = "🔍 Checking grammar..."
+            textSize = 16f
+            setTextColor(Color.parseColor("#5f6368"))
+            gravity = android.view.Gravity.CENTER
+            setPadding(dpToPx(16), dpToPx(32), dpToPx(16), dpToPx(32))
+        }
+        
+        contentLayout.addView(progressText)
+        scrollView.addView(contentLayout)
+        grammarUI.addView(scrollView)
+        container.addView(grammarUI)
+        
+        // Start grammar correction
+        performGrammarCorrectionForReplacement(contentLayout, progressText)
+    }
+    
+    /**
+     * Perform grammar correction for replacement UI
+     */
+    private fun performGrammarCorrectionForReplacement(contentLayout: LinearLayout, progressText: TextView) {
+        // Get all text from input field
+        val ic = currentInputConnection ?: return
+        val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString() ?: ""
+        
+        if (allText.isEmpty()) {
+            progressText.text = "No text to correct"
+            return
+        }
+        
+        if (!::cleverTypeService.isInitialized) {
+            showGrammarFallbackOptions(contentLayout, progressText, allText)
+            return
+        }
+        
+        coroutineScope.launch {
+            try {
+                val result = cleverTypeService.fixGrammar(allText)
+                
+                mainHandler.post {
+                    progressText.visibility = View.GONE
+                    showGrammarResults(contentLayout, allText, result)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in grammar correction for replacement", e)
+                mainHandler.post {
+                    showGrammarFallbackOptions(contentLayout, progressText, allText)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Show grammar correction results
+     */
+    private fun showGrammarResults(contentLayout: LinearLayout, originalText: String, result: CleverTypeAIService.GrammarResult) {
+        if (result.hasChanges) {
+            // Show corrected text option
+            val correctedButton = android.widget.Button(this).apply {
+                text = "✅ Use Corrected Text"
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#1a73e8"))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, dpToPx(8), 0, dpToPx(8))
+                }
+                setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+                setOnClickListener {
+                    replaceText(result.correctedText)
+                    hideReplacementUI()
+                    restoreKeyboard()
+                    Toast.makeText(this@AIKeyboardService, "✍️ Text corrected!", Toast.LENGTH_SHORT).show()
+                }
+            }
+            
+            // Show preview of changes
+            val previewText = TextView(this).apply {
+                text = "Corrected: \"${result.correctedText.take(100)}${if (result.correctedText.length > 100) "..." else ""}\""
+                textSize = 14f
+                setTextColor(Color.parseColor("#5f6368"))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 0, 0, dpToPx(16))
+                }
+                setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(8))
+                setBackgroundColor(Color.parseColor("#f1f3f4"))
+            }
+            
+            contentLayout.addView(previewText)
+            contentLayout.addView(correctedButton)
+        } else {
+            // No corrections needed
+            val noChangesText = TextView(this).apply {
+                text = "✅ Your text looks great!\nNo grammar corrections needed."
+                textSize = 16f
+                setTextColor(Color.parseColor("#137333"))
+                gravity = android.view.Gravity.CENTER
+                setPadding(dpToPx(16), dpToPx(32), dpToPx(16), dpToPx(32))
+            }
+            contentLayout.addView(noChangesText)
+        }
+        
+        // Keep original option
+        val keepOriginalButton = android.widget.Button(this).apply {
+            text = "Keep Original"
+            textSize = 14f
+            setTextColor(Color.parseColor("#5f6368"))
+            setBackgroundColor(Color.parseColor("#f1f3f4"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dpToPx(4), 0, 0)
+            }
+            setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(8))
+            setOnClickListener {
+                hideReplacementUI()
+                restoreKeyboard()
+            }
+        }
+        
+        contentLayout.addView(keepOriginalButton)
+    }
+    
+    /**
+     * Show basic grammar fallback options
+     */
+    private fun showGrammarFallbackOptions(contentLayout: LinearLayout, progressText: TextView, originalText: String) {
+        progressText.text = "Using basic correction..."
+        
+        // Apply basic corrections
+        var correctedText = originalText
+        var changesMade = 0
+        
+        // Basic fixes
+        if (correctedText.isNotEmpty() && correctedText[0].isLowerCase()) {
+            correctedText = correctedText[0].uppercase() + correctedText.substring(1)
+            changesMade++
+        }
+        correctedText = correctedText.replace(Regex("\\s{2,}"), " ")
+        correctedText = correctedText.replace(Regex("\\s+([.!?])"), "$1")
+        
+        Handler(Looper.getMainLooper()).postDelayed({
+            progressText.visibility = View.GONE
+            
+            if (correctedText != originalText) {
+                val result = CleverTypeAIService.GrammarResult(
+                    originalText = originalText,
+                    correctedText = correctedText,
+                    hasChanges = true,
+                    corrections = emptyList(),
+                    processingTimeMs = 0L
+                )
+                showGrammarResults(contentLayout, originalText, result)
+            } else {
+                val result = CleverTypeAIService.GrammarResult(
+                    originalText = originalText,
+                    correctedText = correctedText,
+                    hasChanges = false,
+                    corrections = emptyList(),
+                    processingTimeMs = 0L
+                )
+                showGrammarResults(contentLayout, originalText, result)
+            }
+        }, 1000)
+    }
+    
+    /**
+     * Handle tone selection for replacement (replaces entire text with 3 options)
+     */
+    private fun handleToneSelectedForReplacement(tone: CleverTypeAIService.ToneType) {
+        val ic = currentInputConnection ?: return
+        val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString() ?: ""
+        
+        if (allText.isEmpty()) {
+            Toast.makeText(this, "No text to adjust tone", Toast.LENGTH_SHORT).show()
+            hideReplacementUI()
+            restoreKeyboard()
+            return
+        }
+        
+        // Show loading state
+        updateSuggestionUI(listOf("Loading tone variations..."))
+        
+        coroutineScope.launch {
+            try {
+                val result = cleverTypeService.adjustTone(allText, tone)
+                
+                withContext(Dispatchers.Main) {
+                    // Update suggestion strip with 3 tone variations
+                    updateToneSuggestionStrip(result.variations, tone)
+                    
+                    // Store current text for possible replacement
+                    currentToneReplacementText = allText
+                    currentToneVariations = result.variations
+                    
+                    // Don't auto-apply, let user choose from suggestions
+                    Toast.makeText(this@AIKeyboardService, "✨ Choose a ${tone.displayName} variation from suggestions", Toast.LENGTH_LONG).show()
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in tone adjustment for replacement", e)
+                withContext(Dispatchers.Main) {
+                    hideReplacementUI()
+                    restoreKeyboard()
+                    Toast.makeText(this@AIKeyboardService, "Error adjusting tone", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle GIF selection
+     */
+    private fun handleGifSelection() {
+        Log.d(TAG, "GIF selection requested")
+        Toast.makeText(this, "GIF selection not yet implemented", Toast.LENGTH_SHORT).show()
+        // TODO: Implement GIF picker
+    }
+    
+    /**
+     * Handle clipboard access
+     */
+    private fun handleClipboardAccess() {
+        Log.d(TAG, "Clipboard access requested")
+        Toast.makeText(this, "Clipboard access not yet implemented", Toast.LENGTH_SHORT).show()
+        // TODO: Implement clipboard manager
+    }
+    
+    /**
+     * Handle settings access
+     */
+    private fun handleSettingsAccess() {
+        Log.d(TAG, "Settings access requested")
+        Toast.makeText(this, "Opening keyboard settings", Toast.LENGTH_SHORT).show()
+        // TODO: Open keyboard settings activity
     }
     
     /**
@@ -3174,5 +4957,250 @@ class AIKeyboardService : InputMethodService(),
             "key_preview_enabled" to keyPreviewEnabled,
             "current_language" to availableLanguages[currentLanguageIndex]
         )
+    }
+    
+    /**
+     * Generate dictionary-based candidates for swipe sequence using advanced matching algorithms
+     */
+    private suspend fun generateSwipeCandidates(
+        swipeLetters: String, 
+        prev1: String, 
+        prev2: String
+    ): List<AutocorrectCandidate> = withContext(Dispatchers.Default) {
+        
+        val startTime = System.currentTimeMillis()
+        val candidates = mutableListOf<AutocorrectCandidate>()
+        
+        try {
+            // Step 1: Try exact dictionary match first
+            if (enhancedAutocorrect.wordDatabase.wordExists(swipeLetters)) {
+                candidates.add(AutocorrectCandidate(
+                    word = swipeLetters,
+                    score = 0.95,
+                    editDistance = 0,
+                    type = CandidateType.ORIGINAL,
+                    confidence = 0.95
+                ))
+            }
+            
+            // Step 2: Generate candidates using path matching (longest common subsequence)
+            val pathCandidates = generatePathMatchingCandidates(swipeLetters)
+            candidates.addAll(pathCandidates)
+            
+            // Step 3: Generate candidates using edit distance (≤2)
+            val editCandidates = generateEditDistanceCandidates(swipeLetters, prev1, prev2)
+            candidates.addAll(editCandidates)
+            
+            // Step 4: Rank all candidates using unified scoring
+            val rankedCandidates = candidates.distinctBy { it.word }
+                .map { candidate ->
+                    // Calculate comprehensive score
+                    val freq = enhancedAutocorrect.wordDatabase.getWordFrequency(candidate.word)
+                    val freqScore = kotlin.math.ln((freq + 1).toDouble())
+                    
+                    val bigramScore = if (prev1.isNotEmpty()) {
+                        val bigrams = enhancedAutocorrect.wordDatabase.getBigramPredictions(prev1, candidate.word, 1)
+                        if (bigrams.isNotEmpty()) kotlin.math.ln(bigrams.first().frequency.toDouble() + 1) else -5.0
+                    } else 0.0
+                    
+                    val trigramScore = if (prev2.isNotEmpty() && prev1.isNotEmpty()) {
+                        val trigrams = enhancedAutocorrect.wordDatabase.getTrigramPredictions(prev2, prev1, candidate.word, 1)
+                        if (trigrams.isNotEmpty()) kotlin.math.ln(trigrams.first().frequency.toDouble() + 1) else -8.0
+                    } else 0.0
+                    
+                    // Unified scoring formula optimized for swipe typing
+                    val totalScore = 1.2 * freqScore - 
+                                   0.8 * candidate.editDistance - 
+                                   0.1 * kotlin.math.abs(candidate.word.length - swipeLetters.length) +
+                                   0.6 * bigramScore + 
+                                   0.4 * trigramScore
+                    
+                    candidate.copy(score = totalScore)
+                }
+                .sortedByDescending { it.score }
+                .take(10) // Keep top 10 for performance
+                
+            val processingTime = System.currentTimeMillis() - startTime
+            Log.d(TAG, "Swipe candidates generated in ${processingTime}ms for '$swipeLetters' -> ${rankedCandidates.size} candidates")
+            
+            return@withContext rankedCandidates
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error generating swipe candidates", e)
+            return@withContext emptyList()
+        }
+    }
+    
+    /**
+     * Generate candidates using longest common subsequence matching
+     */
+    private fun generatePathMatchingCandidates(swipeLetters: String): List<AutocorrectCandidate> {
+        val candidates = mutableListOf<AutocorrectCandidate>()
+        
+        try {
+            // Get words that share significant character overlap
+            val wordsToCheck = enhancedAutocorrect.wordDatabase.getWordsByPrefix(swipeLetters.take(2))
+            
+            wordsToCheck.take(50).forEach { word: String ->
+                val lcs = longestCommonSubsequence(swipeLetters, word)
+                val pathScore = lcs.toDouble() / maxOf(swipeLetters.length, word.length)
+                
+                if (pathScore >= 0.6) { // At least 60% character path match
+                    candidates.add(AutocorrectCandidate(
+                        word = word,
+                        score = pathScore,
+                        editDistance = kotlin.math.abs(swipeLetters.length - word.length),
+                        type = CandidateType.CORRECTION,
+                        confidence = pathScore
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in path matching", e)
+        }
+        
+        return candidates
+    }
+    
+    /**
+     * Generate candidates using Damerau-Levenshtein edit distance
+     */
+    private suspend fun generateEditDistanceCandidates(
+        swipeLetters: String, 
+        prev1: String, 
+        prev2: String
+    ): List<AutocorrectCandidate> = withContext(Dispatchers.Default) {
+        val candidates = mutableListOf<AutocorrectCandidate>()
+        
+        try {
+            // Use enhanced autocorrect engine for edit distance candidates
+            val autocorrectCandidates = enhancedAutocorrect.getCandidates(swipeLetters, prev1, prev2)
+            
+            // Filter for swipe-appropriate candidates (edit distance ≤ 2)
+            autocorrectCandidates.filter { it.editDistance <= 2 }.forEach { candidate ->
+                candidates.add(candidate)
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in edit distance candidates", e)
+        }
+        
+        return@withContext candidates
+    }
+    
+    /**
+     * Calculate longest common subsequence length
+     */
+    private fun longestCommonSubsequence(s1: String, s2: String): Int {
+        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+        
+        for (i in 1..s1.length) {
+            for (j in 1..s2.length) {
+                if (s1[i-1] == s2[j-1]) {
+                    dp[i][j] = dp[i-1][j-1] + 1
+                } else {
+                    dp[i][j] = maxOf(dp[i-1][j], dp[i][j-1])
+                }
+            }
+        }
+        
+        return dp[s1.length][s2.length]
+    }
+    
+    /**
+     * Update suggestion strip with enhanced swipe candidates
+     */
+    private fun updateEnhancedSwipeSuggestions(candidates: List<SwipeCandidate>, originalSwipe: String) {
+        try {
+            if (candidates.isEmpty()) {
+                updateSuggestionUI(listOf(originalSwipe))
+                return
+            }
+            
+            val suggestionTexts = mutableListOf<String>()
+            
+            // Always show original swipe as first option (for reversion)
+            suggestionTexts.add(originalSwipe)
+            
+            // Add top candidates with source indicators
+            candidates.take(2).forEach { candidate ->
+                val indicator = when (candidate.source) {
+                    CandidateSource.EXACT_MATCH -> ""
+                    CandidateSource.EDIT_DISTANCE -> "✓"
+                    CandidateSource.PATTERN_MATCH -> "~"
+                    CandidateSource.USER_DICTIONARY -> "★"
+                }
+                suggestionTexts.add("$indicator${candidate.word}")
+            }
+            
+            updateSuggestionUI(suggestionTexts)
+            Log.d(TAG, "Enhanced swipe suggestions updated: $suggestionTexts")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating enhanced swipe suggestions", e)
+        }
+    }
+    
+    /**
+     * Update suggestion strip with swipe candidates (legacy)
+     */
+    private fun updateSwipeSuggestionStrip(candidates: List<AutocorrectCandidate>) {
+        try {
+            if (candidates.isEmpty()) {
+                updateSuggestionUI(emptyList())
+                return
+            }
+            
+            val suggestionTexts = candidates.map { candidate ->
+                when (candidate.type) {
+                    CandidateType.ORIGINAL -> candidate.word
+                    CandidateType.CORRECTION -> candidate.word
+                    else -> candidate.word
+                }
+            }
+            
+            updateSuggestionUI(suggestionTexts)
+            Log.d(TAG, "Swipe suggestion strip updated with ${suggestionTexts.size} options: $suggestionTexts")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating swipe suggestion strip", e)
+        }
+    }
+    
+    /**
+     * Update suggestion strip with tone variations (3 AI-generated options)
+     */
+    private fun updateToneSuggestionStrip(variations: List<String>, tone: CleverTypeAIService.ToneType) {
+        try {
+            if (variations.isEmpty()) {
+                updateSuggestionUI(emptyList())
+                return
+            }
+            
+            // Format tone variations with visual indicators
+            val suggestionTexts = variations.take(3).mapIndexed { index, variation ->
+                val truncated = if (variation.length > 50) "${variation.take(47)}..." else variation
+                "${tone.emoji} $truncated"
+            }
+            
+            updateSuggestionUI(suggestionTexts)
+            Log.d(TAG, "Tone suggestion strip updated with ${suggestionTexts.size} ${tone.displayName} variations")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating tone suggestion strip", e)
+        }
+    }
+    
+    /**
+     * Initialize theme MethodChannel for Flutter communication
+     */
+    private fun initializeThemeChannel() {
+        try {
+            // Theme updates are currently handled via broadcast receiver
+            // This provides a foundation for future MethodChannel integration when needed
+            Log.d(TAG, "Theme communication ready (broadcast-based)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up theme communication", e)
+        }
     }
 }

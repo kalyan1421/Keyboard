@@ -64,6 +64,30 @@ class SettingsManager {
         }
     }
     
+    var autoCapitalizationEnabled: Bool {
+        get { userDefaults?.bool(forKey: "auto_capitalization") ?? true }
+        set {
+            userDefaults?.set(newValue, forKey: "auto_capitalization")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    var contextAwareCapitalizationEnabled: Bool {
+        get { userDefaults?.bool(forKey: "context_aware_capitalization") ?? true }
+        set {
+            userDefaults?.set(newValue, forKey: "context_aware_capitalization")
+            userDefaults?.synchronize()
+        }
+    }
+    
+    var shiftFeedbackEnabled: Bool {
+        get { userDefaults?.bool(forKey: "show_shift_feedback") ?? false }
+        set {
+            userDefaults?.set(newValue, forKey: "show_shift_feedback")
+            userDefaults?.synchronize()
+        }
+    }
+    
     // MARK: - Advanced Feedback Settings
     
     var hapticIntensity: Int {
@@ -119,6 +143,9 @@ class SettingsManager {
             voiceInput: voiceInputEnabled,
             vibration: vibrationEnabled,
             keyPreview: keyPreviewEnabled,
+            autoCapitalization: autoCapitalizationEnabled,
+            contextAwareCapitalization: contextAwareCapitalizationEnabled,
+            shiftFeedback: shiftFeedbackEnabled,
             hapticIntensity: hapticIntensity,
             soundIntensity: soundIntensity,
             visualIntensity: visualIntensity,
@@ -133,6 +160,9 @@ class SettingsManager {
         voiceInputEnabled = settings.voiceInput
         vibrationEnabled = settings.vibration
         keyPreviewEnabled = settings.keyPreview
+        autoCapitalizationEnabled = settings.autoCapitalization
+        contextAwareCapitalizationEnabled = settings.contextAwareCapitalization
+        shiftFeedbackEnabled = settings.shiftFeedback
         hapticIntensity = settings.hapticIntensity
         soundIntensity = settings.soundIntensity
         visualIntensity = settings.visualIntensity
@@ -149,6 +179,9 @@ struct KeyboardSettings {
     let voiceInput: Bool
     let vibration: Bool
     let keyPreview: Bool
+    let autoCapitalization: Bool
+    let contextAwareCapitalization: Bool
+    let shiftFeedback: Bool
     
     // Advanced feedback settings
     let hapticIntensity: Int

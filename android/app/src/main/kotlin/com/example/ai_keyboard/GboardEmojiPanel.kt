@@ -22,10 +22,10 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     companion object {
         private const val TAG = "GboardEmojiPanel"
         private const val EMOJI_GRID_COLUMNS = 8
-        private const val PANEL_HEIGHT_DP = 280
-        private const val CATEGORY_TAB_WIDTH_DP = 72
-        private const val CATEGORY_TAB_HEIGHT_DP = 48
-        private const val EMOJI_SIZE_DP = 40
+        private const val PANEL_HEIGHT_DP = 280  // Keyboard-appropriate height
+        private const val CATEGORY_TAB_WIDTH_DP = 50  // Smaller tab width
+        private const val CATEGORY_TAB_HEIGHT_DP = 35  // Smaller tab height
+        private const val EMOJI_SIZE_DP = 32  // Smaller emojis
         private const val SEARCH_DEBOUNCE_DELAY = 300L
         private const val ANIMATION_DURATION = 200L
     }
@@ -49,39 +49,52 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     private val categories = mutableListOf<EmojiCategoryData>()
     private val categoryTabs = mutableListOf<CategoryTab>()
     
+    // Skin tone preference - default to medium skin tone or user preference
+    private var preferredSkinTone = "🏽"  // Medium skin tone as default (global fallback)
+    private val skinToneModifiers = listOf("", "🏻", "🏼", "🏽", "🏾", "🏿") // Default, Light, Medium-Light, Medium, Medium-Dark, Dark
+    
+    // Per-emoji default skin tone storage (like Gboard/CleverType)
+    private val defaultEmojiTones = mutableMapOf<String, String>() // Base emoji -> chosen tone variant
+    
     init {
         orientation = VERTICAL
-        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(PANEL_HEIGHT_DP))
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         setBackgroundColor(Color.parseColor("#f8f9fa"))
+        
+        // Load user preferences
+        loadPreferredSkinTone()
+        loadDefaultEmojiTones()
         
         setupCategories()
         setupSearchBar()
         setupCategoryTabs()
         setupEmojiGrid()
         setupBottomToolbar()
+        setupSkinToneSelector()
         
         // Load initial category
         loadCategory(EmojiCategory.RECENTLY_USED)
         
-        Log.d(TAG, "Gboard-style emoji panel initialized")
+        Log.d(TAG, "Gboard-style emoji panel initialized with skin tone preference: $preferredSkinTone")
     }
     
     private fun setupCategories() {
-        val categoryInfo = emojiDatabase.getCategoryInfo()
-        
         categories.clear()
         categories.addAll(listOf(
             EmojiCategoryData(EmojiCategory.RECENTLY_USED, "⏰", "Recent"),
+            EmojiCategoryData(EmojiCategory.FREQUENTLY_USED, "🔥", "Popular"),
             EmojiCategoryData(EmojiCategory.SMILEYS_EMOTION, "😊", "Smileys"),
             EmojiCategoryData(EmojiCategory.PEOPLE_BODY, "👤", "People"),
+            EmojiCategoryData(EmojiCategory.SYMBOLS, "❤️", "Hearts"),
             EmojiCategoryData(EmojiCategory.ANIMALS_NATURE, "🐶", "Animals"),
             EmojiCategoryData(EmojiCategory.FOOD_DRINK, "🍔", "Food"),
-            EmojiCategoryData(EmojiCategory.TRAVEL_PLACES, "🚗", "Travel"),
             EmojiCategoryData(EmojiCategory.ACTIVITIES, "⚽", "Activities"),
+            EmojiCategoryData(EmojiCategory.TRAVEL_PLACES, "🚗", "Travel"),
             EmojiCategoryData(EmojiCategory.OBJECTS, "💡", "Objects"),
-            EmojiCategoryData(EmojiCategory.SYMBOLS, "❤️", "Symbols"),
             EmojiCategoryData(EmojiCategory.FLAGS, "🏁", "Flags")
         ))
+        
+        Log.d(TAG, "Categories setup complete with enhanced collection: ${categories.size} categories")
     }
     
     private fun setupSearchBar() {
@@ -105,7 +118,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         searchBar = EditText(context).apply {
             hint = "Search emojis"
             textSize = 14f
-            setBackgroundResource(R.drawable.search_bar_background)
+            setBackgroundResource(R.drawable.input_field_background)
             setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
             layoutParams = LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
                 setMargins(dpToPx(8), 0, dpToPx(8), 0)
@@ -177,8 +190,10 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         
         emojiGridContainer = ScrollView(context).apply {
             addView(emojiGridLayout)
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(PANEL_HEIGHT_DP - 140))  // Leave room for tabs and toolbar
             setBackgroundColor(Color.parseColor("#f8f9fa"))
+            isVerticalScrollBarEnabled = true
+            scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
         }
         
         addView(emojiGridContainer)
@@ -235,7 +250,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             layoutParams = LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
                 setMargins(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2))
             }
-            setBackgroundResource(R.drawable.space_button_background)
+            setBackgroundResource(R.drawable.key_background_default)
             setOnClickListener {
                 // Handle space
                 onEmojiSelected?.invoke(" ") // Space character
@@ -289,9 +304,38 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     private fun loadCategory(category: EmojiCategory) {
         Thread {
             try {
-            val emojis = when (category) {
-                EmojiCategory.RECENTLY_USED -> emojiDatabase.getRecentlyUsedEmojis()
-                    EmojiCategory.FREQUENTLY_USED -> emojiDatabase.getFrequentlyUsedEmojis()
+                val emojis = when (category) {
+                    EmojiCategory.RECENTLY_USED -> emojiDatabase.getRecentlyUsedEmojis()
+                    EmojiCategory.FREQUENTLY_USED -> EmojiCollection.popularEmojis.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Popular emoji", category = category, keywords = listOf("popular"))
+                    }
+                    EmojiCategory.SMILEYS_EMOTION -> EmojiCollection.smileys.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Smiley", category = category, keywords = listOf("smiley"))
+                    }
+                    EmojiCategory.PEOPLE_BODY -> EmojiCollection.people.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "People", category = category, keywords = listOf("people"))
+                    }
+                    EmojiCategory.SYMBOLS -> EmojiCollection.hearts.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Heart", category = category, keywords = listOf("heart"))
+                    }
+                    EmojiCategory.ANIMALS_NATURE -> EmojiCollection.animals.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Animal", category = category, keywords = listOf("animal"))
+                    }
+                    EmojiCategory.FOOD_DRINK -> EmojiCollection.food.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Food", category = category, keywords = listOf("food"))
+                    }
+                    EmojiCategory.ACTIVITIES -> EmojiCollection.activities.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Activity", category = category, keywords = listOf("activity"))
+                    }
+                    EmojiCategory.TRAVEL_PLACES -> EmojiCollection.travel.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Travel", category = category, keywords = listOf("travel"))
+                    }
+                    EmojiCategory.OBJECTS -> EmojiCollection.objects.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Object", category = category, keywords = listOf("object"))
+                    }
+                    EmojiCategory.FLAGS -> EmojiCollection.flags.map { 
+                        EmojiData(unicode = applyPreferredSkinTone(it), description = "Flag", category = category, keywords = listOf("flag"))
+                    }
                     else -> emojiDatabase.getEmojisByCategory(category)
                 }
                 
@@ -299,7 +343,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                     displayEmojis(emojis, category == EmojiCategory.RECENTLY_USED)
                 }
                 
-                Log.d(TAG, "Loaded ${emojis.size} emojis for category: $category")
+                Log.d(TAG, "Loaded ${emojis.size} emojis from EmojiCollection for category: $category")
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading category: $category", e)
             }
@@ -314,14 +358,28 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         
         Thread {
             try {
-                val results = emojiDatabase.searchEmojis(query)
-                post {
-                    displayEmojis(results, false)
+                // Use our enhanced emoji search engine
+                val searchResults = EmojiSuggestionEngine.searchEmojis(query).map { emoji ->
+                    EmojiData(unicode = emoji, description = "Search result", category = EmojiCategory.SMILEYS_EMOTION, keywords = listOf("search"))
                 }
                 
-                Log.d(TAG, "Found ${results.size} emojis for query: $query")
+                post {
+                    displayEmojis(searchResults, false)
+                }
+                
+                Log.d(TAG, "Enhanced search found ${searchResults.size} emojis for query: $query")
             } catch (e: Exception) {
-                Log.e(TAG, "Error searching emojis: $query", e)
+                Log.e(TAG, "Error in enhanced search for: $query", e)
+                // Fallback to database search
+                try {
+                    val fallbackResults = emojiDatabase.searchEmojis(query)
+                    post {
+                        displayEmojis(fallbackResults, false)
+                    }
+                    Log.d(TAG, "Fallback search found ${fallbackResults.size} emojis for query: $query")
+                } catch (fallbackError: Exception) {
+                    Log.e(TAG, "Fallback search also failed", fallbackError)
+                }
             }
         }.start()
     }
@@ -379,8 +437,15 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             
             setOnClickListener {
                 Log.d(TAG, "Emoji clicked: ${emoji.unicode}")
-                onEmojiSelected?.invoke(emoji.unicode)
-                emojiDatabase.recordEmojiUsage(emoji.unicode)
+                
+                // Apply default skin tone if one exists for this emoji
+                val baseEmoji = getBaseEmoji(emoji.unicode)
+                val defaultTone = getDefaultEmojiTone(baseEmoji)
+                val emojiToInsert = defaultTone ?: emoji.unicode
+                
+                Log.d(TAG, "Inserting emoji: '$emojiToInsert' (base: '$baseEmoji', default: '$defaultTone')")
+                onEmojiSelected?.invoke(emojiToInsert)
+                emojiDatabase.recordEmojiUsage(emojiToInsert)
                 
                 // Update recent category if currently viewing it
                 if (currentCategory == EmojiCategory.RECENTLY_USED) {
@@ -431,45 +496,259 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     }
     
     private fun generateSkinToneVariants(baseEmoji: String): List<String> {
-        // List of emojis that support skin tone modifiers
-        val skinToneSupportedEmojis = listOf(
-            "👋", "🤚", "🖐", "✋", "🖖", "👌", "🤌", "🤏", "✌", "🤞", "🤟", "🤘", "🤙",
-            "👈", "👉", "👆", "🖕", "👇", "☝", "👍", "👎", "✊", "👊", "🤛", "🤜",
-            "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍", "💅", "🤳", "💪", "🦾", "🦿",
-            "🦵", "🦶", "👂", "🦻", "👃", "👶", "👧", "🧒", "👦", "👩", "🧑", "👨",
-            "👩‍🦱", "🧑‍🦱", "👨‍🦱", "👩‍🦰", "🧑‍🦰", "👨‍🦰", "👱‍♀️", "👱", "👱‍♂️",
-            "👩‍🦳", "🧑‍🦳", "👨‍🦳", "👩‍🦲", "🧑‍🦲", "👨‍🦲", "🧔", "👵", "🧓", "👴",
-            "👲", "👳‍♀️", "👳", "👳‍♂️", "🧕", "👮‍♀️", "👮", "👮‍♂️", "👷‍♀️", "👷", "👷‍♂️",
-            "💂‍♀️", "💂", "💂‍♂️", "🕵‍♀️", "🕵", "🕵‍♂️", "👩‍⚕️", "🧑‍⚕️", "👨‍⚕️",
-            "👩‍🌾", "🧑‍🌾", "👨‍🌾", "👩‍🍳", "🧑‍🍳", "👨‍🍳", "👩‍🎓", "🧑‍🎓", "👨‍🎓",
-            "👩‍🎤", "🧑‍🎤", "👨‍🎤", "👩‍🏫", "🧑‍🏫", "👨‍🏫", "👩‍🏭", "🧑‍🏭", "👨‍🏭",
-            "👩‍💻", "🧑‍💻", "👨‍💻", "👩‍💼", "🧑‍💼", "👨‍💼", "👩‍🔧", "🧑‍🔧", "👨‍🔧",
-            "👩‍🔬", "🧑‍🔬", "👨‍🔬", "👩‍🎨", "🧑‍🎨", "👨‍🎨", "👩‍🚒", "🧑‍🚒", "👨‍🚒",
-            "👩‍✈️", "🧑‍✈️", "👨‍✈️", "👩‍🚀", "🧑‍🚀", "👨‍🚀", "👩‍⚖️", "🧑‍⚖️", "👨‍⚖️",
-            "👰", "🤵", "👸", "🤴", "🦸‍♀️", "🦸", "🦸‍♂️", "🦹‍♀️", "🦹", "🦹‍♂️",
-            "🤶", "🎅", "🧙‍♀️", "🧙", "🧙‍♂️", "🧝‍♀️", "🧝", "🧝‍♂️", "🧛‍♀️", "🧛", "🧛‍♂️",
-            "🧟‍♀️", "🧟", "🧟‍♂️", "🧞‍♀️", "🧞", "🧞‍♂️", "🧜‍♀️", "🧜", "🧜‍♂️",
-            "🙍‍♀️", "🙍", "🙍‍♂️", "🙎‍♀️", "🙎", "🙎‍♂️", "🙅‍♀️", "🙅", "🙅‍♂️",
-            "🙆‍♀️", "🙆", "🙆‍♂️", "💁‍♀️", "💁", "💁‍♂️", "🙋‍♀️", "🙋", "🙋‍♂️",
-            "🧏‍♀️", "🧏", "🧏‍♂️", "🙇‍♀️", "🙇", "🙇‍♂️", "🤦‍♀️", "🤦", "🤦‍♂️",
-            "🤷‍♀️", "🤷", "🤷‍♂️", "💆‍♀️", "💆", "💆‍♂️", "💇‍♀️", "💇", "💇‍♂️",
-            "🚶‍♀️", "🚶", "🚶‍♂️", "🧍‍♀️", "🧍", "🧍‍♂️", "🧎‍♀️", "🧎", "🧎‍♂️",
-            "🏃‍♀️", "🏃", "🏃‍♂️", "💃", "🕺", "🕴", "👯‍♀️", "👯", "👯‍♂️",
-            "🧖‍♀️", "🧖", "🧖‍♂️", "🧗‍♀️", "🧗", "🧗‍♂️", "🤺", "🏇", "⛷",
-            "🏂", "🏌‍♀️", "🏌", "🏌‍♂️", "🏄‍♀️", "🏄", "🏄‍♂️", "🚣‍♀️", "🚣", "🚣‍♂️",
-            "🏊‍♀️", "🏊", "🏊‍♂️", "⛹‍♀️", "⛹", "⛹‍♂️", "🏋‍♀️", "🏋", "🏋‍♂️",
-            "🚴‍♀️", "🚴", "🚴‍♂️", "🚵‍♀️", "🚵", "🚵‍♂️", "🤸‍♀️", "🤸", "🤸‍♂️",
-            "🤼‍♀️", "🤼", "🤼‍♂️", "🤽‍♀️", "🤽", "🤽‍♂️", "🤾‍♀️", "🤾", "🤾‍♂️",
-            "🤹‍♀️", "🤹", "🤹‍♂️", "🧘‍♀️", "🧘", "🧘‍♂️", "🛀", "🛌"
-        )
         
-        // Check if this emoji supports skin tones
-        if (skinToneSupportedEmojis.contains(baseEmoji)) {
-            val skinToneModifiers = listOf("🏻", "🏼", "🏽", "🏾", "🏿")
-            return skinToneModifiers.map { modifier -> baseEmoji + modifier }
+        val cleanBaseEmoji = getBaseEmoji(baseEmoji)
+        
+        return if (EmojiCollection.skinToneSupportedEmojis.contains(cleanBaseEmoji)) {
+            skinToneModifiers.map { modifier ->
+                if (modifier.isEmpty()) cleanBaseEmoji else cleanBaseEmoji + modifier
+            }
+        } else {
+            emptyList()
+        } 
+    }
+    
+    /**
+     * Apply the user's preferred skin tone to an emoji if it supports skin tones
+     */
+    private fun applyPreferredSkinTone(baseEmoji: String): String {
+        // First check if we have a per-emoji default
+        val cleanBaseEmoji = getBaseEmoji(baseEmoji)
+        val defaultTone = getDefaultEmojiTone(cleanBaseEmoji)
+        if (defaultTone != null) {
+            return defaultTone
         }
         
-        return emptyList()
+        // Fallback to global preferred skin tone for supported emojis
+        return if (EmojiCollection.skinToneSupportedEmojis.contains(cleanBaseEmoji) && preferredSkinTone.isNotEmpty()) {
+            cleanBaseEmoji + preferredSkinTone
+        } else {
+            baseEmoji
+        }
+    }
+    
+    /**
+     * Set user's preferred skin tone
+     */
+    fun setPreferredSkinTone(skinTone: String) {
+        preferredSkinTone = skinTone
+        // Save to preferences
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        prefs.edit().putString("preferred_skin_tone", skinTone).apply()
+        
+        // Reload current category to apply new skin tone
+        loadCategory(currentCategory)
+        
+        Log.d(TAG, "Preferred skin tone set to: $skinTone")
+    }
+    
+    /**
+     * Load user's preferred skin tone from preferences
+     */
+    private fun loadPreferredSkinTone() {
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        preferredSkinTone = prefs.getString("preferred_skin_tone", "🏽") ?: "🏽" // Default to medium
+        Log.d(TAG, "Loaded preferred skin tone: $preferredSkinTone")
+    }
+    
+    /**
+     * Load per-emoji default skin tone preferences (like Gboard/CleverType)
+     */
+    private fun loadDefaultEmojiTones() {
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val defaultTonesJson = prefs.getString("default_emoji_tones", "{}")
+        
+        try {
+            // Parse stored emoji defaults
+            defaultTonesJson?.let { json ->
+                if (json != "{}") {
+                    // Simple JSON parsing for key-value pairs
+                    json.removeSurrounding("{", "}").split(", ").forEach { pair ->
+                        val (baseEmoji, toneVariant) = pair.split("=", limit = 2)
+                        if (baseEmoji.isNotEmpty() && toneVariant.isNotEmpty()) {
+                            defaultEmojiTones[baseEmoji.trim('"')] = toneVariant.trim('"')
+                        }
+                    }
+                }
+            }
+            Log.d(TAG, "Loaded ${defaultEmojiTones.size} per-emoji default tones")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error loading default emoji tones: ${e.message}")
+            defaultEmojiTones.clear()
+        }
+    }
+    
+    /**
+     * Save per-emoji default skin tone preference
+     */
+    private fun saveDefaultEmojiTone(baseEmoji: String, toneVariant: String) {
+        defaultEmojiTones[baseEmoji] = toneVariant
+        
+        // Save to SharedPreferences
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val jsonString = defaultEmojiTones.entries.joinToString(", ") { "\"${it.key}\"=\"${it.value}\"" }
+        prefs.edit().putString("default_emoji_tones", "{$jsonString}").apply()
+        
+        Log.d(TAG, "Saved default tone for '$baseEmoji' → '$toneVariant'")
+    }
+    
+    /**
+     * Get the default skin tone for a specific emoji
+     */
+    fun getDefaultEmojiTone(baseEmoji: String): String? {
+        return defaultEmojiTones[baseEmoji]
+    }
+    
+    /**
+     * Get the base emoji without skin tone modifiers
+     */
+    fun getBaseEmoji(emojiWithTone: String): String {
+        skinToneModifiers.forEach { modifier ->
+            if (modifier.isNotEmpty() && emojiWithTone.contains(modifier)) {
+                return emojiWithTone.replace(modifier, "")
+            }
+        }
+        return emojiWithTone
+    }
+    
+    /**
+     * Save per-emoji default skin tone preference (public method for SkinTonePopup)
+     */
+    fun saveEmojiDefaultTone(baseEmoji: String, toneVariant: String) {
+        saveDefaultEmojiTone(baseEmoji, toneVariant)
+    }
+    
+    private fun setupSkinToneSelector() {
+        // Add enhanced skin tone selector to bottom toolbar
+        bottomToolbar?.let { toolbar ->
+            // Skin tone display and selector button
+            val skinToneButton = TextView(context).apply {
+                text = "👋$preferredSkinTone" // Show current skin tone with hand emoji
+                textSize = 18f
+                setTextColor(Color.parseColor("#1a73e8"))
+                setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+                setBackgroundResource(R.drawable.key_background_default)
+                setOnClickListener { showSkinToneSelector() }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                ).apply {
+                    setMargins(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2))
+                }
+            }
+            
+            // Quick tone cycle button (for easy switching)
+            val toneCycleButton = TextView(context).apply {
+                text = "🎨" // Palette emoji for tone cycling
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setTextColor(Color.parseColor("#5f6368"))
+                setBackgroundResource(R.drawable.key_background_default)
+                setOnClickListener { cycleSkinTone() }
+                layoutParams = LinearLayout.LayoutParams(
+                    dpToPx(40), 
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                ).apply {
+                    setMargins(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2))
+                }
+            }
+            
+            toolbar.addView(skinToneButton, 0) // Add at the beginning
+            toolbar.addView(toneCycleButton, 1) // Add tone cycle button next
+        }
+    }
+    
+    /**
+     * Cycle through skin tones quickly
+     */
+    private fun cycleSkinTone() {
+        val currentIndex = skinToneModifiers.indexOf(preferredSkinTone)
+        val nextIndex = (currentIndex + 1) % skinToneModifiers.size
+        val nextSkinTone = skinToneModifiers[nextIndex]
+        
+        setPreferredSkinTone(nextSkinTone)
+        updateSkinToneButton()
+        
+        // Show visual feedback
+        val toneName = when(nextSkinTone) {
+            "" -> "Default"
+            "🏻" -> "Light"
+            "🏼" -> "Medium-Light"
+            "🏽" -> "Medium"
+            "🏾" -> "Medium-Dark"
+            "🏿" -> "Dark"
+            else -> "Unknown"
+        }
+        
+        Toast.makeText(context, "🎨 Skin tone: $toneName", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Cycled to skin tone: $toneName ($nextSkinTone)")
+    }
+    
+    private fun showSkinToneSelector() {
+        val popup = PopupWindow(context)
+        val popupLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#ffffff"))
+            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
+        }
+        
+        // Create skin tone options
+        val skinToneOptions = listOf(
+            Pair("", "Default"),
+            Pair("🏻", "Light"),
+            Pair("🏼", "Medium-Light"), 
+            Pair("🏽", "Medium"),
+            Pair("🏾", "Medium-Dark"),
+            Pair("🏿", "Dark")
+        )
+        
+        skinToneOptions.forEach { (modifier, description) ->
+            val button = TextView(context).apply {
+                text = "👋$modifier"
+                textSize = 20f
+                setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
+                setBackgroundColor(if (modifier == preferredSkinTone) Color.parseColor("#e8f0fe") else Color.TRANSPARENT)
+                setOnClickListener {
+                    setPreferredSkinTone(modifier)
+                    updateSkinToneButton()
+                    popup.dismiss()
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginEnd = dpToPx(4)
+                }
+            }
+            popupLayout.addView(button)
+        }
+        
+        popup.contentView = popupLayout
+        popup.isOutsideTouchable = true
+        popup.isFocusable = true
+        popup.showAsDropDown(bottomToolbar, 0, -dpToPx(60))
+    }
+    
+    private fun updateSkinToneButton() {
+        // Update the skin tone button display
+        bottomToolbar?.let { toolbar ->
+            if (toolbar.childCount > 0) {
+                val skinToneButton = toolbar.getChildAt(0) as? TextView
+                skinToneButton?.text = "👋$preferredSkinTone"
+                
+                // Update visual state to show current selection
+                val toneName = when(preferredSkinTone) {
+                    "" -> "Default tone"
+                    "🏻" -> "Light tone"
+                    "🏼" -> "Medium-light tone"
+                    "🏽" -> "Medium tone"
+                    "🏾" -> "Medium-dark tone"
+                    "🏿" -> "Dark tone"
+                    else -> "Custom tone"
+                }
+                skinToneButton?.contentDescription = toneName
+            }
+        }
     }
     
     private fun dpToPx(dp: Int): Int {
@@ -550,30 +829,41 @@ class SkinTonePopup(private val context: Context) {
             
             val popupLayout = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setBackgroundResource(R.drawable.skin_tone_popup_bg)
+                setBackgroundResource(R.drawable.popup_background)
                 setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
                 elevation = dpToPx(8).toFloat()
             }
             
-            // Add base emoji (no skin tone)
-            addEmojiVariant(popupLayout, emoji.unicode, onEmojiSelected)
+            // Get the emoji panel instance to access default tone methods
+            val emojiPanel = (anchorView.parent as? ViewGroup)?.let { findEmojiPanel(it) }
+            val baseEmoji = emojiPanel?.getBaseEmoji(emoji.unicode) ?: emoji.unicode
+            val currentDefault = emojiPanel?.getDefaultEmojiTone(baseEmoji)
             
-            // Add skin tone variants
+            // Add base emoji (no skin tone) - highlight if it's the current default
+            addEmojiVariant(popupLayout, emoji.unicode, currentDefault == null, onEmojiSelected) { selectedEmoji ->
+                emojiPanel?.saveEmojiDefaultTone(baseEmoji, selectedEmoji)
+            }
+            
+            // Add skin tone variants - highlight the current default
             emoji.skinToneVariants.forEach { variant ->
                 Log.d(TAG, "Adding skin tone variant: $variant")
-                addEmojiVariant(popupLayout, variant, onEmojiSelected)
+                val isDefault = (currentDefault == variant)
+                addEmojiVariant(popupLayout, variant, isDefault, onEmojiSelected) { selectedEmoji ->
+                    emojiPanel?.saveEmojiDefaultTone(baseEmoji, selectedEmoji)
+                }
             }
             
             popupWindow = PopupWindow(
                 popupLayout,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                true
+                false // Changed to false to prevent keyboard from losing focus
             ).apply {
                 elevation = dpToPx(8).toFloat()
                 setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
                 isOutsideTouchable = true
-                isFocusable = true
+                isFocusable = false // Changed to false to keep keyboard active
+                isTouchable = true // Ensure popup is still touchable
                 
                 // Calculate position to show above the anchor view
                 val location = IntArray(2)
@@ -592,22 +882,60 @@ class SkinTonePopup(private val context: Context) {
         }
     }
     
-    private fun addEmojiVariant(container: LinearLayout, emoji: String, onSelected: (String) -> Unit) {
+    private fun addEmojiVariant(container: LinearLayout, emoji: String, isDefault: Boolean, onSelected: (String) -> Unit, onDefaultSet: (String) -> Unit) {
         val emojiView = TextView(context).apply {
             text = emoji
             textSize = 24f
             gravity = Gravity.CENTER
             setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
-            setBackgroundResource(R.drawable.emoji_touch_feedback)
+            
+            // Highlight the current default with blue background (like Gboard)
+            if (isDefault) {
+                setBackgroundColor(Color.parseColor("#1976D2")) // Blue highlight
+                setTextColor(Color.WHITE)
+            } else {
+                setBackgroundResource(R.drawable.emoji_touch_feedback)
+                setTextColor(Color.BLACK)
+            }
+            
             layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
             
             setOnClickListener {
-                Log.d(TAG, "Skin tone variant selected: $emoji")
+                Log.d(TAG, "Skin tone variant selected: $emoji (setting as default)")
+                
+                // Set as new default for this emoji
+                onDefaultSet(emoji)
+                
+                // Show feedback like Gboard
+                android.widget.Toast.makeText(context, "✅ Default skin tone set", android.widget.Toast.LENGTH_SHORT).show()
+                
+                // Insert the selected emoji
                 onSelected(emoji)
                 dismiss()
             }
         }
         container.addView(emojiView)
+    }
+    
+    /**
+     * Fallback method for backward compatibility
+     */
+    private fun addEmojiVariant(container: LinearLayout, emoji: String, onSelected: (String) -> Unit) {
+        addEmojiVariant(container, emoji, false, onSelected) { /* no-op for backward compatibility */ }
+    }
+    
+    /**
+     * Helper method to find the parent GboardEmojiPanel instance
+     */
+    private fun findEmojiPanel(viewGroup: ViewGroup): GboardEmojiPanel? {
+        var parent = viewGroup.parent
+        while (parent != null) {
+            if (parent is GboardEmojiPanel) {
+                return parent
+            }
+            parent = parent.parent
+        }
+        return null
     }
     
     fun dismiss() {
