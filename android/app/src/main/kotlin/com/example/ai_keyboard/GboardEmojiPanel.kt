@@ -43,6 +43,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     private val emojiDatabase = EmojiDatabase(context)
     private var onEmojiSelected: ((String) -> Unit)? = null
     private var onKeyboardSwitchRequested: (() -> Unit)? = null
+    private var onBackspacePressed: (() -> Unit)? = null
     private var currentCategory = EmojiCategory.RECENTLY_USED
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchRunnable: Runnable? = null
@@ -236,8 +237,8 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             }
             setBackgroundResource(R.drawable.bottom_button_background)
             setOnClickListener {
-                // Handle backspace
-                onEmojiSelected?.invoke("\b") // Backspace character
+                // Handle backspace properly - call dedicated backspace handler
+                onBackspacePressed?.invoke()
             }
         }
         
@@ -491,6 +492,10 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         onEmojiSelected = listener
     }
     
+    fun setOnBackspacePressedListener(listener: () -> Unit) {
+        onBackspacePressed = listener
+    }
+    
     fun setOnKeyboardSwitchRequestedListener(listener: () -> Unit) {
         onKeyboardSwitchRequested = listener
     }
@@ -616,6 +621,19 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
      */
     fun saveEmojiDefaultTone(baseEmoji: String, toneVariant: String) {
         saveDefaultEmojiTone(baseEmoji, toneVariant)
+    }
+    
+    /**
+     * Cleanup method to dismiss any open popups when emoji panel is hidden
+     */
+    fun dismissAllPopups() {
+        try {
+            skinTonePopup?.dismiss()
+            skinTonePopup = null
+            Log.d(TAG, "All popups dismissed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error dismissing popups", e)
+        }
     }
     
     private fun setupSkinToneSelector() {
@@ -857,22 +875,31 @@ class SkinTonePopup(private val context: Context) {
                 popupLayout,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                false // Changed to false to prevent keyboard from losing focus
+                false // Prevent keyboard from losing focus
             ).apply {
                 elevation = dpToPx(8).toFloat()
                 setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
                 isOutsideTouchable = true
-                isFocusable = false // Changed to false to keep keyboard active
-                isTouchable = true // Ensure popup is still touchable
+                isFocusable = false // Keep keyboard active
+                isTouchable = true
+                
+                // Prevent keyboard dismissal
+                inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
                 
                 // Calculate position to show above the anchor view
                 val location = IntArray(2)
                 anchorView.getLocationOnScreen(location)
                 val popupHeight = dpToPx(60)
-                val yOffset = -anchorView.height - popupHeight
+                val yOffset = -anchorView.height - popupHeight - dpToPx(4) // Extra margin
                 
                 Log.d(TAG, "Showing popup at offset: $yOffset")
-                showAsDropDown(anchorView, 0, yOffset)
+                try {
+                    showAsDropDown(anchorView, 0, yOffset)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error showing popup", e)
+                    // Fallback: show as a toast instead
+                    android.widget.Toast.makeText(context, "Skin tone variants: ${emoji.skinToneVariants.size + 1}", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
             
         } catch (e: Exception) {
@@ -939,8 +966,13 @@ class SkinTonePopup(private val context: Context) {
     }
     
     fun dismiss() {
-        popupWindow?.dismiss()
-        popupWindow = null
+        try {
+            popupWindow?.dismiss()
+            popupWindow = null
+            Log.d(TAG, "Skin tone popup dismissed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error dismissing popup", e)
+        }
     }
     
     private fun dpToPx(dp: Int): Int {

@@ -715,6 +715,18 @@ class AIKeyboardService : InputMethodService(),
                 // toggleEmojiPanel()
             }
             
+            // Set backspace handler for emoji panel
+            setOnBackspacePressedListener {
+                // Handle backspace in emoji mode - should delete text/emojis
+                val ic = currentInputConnection
+                if (ic != null) {
+                    handleBackspace(ic)
+                    Log.d(TAG, "Backspace pressed in emoji panel")
+                } else {
+                    Log.w(TAG, "No input connection available for emoji backspace")
+                }
+            }
+            
             // Set keyboard switch listener
             setOnKeyboardSwitchRequestedListener {
                 // Switch back to keyboard when ABC button is tapped
@@ -3625,6 +3637,9 @@ class AIKeyboardService : InputMethodService(),
                     // Keep suggestion bar visible for emoji search
                     topContainer?.visibility = View.VISIBLE
                 } else {
+                    // Cleanup emoji panel popups before hiding
+                    gboardEmojiPanel?.dismissAllPopups()
+                    
                     // Show keyboard
                     keyboardView?.let { kv ->
                         container.addView(kv)
