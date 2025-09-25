@@ -106,7 +106,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
             color: theme.suggestionBarColor,
             border: Border(
               bottom: BorderSide(
-                color: theme.keyTextColor.withOpacity(0.2),
+                color: theme.keyTextColor.withValues(alpha: 0.2),
                 width: 0.5,
               ),
             ),
@@ -133,6 +133,8 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
               ),
             ),
           ),
+        );
+      },
     );
   }
 
@@ -159,7 +161,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
             boxShadow: isHighConfidence
                 ? [
                     BoxShadow(
-                      color: chipColor.withOpacity(0.3),
+                      color: chipColor.withValues(alpha: 0.3),
                       blurRadius: 4.0,
                       offset: const Offset(0, 2),
                     ),
@@ -173,7 +175,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
                 suggestion.word,
                 style: TextStyle(
                   color: textColor,
-                  fontSize: theme.fontSize,
+                  fontSize: theme.suggestionFontSize,
                   fontFamily: theme.fontFamily,
                   fontWeight: isCorrection ? FontWeight.w600 : FontWeight.w500,
                 ),
@@ -186,7 +188,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
                 Icon(
                   Icons.auto_fix_high,
                   size: 14.0,
-                  color: textColor.withOpacity(0.7),
+                  color: textColor.withValues(alpha: 0.7),
                 ),
             ],
           ),
@@ -218,7 +220,7 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
         padding: const EdgeInsets.all(8.0),
         child: Icon(
           Icons.keyboard_arrow_down,
-          color: theme.keyTextColor.withOpacity(0.6),
+          color: theme.keyTextColor.withValues(alpha: 0.6),
           size: 20.0,
         ),
       ),
@@ -228,18 +230,18 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
   Color _getChipColor(PredictionResult suggestion, KeyboardThemeData theme) {
     if (suggestion.isCorrection) {
       return suggestion.confidence > 0.8
-          ? theme.accentColor.withOpacity(0.3)
-          : theme.accentColor.withOpacity(0.1);
+          ? theme.accentColor.withValues(alpha: 0.3)
+          : theme.accentColor.withValues(alpha: 0.1);
     }
     
-    return theme.keyBackgroundColor.withOpacity(0.8);
+    return theme.keyBackgroundColor.withValues(alpha: 0.8);
   }
 
   Color _getTextColor(PredictionResult suggestion, KeyboardThemeData theme) {
     if (suggestion.isCorrection) {
       return suggestion.confidence > 0.8
           ? theme.accentColor
-          : theme.accentColor.withOpacity(0.8);
+          : theme.accentColor.withValues(alpha: 0.8);
     }
     
     return theme.keyTextColor;
@@ -346,7 +348,7 @@ class CompactSuggestionBar extends StatelessWidget {
       height: 40.0,
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.9),
+        color: Theme.of(context).cardColor.withValues(alpha: 0.9),
         border: Border(
           bottom: BorderSide(
             color: Theme.of(context).dividerColor,

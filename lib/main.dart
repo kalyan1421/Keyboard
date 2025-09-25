@@ -8,6 +8,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'keyboard_feedback_system.dart';
+import 'theme_manager.dart';
+import 'theme_editor_screen.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
 void main() async {
@@ -15,6 +17,9 @@ void main() async {
   
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
+  
+  // Initialize theme manager
+  await FlutterThemeManager.instance.initialize();
   
   runApp(const AIKeyboardApp());
 }
@@ -504,6 +509,8 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
             // Theme selection removed - using single default keyboard
             const SizedBox(height: 20),
             _buildFeaturesCard(),
+            const SizedBox(height: 20),
+            _buildThemeSection(),
             const SizedBox(height: 20),
             _buildTestKeyboardCard(),
           ],
@@ -1072,6 +1079,307 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       case FeedbackIntensity.strong:
         return 'Strong';
     }
+  }
+  
+  /// Build theme customization section
+  Widget _buildThemeSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.palette, color: Colors.deepPurple, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  'Keyboard Themes',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Colors.deepPurple,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Customize your keyboard appearance with themes, colors, fonts, and backgrounds.',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+            
+            // Theme Preview
+            ListenableBuilder(
+              listenable: FlutterThemeManager.instance,
+              builder: (context, _) {
+                final currentTheme = FlutterThemeManager.instance.currentTheme;
+                return _buildCurrentThemePreview(currentTheme);
+              },
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Theme Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _openThemeEditor,
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Customize Theme'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _showThemeGallery,
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Theme Gallery'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildCurrentThemePreview(KeyboardThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+        gradient: theme.backgroundType == 'gradient'
+            ? LinearGradient(
+                colors: theme.gradientColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: theme.backgroundType == 'solid' ? theme.backgroundColor : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Current: ${theme.name}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: theme.accentColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'ACTIVE',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Mini keyboard preview
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildPreviewKey('Q', theme),
+              _buildPreviewKey('W', theme),
+              _buildPreviewKey('E', theme),
+              _buildPreviewKey('R', theme),
+              _buildPreviewKey('T', theme),
+            ],
+          ),
+          const SizedBox(height: 8),
+          
+          // Theme description
+          Text(
+            theme.description.isNotEmpty ? theme.description : 'Custom keyboard theme',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildPreviewKey(String letter, KeyboardThemeData theme) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: theme.keyBackgroundColor,
+        borderRadius: BorderRadius.circular(theme.keyCornerRadius),
+        border: theme.keyBorderWidth > 0
+            ? Border.all(
+                color: theme.keyBorderColor,
+                width: theme.keyBorderWidth,
+              )
+            : null,
+        boxShadow: theme.showKeyShadows
+            ? [
+                BoxShadow(
+                  color: theme.shadowColor,
+                  blurRadius: theme.shadowDepth,
+                  offset: Offset(0, theme.shadowDepth / 2),
+                ),
+              ]
+            : null,
+      ),
+      child: Center(
+        child: Text(
+          letter,
+          style: TextStyle(
+            color: theme.keyTextColor,
+            fontSize: 14,
+            fontFamily: theme.fontFamily,
+            fontWeight: theme.isBold ? FontWeight.bold : FontWeight.normal,
+            fontStyle: theme.isItalic ? FontStyle.italic : FontStyle.normal,
+          ),
+        ),
+      ),
+    );
+  }
+  
+  void _openThemeEditor() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ThemeEditorScreen(isCreatingNew: true),
+      ),
+    ).then((newTheme) {
+      if (newTheme != null) {
+        setState(() {
+          // Theme has been updated, UI will rebuild automatically
+        });
+      }
+    });
+  }
+  
+  void _showThemeGallery() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => _buildThemeGalleryModal(),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+    );
+  }
+  
+  Widget _buildThemeGalleryModal() {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.8,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // Modal header
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            decoration: const BoxDecoration(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              color: Colors.deepPurple,
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.photo_library, color: Colors.white),
+                const SizedBox(width: 12),
+                const Text(
+                  'Theme Gallery',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+          
+          // Theme list
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16.0),
+              itemCount: FlutterThemeManager.instance.availableThemes.length,
+              itemBuilder: (context, index) {
+                final theme = FlutterThemeManager.instance.availableThemes[index];
+                final isActive = theme.id == FlutterThemeManager.instance.currentTheme.id;
+                
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16),
+                    leading: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: theme.backgroundColor,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: theme.keyBorderColor),
+                      ),
+                    ),
+                    title: Text(
+                      theme.name,
+                      style: TextStyle(
+                        fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                        color: isActive ? Colors.deepPurple : null,
+                      ),
+                    ),
+                    subtitle: Text(theme.description),
+                    trailing: isActive
+                        ? const Icon(Icons.check_circle, color: Colors.green)
+                        : ElevatedButton(
+                            onPressed: () async {
+                              await FlutterThemeManager.instance.applyTheme(theme);
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                                setState(() {
+                                  // Theme updated, rebuild UI
+                                });
+                              }
+                            },
+                            child: const Text('Apply'),
+                          ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
 

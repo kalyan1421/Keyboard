@@ -38,10 +38,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.*
 import kotlin.math.max
-import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.BinaryMessenger
-import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 
 class AIKeyboardService : InputMethodService(), 
@@ -55,6 +51,11 @@ class AIKeyboardService : InputMethodService(),
         private const val KEYBOARD_LETTERS = 1
         private const val KEYBOARD_SYMBOLS = 2
         private const val KEYBOARD_NUMBERS = 3
+        
+        // Input modes
+        private const val INPUT_MODE_NORMAL = 0
+        private const val INPUT_MODE_GRAMMAR = 1
+        private const val INPUT_MODE_CLIPBOARD = 2
         
         // Custom key codes
         private const val KEYCODE_SPACE = 32
@@ -98,6 +99,7 @@ class AIKeyboardService : InputMethodService(),
     private var lastShiftTime = 0L
     private var isShifted = false
     private var currentKeyboard = KEYBOARD_LETTERS
+    private var currentInputMode = INPUT_MODE_NORMAL
     
     // Replacement UI state
     private var isReplacementUIVisible = false
@@ -195,11 +197,9 @@ class AIKeyboardService : InputMethodService(),
     
     // Settings and Theme
     private lateinit var settings: SharedPreferences
-    // ThemeManager removed - using default keyboard styling only
+    private lateinit var themeManager: ThemeManager
     
-    // Method channels for app communication
-    private var methodChannel: MethodChannel? = null
-    private var themeChannel: MethodChannel? = null
+    // Method channels removed for compatibility - using SharedPreferences only for theme updates
     
     private lateinit var keyboardLayoutManager: KeyboardLayoutManager
     private lateinit var multilingualDictionary: MultilingualDictionary
@@ -233,32 +233,84 @@ class AIKeyboardService : InputMethodService(),
     private var settingsPoller: Runnable? = null
     private var lastSettingsCheck = 0L
     
+    // Theme update management
+    private var pendingThemeUpdate = false
+    
+    // Clipboard history management
+    private lateinit var clipboardHistoryManager: ClipboardHistoryManager
+    private var clipboardPanel: ClipboardPanel? = null
+    private var clipboardSuggestionEnabled = true
+    
+    // Clipboard history listener
+    private val clipboardHistoryListener = object : ClipboardHistoryManager.ClipboardHistoryListener {
+        override fun onHistoryUpdated(items: List<ClipboardItem>) {
+            // Update clipboard panel if visible
+            clipboardPanel?.updateItems(items)
+        }
+        
+        override fun onNewClipboardItem(item: ClipboardItem) {
+            // Update suggestions if clipboard suggestions are enabled
+            if (clipboardSuggestionEnabled) {
+                updateSuggestionsWithClipboard()
+            }
+        }
+    }
+    
     // Broadcast receiver for settings changes
     private val settingsReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             try {
-                if ("com.example.ai_keyboard.SETTINGS_CHANGED" == intent?.action) {
-                    Log.d(TAG, "SETTINGS_CHANGED broadcast received!")
-                    // Reload settings immediately on main thread
-                    mainHandler.post {
-                        try {
-                            Log.d(TAG, "Loading settings from broadcast...")
-                            loadSettings()
-                            
-                            // Reload theme from Flutter SharedPreferences
-                            // Theme initialization removed - using default styling
-                            applyTheme()
-                            
-                            Log.d(TAG, "Applying settings immediately...")
-                            applySettingsImmediately()
-                            Log.d(TAG, "Settings and theme applied successfully!")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error applying settings from broadcast", e)
+                when (intent?.action) {
+                    "com.example.ai_keyboard.SETTINGS_CHANGED" -> {
+                        Log.d(TAG, "SETTINGS_CHANGED broadcast received!")
+                        // Reload settings immediately on main thread
+                        mainHandler.post {
+                            try {
+                                Log.d(TAG, "Loading settings from broadcast...")
+                                loadSettings()
+                                
+                                // Reload theme from Flutter SharedPreferences
+                                themeManager.reloadTheme()
+                                applyTheme()
+                                
+                                Log.d(TAG, "Applying settings immediately...")
+                                applySettingsImmediately()
+                                Log.d(TAG, "Settings and theme applied successfully!")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error applying settings from broadcast", e)
+                            }
+                        }
+                    }
+                    "com.example.ai_keyboard.THEME_CHANGED" -> {
+                        Log.d(TAG, "THEME_CHANGED broadcast received!")
+                        
+                        // Check if keyboard view is ready
+                        if (keyboardView != null) {
+                            // Apply immediately
+                            mainHandler.post {
+                                applyThemeFromBroadcast()
+                            }
+                        } else {
+                            // Queue for later application
+                            pendingThemeUpdate = true
+                            Log.d(TAG, "Keyboard view not ready, queuing theme update")
+                        }
+                    }
+                    "com.example.ai_keyboard.CLIPBOARD_CHANGED" -> {
+                        Log.d(TAG, "CLIPBOARD_CHANGED broadcast received!")
+                        mainHandler.post {
+                            try {
+                                Log.d(TAG, "Reloading clipboard settings from broadcast...")
+                                reloadClipboardSettings()
+                                Log.d(TAG, "Clipboard settings reloaded successfully!")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error reloading clipboard settings from broadcast", e)
+                            }
                         }
                     }
                 }
             } catch (e: Exception) {
-                // Ignore broadcast errors to prevent crashes
+                Log.e(TAG, "Error in broadcast receiver", e)
             }
         }
     }
@@ -276,7 +328,8 @@ class AIKeyboardService : InputMethodService(),
         
         // Initialize settings and theme
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-        // ThemeManager removed - using default keyboard styling only
+        themeManager = ThemeManager(this)
+        themeManager.initialize()
         
         loadSettings()
         loadDictionaries()
@@ -300,9 +353,18 @@ class AIKeyboardService : InputMethodService(),
         // Initialize Enhanced Caps/Shift Manager
         initializeCapsShiftManager()
         
+        // Initialize clipboard history manager
+        clipboardHistoryManager = ClipboardHistoryManager(this)
+        clipboardHistoryManager.initialize()
+        clipboardHistoryManager.addListener(clipboardHistoryListener)
+        
         // Register broadcast receiver for settings changes
         try {
-            val filter = IntentFilter("com.example.ai_keyboard.SETTINGS_CHANGED")
+            val filter = IntentFilter().apply {
+                addAction("com.example.ai_keyboard.SETTINGS_CHANGED")
+                addAction("com.example.ai_keyboard.THEME_CHANGED")
+                addAction("com.example.ai_keyboard.CLIPBOARD_CHANGED")
+            }
             registerReceiver(settingsReceiver, filter)
             Log.d(TAG, "Broadcast receiver registered successfully")
         } catch (e: Exception) {
@@ -546,6 +608,9 @@ class AIKeyboardService : InputMethodService(),
             setSwipeEnabled(swipeTypingEnabled)
             isPreviewEnabled = keyPreviewEnabled
             
+            // Set keyboard service reference for clipboard functionality
+            setKeyboardService(this@AIKeyboardService)
+            
             // Apply system insets to keyboard view as well
             ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
                 val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -573,6 +638,14 @@ class AIKeyboardService : InputMethodService(),
         
         // Apply theme
         applyTheme()
+        
+        // After creating keyboard view, check for pending theme update
+        if (pendingThemeUpdate) {
+            mainHandler.postDelayed({
+                applyThemeFromBroadcast()
+                pendingThemeUpdate = false
+            }, 100)
+        }
         
         return mainLayout
     }
@@ -1019,14 +1092,183 @@ class AIKeyboardService : InputMethodService(),
     
     private fun applyTheme() {
         keyboardView?.let { view ->
-            // Apply default styling to keyboard view
-            // Theme management removed - using default styling only
+            // Apply theme using comprehensive ThemeManager
+            val theme = themeManager.getCurrentTheme()
             
-            // The SwipeKeyboardView will handle per-key theming internally
+            // Set keyboard background
+            val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
+            view.background = backgroundDrawable
+            
+            // The SwipeKeyboardView will request paint objects from ThemeManager
+            if (view is SwipeKeyboardView) {
+                view.setThemeManager(themeManager)
+            }
+            
+            // Force redraw with new theme
             view.invalidateAllKeys()
             view.invalidate()
             
-            Log.d(TAG, "Applied default theme")
+            Log.d(TAG, "Applied theme: ${theme.name} (${theme.id})")
+            Log.d(TAG, "Theme debug info: ${themeManager.getThemeDebugInfo()}")
+        }
+    }
+
+    // Add new method for immediate theme application
+    private fun applyThemeImmediately() {
+        try {
+            keyboardView?.let { view ->
+                // Apply theme using comprehensive ThemeManager
+                val theme = themeManager.getCurrentTheme()
+                
+                // Set keyboard background
+                val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
+                view.background = backgroundDrawable
+                
+                // Update theme manager reference in keyboard view
+                if (view is SwipeKeyboardView) {
+                    view.setThemeManager(themeManager)
+                }
+                
+                // Force complete redraw
+                view.invalidateAllKeys()
+                view.invalidate()
+                view.requestLayout()
+                
+                Log.d(TAG, "Theme applied immediately: ${theme.name}")
+            }
+            
+            // Also update suggestion bar colors
+            suggestionContainer?.let { container ->
+                val theme = themeManager.getCurrentTheme()
+                container.setBackgroundColor(theme.suggestionBarColor)
+                
+                // Update suggestion text colors
+                for (i in 0 until container.childCount) {
+                    val child = container.getChildAt(i)
+                    if (child is TextView) {
+                        child.setTextColor(theme.suggestionTextColor)
+                    }
+                }
+            }
+            
+            // Update toolbar colors if available
+            cleverTypeToolbar?.let { toolbar ->
+                val theme = themeManager.getCurrentTheme()
+                toolbar.setBackgroundColor(theme.backgroundColor)
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in immediate theme application", e)
+        }
+    }
+
+    // Add visual confirmation of theme change
+    private fun showThemeChangeConfirmation() {
+        try {
+            suggestionContainer?.let { container ->
+                if (container.childCount > 0) {
+                    val firstSuggestion = container.getChildAt(0) as? TextView
+                    firstSuggestion?.apply {
+                        val themeName = themeManager.getCurrentTheme().name
+                        text = "✨ Theme: $themeName"
+                        setTextColor(Color.parseColor("#4CAF50"))
+                        visibility = View.VISIBLE
+                    }
+                    
+                    // Reset after 2 seconds
+                    mainHandler.postDelayed({
+                        try {
+                            updateAISuggestions()
+                        } catch (e: Exception) {
+                            // Ignore UI update errors
+                        }
+                    }, 2000)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing theme confirmation", e)
+        }
+    }
+
+    // Apply theme from broadcast with null checks
+    private fun applyThemeFromBroadcast() {
+        try {
+            Log.d(TAG, "Applying theme from broadcast...")
+            
+            // Reload theme
+            themeManager.reloadTheme()
+            
+            // Apply to keyboard view if available
+            keyboardView?.let { view ->
+                val theme = themeManager.getCurrentTheme()
+                val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
+                view.background = backgroundDrawable
+                
+                if (view is SwipeKeyboardView) {
+                    view.setThemeManager(themeManager)
+                }
+                
+                view.invalidateAllKeys()
+                view.invalidate()
+                view.requestLayout()
+                
+                Log.d(TAG, "Theme applied: ${theme.name}")
+            }
+            
+            // Update suggestion bar
+            updateSuggestionBarTheme()
+            
+            // Update toolbar
+            cleverTypeToolbar?.let { toolbar ->
+                val theme = themeManager.getCurrentTheme()
+                toolbar.setBackgroundColor(theme.backgroundColor)
+            }
+            
+            // Show confirmation
+            showThemeUpdateConfirmation()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying theme from broadcast", e)
+        }
+    }
+
+    // Update suggestion bar theme
+    private fun updateSuggestionBarTheme() {
+        suggestionContainer?.let { container ->
+            val theme = themeManager.getCurrentTheme()
+            container.setBackgroundColor(theme.suggestionBarColor)
+            
+            for (i in 0 until container.childCount) {
+                val child = container.getChildAt(i)
+                if (child is TextView) {
+                    child.setTextColor(theme.suggestionTextColor)
+                }
+            }
+        }
+        
+        topContainer?.let { container ->
+            val theme = themeManager.getCurrentTheme()
+            container.setBackgroundColor(theme.backgroundColor)
+        }
+    }
+
+    // Show theme update confirmation
+    private fun showThemeUpdateConfirmation() {
+        suggestionContainer?.let { container ->
+            if (container.childCount > 0) {
+                val firstSuggestion = container.getChildAt(0) as? TextView
+                firstSuggestion?.apply {
+                    val themeName = themeManager.getCurrentTheme().name
+                    text = "✨ Theme: $themeName"
+                    setTextColor(Color.parseColor("#4CAF50"))
+                    visibility = View.VISIBLE
+                }
+                
+                // Reset after 2 seconds
+                mainHandler.postDelayed({
+                    updateAISuggestions()
+                }, 2000)
+            }
         }
     }
     
@@ -2960,6 +3202,20 @@ class AIKeyboardService : InputMethodService(),
             // Ignore unregistration errors
         }
         
+        // Cleanup theme manager
+        try {
+            themeManager.cleanup()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up theme manager", e)
+        }
+        
+        // Cleanup clipboard history manager
+        try {
+            clipboardHistoryManager.cleanup()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up clipboard history manager", e)
+        }
+        
         // Clean up advanced keyboard resources
         longPressHandler?.removeCallbacksAndMessages(null)
         hideKeyPreview()
@@ -3848,7 +4104,9 @@ class AIKeyboardService : InputMethodService(),
             icon = "📋",
             description = "Clipboard",
             onClick = { handleClipboardAccess() }
-        )
+        ).apply {
+            tag = "clipboard_button" // Add tag for finding this view later
+        }
         
         // Settings button (⚙️ settings)
         val settingsButton = createToolbarIconButton(
@@ -4327,6 +4585,10 @@ class AIKeyboardService : InputMethodService(),
                 isEmojiPanelVisible = false
                 isMediaPanelVisible = false
                 
+                // Restore a  ppropriate input mode
+                currentInputMode = INPUT_MODE_NORMAL
+                kv.showNormalLayout()
+                
                 Log.d(TAG, "Keyboard restored after replacement UI")
             }
         }
@@ -4656,8 +4918,16 @@ class AIKeyboardService : InputMethodService(),
      */
     private fun handleClipboardAccess() {
         Log.d(TAG, "Clipboard access requested")
-        Toast.makeText(this, "Clipboard access not yet implemented", Toast.LENGTH_SHORT).show()
-        // TODO: Implement clipboard manager
+        
+        try {
+            // Switch to clipboard input mode
+            currentInputMode = INPUT_MODE_CLIPBOARD
+            showClipboardKeyboard()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing clipboard keyboard", e)
+            Toast.makeText(this, "Error accessing clipboard", Toast.LENGTH_SHORT).show()
+        }
     }
     
     /**
@@ -5216,6 +5486,232 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "Theme communication ready (broadcast-based)")
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up theme communication", e)
+        }
+    }
+    
+    /**
+     * Paste a clipboard item to the current input
+     */
+    private fun pasteClipboardItem(item: ClipboardItem) {
+        try {
+            val ic = currentInputConnection
+            if (ic != null) {
+                ic.commitText(item.text, 1)
+                Log.d(TAG, "Pasted clipboard item: ${item.getPreview()}")
+                
+                // Show confirmation
+                Toast.makeText(this, "Pasted: ${item.getPreview()}", Toast.LENGTH_SHORT).show()
+            } else {
+                Log.e(TAG, "No input connection available for paste")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error pasting clipboard item", e)
+        }
+    }
+    
+    /**
+     * Toggle pin status of a clipboard item
+     */
+    private fun toggleClipboardItemPin(item: ClipboardItem) {
+        try {
+            val wasPinned = clipboardHistoryManager.togglePin(item.id)
+            val message = if (wasPinned) "Pinned" else "Unpinned"
+            Toast.makeText(this, "$message: ${item.getPreview()}", Toast.LENGTH_SHORT).show()
+            Log.d(TAG, "Toggled pin for clipboard item: ${item.getPreview()} -> $wasPinned")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error toggling clipboard item pin", e)
+        }
+    }
+    
+    /**
+     * Delete a clipboard item
+     */
+    private fun deleteClipboardItem(item: ClipboardItem) {
+        try {
+            val deleted = clipboardHistoryManager.deleteItem(item.id)
+            if (deleted) {
+                Toast.makeText(this, "Deleted: ${item.getPreview()}", Toast.LENGTH_SHORT).show()
+                Log.d(TAG, "Deleted clipboard item: ${item.getPreview()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting clipboard item", e)
+        }
+    }
+    
+    /**
+     * Update suggestions to include clipboard items
+     */
+    private fun updateSuggestionsWithClipboard() {
+        try {
+            // Get OTP items first (highest priority)
+            val otpItems = clipboardHistoryManager.getOTPItems()
+            val recentItem = clipboardHistoryManager.getMostRecentItem()
+            
+            if (otpItems.isNotEmpty() || recentItem != null) {
+                mainHandler.post {
+                    updateSuggestionUIWithClipboard(otpItems, recentItem)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating suggestions with clipboard", e)
+        }
+    }
+    
+    /**
+     * Update suggestion UI to include clipboard items
+     */
+    private fun updateSuggestionUIWithClipboard(otpItems: List<ClipboardItem>, recentItem: ClipboardItem?) {
+        suggestionContainer?.let { container ->
+            try {
+                // First suggestion slot: OTP if available, otherwise recent item
+                if (container.childCount > 0) {
+                    val firstSuggestion = container.getChildAt(0) as? TextView
+                    val clipboardItem = otpItems.firstOrNull() ?: recentItem
+                    
+                    if (clipboardItem != null && firstSuggestion != null) {
+                        val prefix = if (clipboardItem.isOTP()) "OTP: " else "Paste: "
+                        firstSuggestion.text = "$prefix${clipboardItem.getPreview(20)}"
+                        firstSuggestion.visibility = View.VISIBLE
+                        
+                        // Set click listener to paste the item
+                        firstSuggestion.setOnClickListener {
+                            pasteClipboardItem(clipboardItem)
+                        }
+                        
+                        Log.d(TAG, "Added clipboard suggestion: ${clipboardItem.getPreview()}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating suggestion UI with clipboard", e)
+            }
+        }
+    }
+    
+    /**
+     * Reload clipboard settings from SharedPreferences
+     */
+    private fun reloadClipboardSettings() {
+        try {
+            val prefs = getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+            
+            // Load settings
+            val enabled = prefs.getBoolean("clipboard_enabled", true)
+            val maxHistorySize = prefs.getInt("max_history_size", 20)
+            val autoExpiryEnabled = prefs.getBoolean("auto_expiry_enabled", true)
+            val expiryDurationMinutes = prefs.getLong("expiry_duration_minutes", 60L)
+            
+            // Update clipboard suggestion setting
+            clipboardSuggestionEnabled = enabled
+            
+            // Update clipboard history manager settings
+            clipboardHistoryManager.updateSettings(
+                maxHistorySize = maxHistorySize,
+                autoExpiryEnabled = autoExpiryEnabled,
+                expiryDurationMinutes = expiryDurationMinutes
+            )
+            
+            // Load templates
+            val templatesJson = prefs.getString("template_items", null)
+            if (templatesJson != null) {
+                try {
+                    val jsonArray = org.json.JSONArray(templatesJson)
+                    val templates = mutableListOf<ClipboardItem>()
+                    
+                    for (i in 0 until jsonArray.length()) {
+                        val template = ClipboardItem.fromJson(jsonArray.getJSONObject(i))
+                        templates.add(template)
+                    }
+                    
+                    clipboardHistoryManager.updateTemplates(templates)
+                    Log.d(TAG, "Loaded ${templates.size} clipboard templates")
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing templates JSON", e)
+                }
+            }
+            
+            Log.d(TAG, "Clipboard settings reloaded: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reloading clipboard settings", e)
+        }
+    }
+    
+    /**
+     * Show clipboard keyboard layout
+     */
+    private fun showClipboardKeyboard() {
+        try {
+            Log.d(TAG, "Showing clipboard keyboard")
+            
+            // Get clipboard items for UI
+            val items = clipboardHistoryManager.getHistoryForUI(20)
+            
+            // Hide suggestion bar during clipboard mode
+            topContainer?.visibility = View.GONE
+            
+            // Switch keyboard to clipboard layout
+            keyboardView?.showClipboardLayout(items)
+            
+            Log.d(TAG, "Clipboard keyboard shown with ${items.size} items")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing clipboard keyboard", e)
+            switchToNormalKeyboard()
+        }
+    }
+    
+    /**
+     * Handle clipboard key tap
+     */
+    private fun handleClipboardKeyTap(item: ClipboardItem) {
+        try {
+            Log.d(TAG, "Clipboard key tapped: ${item.getPreview()}")
+            
+            // Commit text to input connection
+            val ic = currentInputConnection
+            if (ic != null) {
+                ic.commitText(item.text, 1)
+                Log.d(TAG, "Pasted clipboard item: ${item.getPreview()}")
+            } else {
+                Log.e(TAG, "No input connection available for paste")
+            }
+            
+            // Switch back to normal keyboard
+            switchToNormalKeyboard()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling clipboard key tap", e)
+        }
+    }
+    
+    /**
+     * Handle clipboard back button tap
+     */
+    private fun handleClipboardBackTap() {
+        Log.d(TAG, "Clipboard back button tapped")
+        switchToNormalKeyboard()
+    }
+    
+    /**
+     * Switch to normal keyboard mode
+     */
+    private fun switchToNormalKeyboard() {
+        try {
+            Log.d(TAG, "Switching to normal keyboard")
+            
+            currentInputMode = INPUT_MODE_NORMAL
+            
+            // Show suggestion bar again
+            topContainer?.visibility = View.VISIBLE
+            
+            // Restore normal keyboard layout
+            keyboardView?.showNormalLayout()
+            
+            Log.d(TAG, "Normal keyboard restored")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error switching to normal keyboard", e)
         }
     }
 }

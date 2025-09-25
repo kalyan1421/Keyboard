@@ -2,6 +2,8 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.InputMethodInfo
@@ -10,6 +12,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
+
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -55,6 +58,24 @@ class MainActivity : FlutterActivity() {
                                 
                                 withContext(Dispatchers.IO) {
                                     updateKeyboardSettings(theme, aiSuggestions, swipeTyping, voiceInput, vibration, keyPreview, shiftFeedback, showNumberRow, soundEnabled)
+                                }
+                                result.success(true)
+                            }
+                            "notifyThemeChange" -> {
+                                withContext(Dispatchers.IO) {
+                                    notifyKeyboardServiceThemeChanged()
+                                }
+                                result.success(true)
+                            }
+                            "updateClipboardSettings" -> {
+                                val enabled = call.argument<Boolean>("enabled") ?: true
+                                val maxHistorySize = call.argument<Int>("maxHistorySize") ?: 20
+                                val autoExpiryEnabled = call.argument<Boolean>("autoExpiryEnabled") ?: true
+                                val expiryDurationMinutes = call.argument<Long>("expiryDurationMinutes") ?: 60L
+                                val templates = call.argument<List<Map<String, Any>>>("templates") ?: emptyList()
+                                
+                                withContext(Dispatchers.IO) {
+                                    updateClipboardSettings(enabled, maxHistorySize, autoExpiryEnabled, expiryDurationMinutes, templates)
                                 }
                                 result.success(true)
                             }
@@ -155,6 +176,83 @@ class MainActivity : FlutterActivity() {
             android.util.Log.d("MainActivity", "Broadcast sent: SETTINGS_CHANGED")
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Error sending broadcast", e)
+        }
+    }
+    
+    private fun notifyKeyboardServiceThemeChanged() {
+        try {
+            // Ensure SharedPreferences are flushed before sending broadcast
+            getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE).apply {
+                // Force sync to ensure theme data is written
+            }
+            
+            // Add small delay to ensure SharedPreferences are written to disk
+            Handler(Looper.getMainLooper()).postDelayed({
+                val intent = Intent("com.example.ai_keyboard.THEME_CHANGED").apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(intent)
+                android.util.Log.d("MainActivity", "Theme broadcast sent with delay")
+            }, 50) // 50ms delay should be sufficient
+            
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to send theme change broadcast", e)
+        }
+    }
+    
+    private suspend fun updateClipboardSettings(
+        enabled: Boolean,
+        maxHistorySize: Int,
+        autoExpiryEnabled: Boolean,
+        expiryDurationMinutes: Long,
+        templates: List<Map<String, Any>>
+    ) = withContext(Dispatchers.IO) {
+        // Store clipboard settings in SharedPreferences
+        getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("clipboard_enabled", enabled)
+            .putInt("max_history_size", maxHistorySize)
+            .putBoolean("auto_expiry_enabled", autoExpiryEnabled)
+            .putLong("expiry_duration_minutes", expiryDurationMinutes)
+            .commit() // Use commit() for immediate persistence
+            
+        // Store templates
+        try {
+            val templatesJson = org.json.JSONArray()
+            templates.forEach { templateMap ->
+                val templateJson = org.json.JSONObject().apply {
+                    put("text", templateMap["text"] ?: "")
+                    put("category", templateMap["category"] ?: "")
+                    put("isTemplate", true)
+                    put("isPinned", true)
+                    put("id", templateMap["id"] ?: java.util.UUID.randomUUID().toString())
+                    put("timestamp", System.currentTimeMillis())
+                }
+                templatesJson.put(templateJson)
+            }
+            
+            getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+                .edit()
+                .putString("template_items", templatesJson.toString())
+                .commit()
+                
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error saving clipboard templates", e)
+        }
+        
+        // Notify keyboard service to reload clipboard settings
+        notifyKeyboardServiceClipboardChanged()
+    }
+    
+    private fun notifyKeyboardServiceClipboardChanged() {
+        try {
+            val intent = Intent("com.example.ai_keyboard.CLIPBOARD_CHANGED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+            android.util.Log.d("MainActivity", "Clipboard settings broadcast sent")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to send clipboard settings broadcast", e)
         }
     }
 
