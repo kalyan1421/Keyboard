@@ -86,7 +86,6 @@ class _MobileLoginScreenState extends State<MobileLoginScreen> {
                     fontWeight: FontWeight.normal,
                     color: AppColors.black,
                     fontSize: 16,
-                    fontFamily: 'roboto',
                   ),
                 ),
               ),
@@ -108,7 +107,6 @@ class _MobileLoginScreenState extends State<MobileLoginScreen> {
                       Text(
                         'Continue with Google',
                         style: AppTextStyle.buttonPrimary.copyWith(
-                          fontFamily: 'roboto',
                           color: AppColors.black,
                           fontWeight: FontWeight.w900,
                         ),
@@ -135,7 +133,6 @@ class _MobileLoginScreenState extends State<MobileLoginScreen> {
             fontWeight: FontWeight.w600,
             color: AppColors.secondary,
             fontSize: 24,
-            fontFamily: 'roboto',
           ),
         ),
         SizedBox(height: 8),
@@ -145,7 +142,6 @@ class _MobileLoginScreenState extends State<MobileLoginScreen> {
             fontWeight: FontWeight.normal,
             color: AppColors.black,
             fontSize: 16,
-            fontFamily: 'roboto',
           ),
         ),
       ],

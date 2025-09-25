@@ -38,7 +38,6 @@ class LoginIllustraionScreen extends StatelessWidget {
                   color: AppColors.black,
                   fontSize: 24,
                   fontWeight: FontWeight.w900,
-                  fontFamily: 'roboto',
                 ),
               ),
               SizedBox(height: 16),
@@ -65,7 +64,6 @@ class LoginIllustraionScreen extends StatelessWidget {
                       Text(
                         'Continue with Google',
                         style: AppTextStyle.buttonPrimary.copyWith(
-                          fontFamily: 'roboto',
                           color: AppColors.black,
                           fontWeight: FontWeight.w900,
                         ),

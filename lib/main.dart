@@ -1,5 +1,6 @@
 // main.dart
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
+import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
 import 'package:ai_keyboard/screens/onboarding/on_boarding_screen_1.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +13,10 @@ import 'keyboard_feedback_system.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
-  
+
   runApp(const AIKeyboardApp());
 }
 
@@ -32,7 +33,7 @@ class AIKeyboardApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'noto_sans',
       ),
-      home: LoginIllustraionScreen(),
+      home: mainscreen(),
     );
   }
 }
@@ -57,7 +58,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   bool _showNumberRow = false;
   bool _soundEnabled = true;
   String _currentLanguage = "EN";
-  
+
   // Advanced feedback settings
   FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
   FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
@@ -194,16 +195,14 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                
+
                 // System keyboard status panel
                 const SystemKeyboardStatusPanel(),
                 const SizedBox(height: 20),
-                
+
                 // AI Service Information
                 const Expanded(
-                  child: SingleChildScrollView(
-                    child: AIServiceInfoWidget(),
-                  ),
+                  child: SingleChildScrollView(child: AIServiceInfoWidget()),
                 ),
 
                 const SizedBox(height: 16),
@@ -286,7 +285,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       _showNumberRow = prefs.getBool('show_number_row') ?? false;
       _soundEnabled = prefs.getBool('sound_enabled') ?? true;
       _currentLanguage = prefs.getString('current_language') ?? "EN";
-      
+
       // Load advanced feedback settings
       _hapticIntensity = FeedbackIntensity
           .values[prefs.getInt('haptic_intensity') ?? 2]; // medium
@@ -317,7 +316,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     await prefs.setBool('show_number_row', _showNumberRow);
     await prefs.setBool('sound_enabled', _soundEnabled);
     await prefs.setString('current_language', _currentLanguage);
-    
+
     // Save advanced feedback settings
     await prefs.setInt('haptic_intensity', _hapticIntensity.index);
     await prefs.setInt('sound_intensity', _soundIntensity.index);
@@ -439,11 +438,18 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
 
   String _getThemeDisplayName(String theme) {
     switch (theme) {
-      case 'gboard': return '🎯 Gboard (Recommended)';
-      case 'gboard_dark': return '🌙 Gboard Dark';
-      case 'material_you': return 'Material You';
-      default: return theme.replaceAll('_', ' ').split(' ')
-          .map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
+      case 'gboard':
+        return '🎯 Gboard (Recommended)';
+      case 'gboard_dark':
+        return '🌙 Gboard Dark';
+      case 'material_you':
+        return 'Material You';
+      default:
+        return theme
+            .replaceAll('_', ' ')
+            .split(' ')
+            .map((word) => word[0].toUpperCase() + word.substring(1))
+            .join(' ');
     }
   }
 
@@ -485,7 +491,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     );
   }
 
-
   /// Show system keyboard instructions (in-app keyboard removed)
   void _showSystemKeyboardInstructions() {
     showDialog(
@@ -499,7 +504,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
           '2. Set it as your default keyboard\n'
           '3. Use it in any app (SMS, email, etc.)\n\n'
           'All advanced features like long-press accents, '
-          'swipe typing, and AI suggestions work system-wide.'
+          'swipe typing, and AI suggestions work system-wide.',
         ),
         actions: [
           TextButton(
@@ -893,12 +898,12 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 _saveSettings();
               },
             ),
-            
+
             // Language Status Section
             const SizedBox(height: 24),
             _buildSectionHeader('🌐 Language Status'),
             const SizedBox(height: 16),
-            
+
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -924,10 +929,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                         const SizedBox(height: 4),
                         const Text(
                           'Tap 🌐 on keyboard to cycle through languages',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey,
-                          ),
+                          style: TextStyle(fontSize: 14, color: Colors.grey),
                         ),
                       ],
                     ),
@@ -935,7 +937,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
                 ],
               ),
             ),
-            
+
             // Advanced Feedback Settings Section
             const SizedBox(height: 24),
             _buildSectionHeader('🎯 Advanced Feedback Settings'),
@@ -1131,7 +1133,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
         return 'Strong';
     }
   }
-
 
   Widget _buildTestKeyboardCard() {
     return Card(
@@ -1349,6 +1350,7 @@ class KeyboardTheme {
     };
   }
 }
+
 /// System keyboard status panel
 class SystemKeyboardStatusPanel extends StatelessWidget {
   const SystemKeyboardStatusPanel({super.key});
@@ -1387,7 +1389,9 @@ class SystemKeyboardStatusPanel extends StatelessWidget {
                   context: context,
                   builder: (context) => AlertDialog(
                     title: const Text('System Keyboard'),
-                    content: const Text('Go to Android Settings > System > Languages & input > Virtual keyboard to enable AI Keyboard'),
+                    content: const Text(
+                      'Go to Android Settings > System > Languages & input > Virtual keyboard to enable AI Keyboard',
+                    ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(context),

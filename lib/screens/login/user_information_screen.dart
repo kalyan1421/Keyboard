@@ -81,7 +81,6 @@ class _UserInformationScreenState extends State<UserInformationScreen> {
             fontWeight: FontWeight.w600,
             color: AppColors.secondary,
             fontSize: 24,
-            fontFamily: 'roboto',
           ),
         ),
         Text('Enter your correct information '),
@@ -108,19 +107,11 @@ class _UserInformationScreenState extends State<UserInformationScreen> {
             onChanged: onNameChanged,
             decoration: InputDecoration(
               hintText: 'Enter Your Name',
-              hintStyle: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 16,
-                fontFamily: 'roboto',
-              ),
+              hintStyle: TextStyle(color: Colors.grey[400], fontSize: 16),
               border: InputBorder.none,
               contentPadding: EdgeInsets.symmetric(horizontal: 20),
             ),
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[800],
-              fontFamily: 'roboto',
-            ),
+            style: TextStyle(fontSize: 16, color: Colors.grey[800]),
           ),
         ),
         if (_errorText != null)
@@ -128,11 +119,7 @@ class _UserInformationScreenState extends State<UserInformationScreen> {
             padding: const EdgeInsets.only(top: 8, left: 4),
             child: Text(
               _errorText!,
-              style: const TextStyle(
-                color: Colors.red,
-                fontSize: 12,
-                fontFamily: 'roboto',
-              ),
+              style: const TextStyle(color: Colors.red, fontSize: 12),
             ),
           ),
       ],

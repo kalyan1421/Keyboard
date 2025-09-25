@@ -124,7 +124,6 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                     style: AppTextStyle.bodyMedium.copyWith(
                       color: AppColors.black,
                       fontSize: 16,
-                      fontFamily: 'roboto',
                       fontWeight: FontWeight.w400,
                     ),
                   ),
@@ -149,7 +148,6 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
             fontWeight: FontWeight.w600,
             color: AppColors.secondary,
             fontSize: 24,
-            fontFamily: 'roboto',
           ),
         ),
         SizedBox(height: 8),
@@ -159,7 +157,6 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
             fontWeight: FontWeight.normal,
             color: AppColors.black,
             fontSize: 16,
-            fontFamily: 'roboto',
           ),
         ),
       ],
@@ -192,7 +189,6 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
           style: AppTextStyle.bodyMedium.copyWith(
             color: _isResendEnabled ? AppColors.secondary : Colors.grey[400],
             fontSize: 16,
-            fontFamily: 'roboto',
             fontWeight: FontWeight.w500,
           ),
         ),

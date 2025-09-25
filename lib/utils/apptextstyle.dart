@@ -1,27 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'appassets.dart';
 
 class AppTextStyle {
   // Display
-  static TextStyle displayLarge = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle displayLarge = GoogleFonts.notoSans(
     fontSize: 48,
     fontWeight: FontWeight.w700,
     height: 1.2,
     color: AppColors.secondary,
   );
 
-  static TextStyle displayMedium = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle displayMedium = GoogleFonts.notoSans(
     fontSize: 40,
     fontWeight: FontWeight.w700,
     height: 1.2,
     color: AppColors.secondary,
   );
 
-  static TextStyle displaySmall = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle displaySmall = GoogleFonts.notoSans(
     fontSize: 34,
     fontWeight: FontWeight.w700,
     height: 1.2,
@@ -29,24 +27,21 @@ class AppTextStyle {
   );
 
   // Headline
-  static TextStyle headlineLarge = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle headlineLarge = GoogleFonts.roboto(
     fontSize: 28,
     fontWeight: FontWeight.w700,
     height: 1.25,
     color: AppColors.black,
   );
 
-  static TextStyle headlineMedium = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle headlineMedium = GoogleFonts.roboto(
     fontSize: 24,
     fontWeight: FontWeight.w600,
     height: 1.25,
     color: AppColors.black,
   );
 
-  static TextStyle headlineSmall = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle headlineSmall = GoogleFonts.roboto(
     fontSize: 20,
     fontWeight: FontWeight.w600,
     height: 1.3,
@@ -54,49 +49,43 @@ class AppTextStyle {
   );
 
   // Title
-  static TextStyle titleLarge = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle titleLarge = GoogleFonts.roboto(
     fontSize: 18,
     fontWeight: FontWeight.w600,
     height: 1.35,
     color: AppColors.black,
   );
 
-  static TextStyle titleMedium = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle titleMedium = GoogleFonts.roboto(
     fontSize: 16,
     fontWeight: FontWeight.w500,
     height: 1.4,
     color: AppColors.black,
   );
 
-  static TextStyle titleSmall = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle titleSmall = GoogleFonts.roboto(
     fontSize: 14,
     fontWeight: FontWeight.w500,
     height: 1.4,
     color: AppColors.black,
   );
 
-  // // Body (Roboto preferred for readability)
-  // static TextStyle bodyLarge = TextStyle(
-  //   fontFamily: 'roboto',
-  //   fontSize: 16,
-  //   fontWeight: FontWeight.w400,
-  //   height: 1.5,
-  //   color: AppColors.black,
-  // );
+  // Body (Roboto preferred for readability)
+  static TextStyle bodyLarge = GoogleFonts.roboto(
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    height: 1.5,
+    color: AppColors.black,
+  );
 
-  static TextStyle bodyMedium = TextStyle(
-    fontFamily: 'roboto',
+  static TextStyle bodyMedium = GoogleFonts.roboto(
     fontSize: 14,
     fontWeight: FontWeight.w400,
     height: 1.5,
     color: AppColors.black,
   );
 
-  static TextStyle bodySmall = TextStyle(
-    fontFamily: 'roboto',
+  static TextStyle bodySmall = GoogleFonts.roboto(
     fontSize: 12,
     fontWeight: FontWeight.w400,
     height: 1.5,
@@ -104,8 +93,7 @@ class AppTextStyle {
   );
 
   // Labels
-  static TextStyle labelLarge = TextStyle(
-    fontFamily: 'roboto',
+  static TextStyle labelLarge = GoogleFonts.roboto(
     fontSize: 14,
     fontWeight: FontWeight.w500,
     letterSpacing: 0.1,
@@ -113,8 +101,7 @@ class AppTextStyle {
     color: AppColors.black,
   );
 
-  static TextStyle labelMedium = TextStyle(
-    fontFamily: 'roboto',
+  static TextStyle labelMedium = GoogleFonts.roboto(
     fontSize: 12,
     fontWeight: FontWeight.w500,
     letterSpacing: 0.1,
@@ -122,8 +109,7 @@ class AppTextStyle {
     color: AppColors.black,
   );
 
-  static TextStyle labelSmall = TextStyle(
-    fontFamily: 'roboto',
+  static TextStyle labelSmall = GoogleFonts.roboto(
     fontSize: 11,
     fontWeight: FontWeight.w500,
     letterSpacing: 0.2,
@@ -132,16 +118,14 @@ class AppTextStyle {
   );
 
   // Buttons
-  static TextStyle buttonPrimary = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle buttonPrimary = GoogleFonts.roboto(
     fontSize: 16,
     fontWeight: FontWeight.w600,
     height: 1.3,
     color: AppColors.white,
   );
 
-  static TextStyle buttonSecondary = TextStyle(
-    fontFamily: 'noto_sans',
+  static TextStyle buttonSecondary = GoogleFonts.roboto(
     fontSize: 16,
     fontWeight: FontWeight.w600,
     height: 1.3,
