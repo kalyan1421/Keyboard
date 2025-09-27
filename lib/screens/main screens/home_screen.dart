@@ -15,12 +15,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  void _showNotification() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const NotificationScreen()),
-    );
-  }
+  
 
   void _showUpgradeProBottomSheet() {
     showModalBottomSheet(
@@ -43,46 +38,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final String userName = 'John Doe';
+    
     final String wordcount = '21,485';
-    bool hasNotification = true;
+    
     return Scaffold(
       backgroundColor: AppColors.white,
-      appBar: AppBar(
-        surfaceTintColor: AppColors.white,
-        backgroundColor: AppColors.white,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 16),
-          child: Image.asset(AppAssets.userIcon),
-        ),
-        title: Text(userName, style: AppTextStyle.headlineLarge),
-        actions: [
-          IconButton(
-            onPressed: () {
-              _showNotification();
-            },
-            icon: Stack(
-              children: [
-                const Icon(Icons.notifications_outlined, size: 32),
-                if (hasNotification)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.white),
-                        color: AppColors.secondary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),

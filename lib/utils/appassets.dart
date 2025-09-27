@@ -44,6 +44,13 @@ class AppIcons {
   static const String spell_check_icon = 'assets/icons/spell_check.png';
   static const String report_icon = 'assets/icons/report_icon.png';
   static const String humanise_icon = 'assets/icons/Ai_writing_assistance.png';
+  static const String profile_color = 'assets/icons/profile_color_icon.png';
+  static const String theme_color = 'assets/icons/theme_color_icon.png';
+  static const String crown_color = 'assets/icons/crown_color.png';
+  static const String Delete_icon = 'assets/icons/delete_icon.png';
+  static const String help_center_icon = 'assets/icons/help_center.png';
+  static const String info_app_icon = 'assets/icons/info_icon.png';
+  static const String logout_icon = 'assets/icons/logout_icon.png';
 }
 
 class Appkeyboards {

@@ -4,7 +4,9 @@ import 'package:ai_keyboard/screens/main%20screens/profile_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/theme_screen.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
+import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/rate_app_modal.dart';
+import 'package:ai_keyboard/screens/main%20screens/notification_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,6 +26,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   Timer? _animationTimer;
   bool _isExtended = false;
   bool _hasShownRateModal = false;
+  bool hasNotification = true;
+  final String userName = 'John Doe';
 
   final List<Widget> _pages = [
     const HomeScreen(),
@@ -99,9 +103,65 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
     );
   }
 
+  void _showNotification() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const NotificationScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        surfaceTintColor: selectedIndex == 0
+            ? AppColors.white
+            : AppColors.primary,
+
+        backgroundColor: selectedIndex == 0
+            ? AppColors.white
+            : AppColors.primary,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: Image.asset(AppAssets.userIcon),
+        ),
+        title: Text(
+          userName,
+          style: AppTextStyle.headlineLarge.copyWith(
+            color: selectedIndex == 0 ? AppColors.black : AppColors.white,
+          ),
+        ),
+        actions: [
+          IconButton(
+            onPressed: () {
+              _showNotification();
+            },
+            icon: Stack(
+              children: [
+                Icon(
+                  Icons.notifications_outlined,
+                  size: 32,
+                  color: selectedIndex == 0 ? AppColors.black : AppColors.white,
+                ),
+                if (hasNotification)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.white),
+                        color: AppColors.secondary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
       body: _pages[selectedIndex],
       floatingActionButton: _fabAnimation != null
           ? AnimatedBuilder(
