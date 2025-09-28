@@ -51,6 +51,17 @@ class AppIcons {
   static const String help_center_icon = 'assets/icons/help_center.png';
   static const String info_app_icon = 'assets/icons/info_icon.png';
   static const String logout_icon = 'assets/icons/logout_icon.png';
+
+  // Settings Icons
+  static const String keyboard_icon = 'assets/icons/keyboard_icon.png';
+  static const String emojis_settings_icon = 'assets/icons/emoji_icon.png';
+
+  static const String typing_suggestions_icon =
+      'assets/icons/type_suggestion.png';
+  // static const String ai_rewrite_icon = 'assets/icons/ai_rewrite_icon.png';
+  static const String sound_vibration_icon = 'assets/icons/speaker_icon.png';
+  static const String dictionary_icon = 'assets/icons/dictionary_icon.png';
+  static const String gestures_glide_icon = 'assets/icons/gesture_icon.png';
 }
 
 class Appkeyboards {

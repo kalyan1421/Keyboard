@@ -261,7 +261,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
               child: const Icon(Icons.keyboard, size: 32),
             ),
       bottomNavigationBar: Container(
-        height: 120,
+        height: MediaQuery.of(context).size.height * 0.1,
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.only(
