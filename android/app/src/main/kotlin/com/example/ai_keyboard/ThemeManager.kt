@@ -59,6 +59,26 @@ class ThemeManager(private val context: Context) {
     }
     
     /**
+     * Unified theme palette for consistent theming across all UI elements
+     */
+    data class ThemePalette(
+        val keyboardBg: Int,
+        val keyBg: Int,
+        val keyText: Int,
+        val keyPressedBg: Int,
+        val specialKeyBg: Int,
+        val specialKeyText: Int,
+        val specialKeyIcon: Int,
+        val accent: Int,
+        val toolbarBg: Int,
+        val toolbarIcon: Int,
+        val suggestBg: Int,
+        val suggestText: Int,
+        val suggestChipBg: Int,
+        val suggestChipText: Int
+    )
+    
+    /**
      * Comprehensive theme data class
      * Maps to Flutter KeyboardThemeData
      */
@@ -281,6 +301,29 @@ class ThemeManager(private val context: Context) {
      */
     fun getCurrentTheme(): ThemeData {
         return currentTheme ?: ThemeData.getDefault()
+    }
+    
+    /**
+     * Get unified theme palette for consistent UI theming
+     */
+    fun getCurrentPalette(): ThemePalette {
+        val theme = getCurrentTheme()
+        return ThemePalette(
+            keyboardBg = theme.backgroundColor,
+            keyBg = theme.keyBackgroundColor,
+            keyText = theme.keyTextColor,
+            keyPressedBg = theme.keyPressedColor,
+            specialKeyBg = theme.specialKeyColor,
+            specialKeyText = theme.keyTextColor,
+            specialKeyIcon = theme.keyTextColor,
+            accent = theme.accentColor,
+            toolbarBg = theme.suggestionBarColor,
+            toolbarIcon = theme.keyTextColor,
+            suggestBg = theme.suggestionBarColor,
+            suggestText = theme.suggestionTextColor,
+            suggestChipBg = theme.keyBackgroundColor,
+            suggestChipText = theme.keyTextColor
+        )
     }
     
     /**

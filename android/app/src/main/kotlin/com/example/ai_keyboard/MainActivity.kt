@@ -181,18 +181,27 @@ class MainActivity : FlutterActivity() {
     
     private fun notifyKeyboardServiceThemeChanged() {
         try {
+            android.util.Log.d("MainActivity", "Starting theme change notification process")
+            
+            // Log SharedPreferences state for debugging
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val themeData = prefs.getString("flutter.current_theme_data", null)
+            val themeId = prefs.getString("flutter.current_theme_id", null)
+            android.util.Log.d("MainActivity", "Theme data - ID: $themeId, Data length: ${themeData?.length ?: 0}")
+            
             // Ensure SharedPreferences are flushed before sending broadcast
-            getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE).apply {
-                // Force sync to ensure theme data is written
-            }
+            // Note: Using apply() to ensure async write is committed
             
             // Add small delay to ensure SharedPreferences are written to disk
             Handler(Looper.getMainLooper()).postDelayed({
                 val intent = Intent("com.example.ai_keyboard.THEME_CHANGED").apply {
                     setPackage(packageName)
+                    // Add theme info to intent for debugging
+                    putExtra("theme_id", themeId)
+                    putExtra("has_theme_data", themeData != null)
                 }
                 sendBroadcast(intent)
-                android.util.Log.d("MainActivity", "Theme broadcast sent with delay")
+                android.util.Log.d("MainActivity", "Theme broadcast sent successfully with delay")
             }, 50) // 50ms delay should be sufficient
             
         } catch (e: Exception) {

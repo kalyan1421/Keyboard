@@ -118,6 +118,9 @@ class AIKeyboardService : InputMethodService(),
     private lateinit var capsShiftManager: CapsShiftManager
     private var shiftOptionsMenu: ShiftOptionsMenu? = null
     
+    // Enhanced gesture support
+    private var isSlideToDeleteModeActive = false
+    
     // Accent mappings for long-press functionality
     private val accentMap = mapOf(
         'a'.code to listOf("á", "à", "â", "ä", "ã", "å", "ā", "ă", "ą"),
@@ -282,18 +285,24 @@ class AIKeyboardService : InputMethodService(),
                         }
                     }
                     "com.example.ai_keyboard.THEME_CHANGED" -> {
-                        Log.d(TAG, "THEME_CHANGED broadcast received!")
+                        val themeId = intent?.getStringExtra("theme_id")
+                        val hasThemeData = intent?.getBooleanExtra("has_theme_data", false) ?: false
+                        Log.d(TAG, "THEME_CHANGED broadcast received! Theme ID: $themeId, Has data: $hasThemeData")
+                        
+                        // Verify theme data in SharedPreferences
+                        verifyThemeData()
                         
                         // Check if keyboard view is ready
                         if (keyboardView != null) {
                             // Apply immediately
                             mainHandler.post {
+                                Log.d(TAG, "Applying theme update immediately on main thread")
                                 applyThemeFromBroadcast()
                             }
                         } else {
                             // Queue for later application
                             pendingThemeUpdate = true
-                            Log.d(TAG, "Keyboard view not ready, queuing theme update")
+                            Log.d(TAG, "Keyboard view not ready, queuing theme update for later")
                         }
                     }
                     "com.example.ai_keyboard.CLIPBOARD_CHANGED" -> {
@@ -365,7 +374,12 @@ class AIKeyboardService : InputMethodService(),
                 addAction("com.example.ai_keyboard.THEME_CHANGED")
                 addAction("com.example.ai_keyboard.CLIPBOARD_CHANGED")
             }
-            registerReceiver(settingsReceiver, filter)
+            // Use RECEIVER_NOT_EXPORTED for Android 13+ compatibility
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(settingsReceiver, filter)
+            }
             Log.d(TAG, "Broadcast receiver registered successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error registering broadcast receiver", e)
@@ -688,21 +702,21 @@ class AIKeyboardService : InputMethodService(),
         
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(getThemeKeyColor())
+            // Use theme-aware suggestion bar background
+            setBackgroundColor(themeManager.getCurrentTheme().suggestionBarColor)
             setPadding(8, 4, 8, 4)
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                height = 100 // Set minimum height
-            }
+                resources.getDimensionPixelSize(R.dimen.suggestion_bar_height)
+            )
         }
         
         // Add three AI suggestion text views
         repeat(3) { index ->
             val suggestion = TextView(this).apply {
-                setTextColor(getThemeTextColor())
+                // Use theme-aware suggestion text color
+                setTextColor(themeManager.getCurrentTheme().suggestionTextColor)
                 textSize = 16f
                 setPadding(16, 8, 16, 8)
                 setBackgroundResource(R.drawable.key_background_default)
@@ -1113,13 +1127,15 @@ class AIKeyboardService : InputMethodService(),
         }
     }
 
-    // Add new method for immediate theme application
+    // Enhanced comprehensive theme application with unified palette
     private fun applyThemeImmediately() {
         try {
+            val theme = themeManager.getCurrentTheme()
+            val palette = themeManager.getCurrentPalette()
+            Log.d(TAG, "Applying theme immediately: ${theme.name}")
+            
+            // Update keyboard view with unified palette
             keyboardView?.let { view ->
-                // Apply theme using comprehensive ThemeManager
-                val theme = themeManager.getCurrentTheme()
-                
                 // Set keyboard background
                 val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
                 view.background = backgroundDrawable
@@ -1129,36 +1145,63 @@ class AIKeyboardService : InputMethodService(),
                     view.setThemeManager(themeManager)
                 }
                 
-                // Force complete redraw
+                // Force complete redraw to apply icon tinting and new colors
                 view.invalidateAllKeys()
                 view.invalidate()
                 view.requestLayout()
                 
-                Log.d(TAG, "Theme applied immediately: ${theme.name}")
+                Log.d(TAG, "Keyboard view theme updated with unified palette")
             }
             
-            // Also update suggestion bar colors
+            // Update suggestion bar with unified palette
             suggestionContainer?.let { container ->
-                val theme = themeManager.getCurrentTheme()
-                container.setBackgroundColor(theme.suggestionBarColor)
+                container.setBackgroundColor(palette.suggestBg)
                 
-                // Update suggestion text colors
+                // Update all suggestion text views
                 for (i in 0 until container.childCount) {
                     val child = container.getChildAt(i)
                     if (child is TextView) {
-                        child.setTextColor(theme.suggestionTextColor)
+                        child.setTextColor(palette.suggestText)
+                        // Update suggestion chip background
+                        child.setBackgroundColor(palette.suggestChipBg)
                     }
                 }
+                Log.d(TAG, "Suggestion bar theme updated with unified palette")
             }
             
-            // Update toolbar colors if available
+            // Update main toolbar colors with unified palette
             cleverTypeToolbar?.let { toolbar ->
-                val theme = themeManager.getCurrentTheme()
-                toolbar.setBackgroundColor(theme.backgroundColor)
+                toolbar.setBackgroundColor(palette.toolbarBg)
+                
+                // Update all toolbar button colors
+                for (i in 0 until toolbar.childCount) {
+                    val child = toolbar.getChildAt(i)
+                    if (child is LinearLayout) {
+                        // Update toolbar button background
+                        child.setBackgroundColor(palette.keyBg)
+                        
+                        // Update icon text color in button
+                        for (j in 0 until child.childCount) {
+                            val icon = child.getChildAt(j)
+                            if (icon is TextView) {
+                                icon.setTextColor(palette.toolbarIcon)
+                            }
+                        }
+                    }
+                }
+                Log.d(TAG, "Toolbar theme updated with unified palette")
             }
+            
+            // Update top container
+            topContainer?.let { container ->
+                container.setBackgroundColor(theme.backgroundColor)
+                Log.d(TAG, "Top container theme updated")
+            }
+            
+            Log.d(TAG, "Complete theme application finished successfully")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error in immediate theme application", e)
+            Log.e(TAG, "Error in comprehensive theme application", e)
         }
     }
 
@@ -1190,45 +1233,53 @@ class AIKeyboardService : InputMethodService(),
         }
     }
 
-    // Apply theme from broadcast with null checks
+    // Apply theme from broadcast with comprehensive updates
     private fun applyThemeFromBroadcast() {
         try {
             Log.d(TAG, "Applying theme from broadcast...")
             
-            // Reload theme
-            themeManager.reloadTheme()
-            
-            // Apply to keyboard view if available
-            keyboardView?.let { view ->
-                val theme = themeManager.getCurrentTheme()
-                val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
-                view.background = backgroundDrawable
-                
-                if (view is SwipeKeyboardView) {
-                    view.setThemeManager(themeManager)
-                }
-                
-                view.invalidateAllKeys()
-                view.invalidate()
-                view.requestLayout()
-                
-                Log.d(TAG, "Theme applied: ${theme.name}")
+            // Reload theme from SharedPreferences
+            val reloadSuccess = themeManager.reloadTheme()
+            if (!reloadSuccess) {
+                Log.w(TAG, "Failed to reload theme from SharedPreferences")
+                return
             }
             
-            // Update suggestion bar
-            updateSuggestionBarTheme()
+            // Apply comprehensive theme updates
+            applyThemeImmediately()
             
-            // Update toolbar
-            cleverTypeToolbar?.let { toolbar ->
-                val theme = themeManager.getCurrentTheme()
-                toolbar.setBackgroundColor(theme.backgroundColor)
-            }
+            // Show visual confirmation
+            showThemeChangeConfirmation()
             
-            // Show confirmation
-            showThemeUpdateConfirmation()
-            
+            Log.d(TAG, "Theme successfully applied from broadcast")
         } catch (e: Exception) {
             Log.e(TAG, "Error applying theme from broadcast", e)
+        }
+    }
+    
+    // Theme data verification for debugging
+    private fun verifyThemeData() {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val themeData = prefs.getString("flutter.current_theme_data", null)
+            val themeId = prefs.getString("flutter.current_theme_id", null)
+            
+            Log.d(TAG, "Theme verification - ID: $themeId, Data length: ${themeData?.length}")
+            
+            if (themeData != null) {
+                try {
+                    val json = org.json.JSONObject(themeData)
+                    val themeName = json.optString("name", "Unknown")
+                    val backgroundColor = json.optInt("backgroundColor", 0)
+                    Log.d(TAG, "Theme JSON parsed - Name: $themeName, BG Color: $backgroundColor")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Invalid theme JSON data", e)
+                }
+            } else {
+                Log.w(TAG, "No theme data found in SharedPreferences")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error verifying theme data", e)
         }
     }
 
@@ -1501,6 +1552,12 @@ class AIKeyboardService : InputMethodService(),
     private fun handleBackspace(ic: InputConnection) {
         val currentTime = System.currentTimeMillis()
         
+        // Handle slide-to-delete mode
+        if (isSlideToDeleteModeActive) {
+            deleteLastWord(ic)
+            return
+        }
+        
         // Check for double-backspace revert within 1 second
         val revertCandidate = enhancedAutocorrect.getRevertCandidate()
         if (revertCandidate != null && 
@@ -1558,6 +1615,54 @@ class AIKeyboardService : InputMethodService(),
         if (aiSuggestionsEnabled) {
             updateAISuggestions()
         }
+    }
+    
+    /**
+     * Delete the last word (used in slide-to-delete mode)
+     */
+    private fun deleteLastWord(ic: InputConnection) {
+        try {
+            val textBeforeCursor = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
+            val wordBoundaryRegex = "\\S+\\s*$".toRegex()
+            val lastWordMatch = wordBoundaryRegex.find(textBeforeCursor)
+            
+            if (lastWordMatch != null) {
+                val deleteLength = lastWordMatch.value.length
+                ic.deleteSurroundingText(deleteLength, 0)
+                Log.d(TAG, "Slide-to-delete removed: '${lastWordMatch.value.trim()}'")
+                
+                // Clear current word
+                currentWord = ""
+                
+                // Provide haptic feedback
+                performAdvancedHapticFeedback(Keyboard.KEYCODE_DELETE)
+                
+                // Update suggestions
+                if (aiSuggestionsEnabled) {
+                    updateAISuggestions()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in slide-to-delete", e)
+            // Fallback to normal backspace
+            ic.deleteSurroundingText(1, 0)
+        }
+    }
+    
+    /**
+     * Activate slide-to-delete mode
+     */
+    fun activateSlideToDelete() {
+        isSlideToDeleteModeActive = true
+        Log.d(TAG, "Slide-to-delete mode activated")
+    }
+    
+    /**
+     * Deactivate slide-to-delete mode
+     */
+    fun deactivateSlideToDelete() {
+        isSlideToDeleteModeActive = false
+        Log.d(TAG, "Slide-to-delete mode deactivated")
     }
     
     /**
@@ -3917,7 +4022,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Context-aware enter key handler (Gboard-style)
+     * Enhanced context-aware enter key handler (Gboard-style)
      */
     private fun handleEnterKey(ic: InputConnection) {
         try {
@@ -3925,41 +4030,75 @@ class AIKeyboardService : InputMethodService(),
             val inputType = currentInputEditorInfo?.inputType ?: 0
             val imeOptions = currentInputEditorInfo?.imeOptions ?: 0
             
-            // Check for special IME actions
+            // Check for special IME actions with enhanced feedback
             when (imeOptions and EditorInfo.IME_MASK_ACTION) {
                 EditorInfo.IME_ACTION_SEARCH -> {
-                    // Search action
+                    // Search action with haptic feedback
                     ic.performEditorAction(EditorInfo.IME_ACTION_SEARCH)
+                    performAdvancedHapticFeedback(Keyboard.KEYCODE_DONE)
+                    Log.d(TAG, "Enter key: Search action performed")
                     return
                 }
                 EditorInfo.IME_ACTION_GO -> {
-                    // Go action
+                    // Go action (URLs, forms)
                     ic.performEditorAction(EditorInfo.IME_ACTION_GO)
+                    performAdvancedHapticFeedback(Keyboard.KEYCODE_DONE)
+                    Log.d(TAG, "Enter key: Go action performed")
                     return
                 }
                 EditorInfo.IME_ACTION_SEND -> {
-                    // Send action
+                    // Send action (messaging apps)
                     ic.performEditorAction(EditorInfo.IME_ACTION_SEND)
+                    performAdvancedHapticFeedback(Keyboard.KEYCODE_DONE)
+                    Log.d(TAG, "Enter key: Send action performed")
                     return
                 }
                 EditorInfo.IME_ACTION_NEXT -> {
                     // Next field action
                     ic.performEditorAction(EditorInfo.IME_ACTION_NEXT)
+                    performAdvancedHapticFeedback(Keyboard.KEYCODE_DONE)
+                    Log.d(TAG, "Enter key: Next field action performed")
                     return
                 }
                 EditorInfo.IME_ACTION_DONE -> {
                     // Done action (close keyboard)
                     ic.performEditorAction(EditorInfo.IME_ACTION_DONE)
+                    performAdvancedHapticFeedback(Keyboard.KEYCODE_DONE)
+                    Log.d(TAG, "Enter key: Done action performed")
                     return
                 }
             }
             
-            // Default: Insert newline
-            ic.commitText("\n", 1)
+            // Check if multiline is supported
+            val isMultiline = (inputType and EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+            
+            if (isMultiline) {
+                // Insert newline for multiline text fields
+                ic.commitText("\n", 1)
+                Log.d(TAG, "Enter key: Newline inserted (multiline)")
+            } else {
+                // For single-line fields, try to perform default action
+                try {
+                    ic.performEditorAction(EditorInfo.IME_ACTION_DONE)
+                    performAdvancedHapticFeedback(Keyboard.KEYCODE_DONE)
+                    Log.d(TAG, "Enter key: Default done action")
+                } catch (e: Exception) {
+                    ic.commitText("\n", 1)
+                    Log.d(TAG, "Enter key: Fallback newline")
+                }
+            }
+            
+            // Clear current word after enter
+            currentWord = ""
             
             // Enhanced auto-capitalization after enter
             if (::capsShiftManager.isInitialized) {
                 capsShiftManager.handleEnterPress(ic, inputType)
+            }
+            
+            // Update suggestions
+            if (aiSuggestionsEnabled) {
+                updateAISuggestions()
             }
             
             Log.d(TAG, "Enter key handled - inputType: $inputType, imeOptions: $imeOptions")
@@ -4068,7 +4207,8 @@ class AIKeyboardService : InputMethodService(),
                 resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
                 resources.getDimensionPixelSize(R.dimen.toolbar_button_padding)
             )
-            setBackgroundColor(Color.parseColor("#f8f9fa"))
+            // Use theme-aware toolbar background
+            setBackgroundColor(themeManager.getCurrentTheme().suggestionBarColor)
         }
         
         // Tone button (✨ auto_awesome)
@@ -4159,7 +4299,8 @@ class AIKeyboardService : InputMethodService(),
         val iconView = TextView(this).apply {
             text = icon
             textSize = resources.getDimension(R.dimen.toolbar_icon_size) / resources.displayMetrics.scaledDensity
-            setTextColor(Color.BLACK) // Default text color
+            // Use theme-aware text color
+            setTextColor(themeManager.getCurrentTheme().keyTextColor)
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target),

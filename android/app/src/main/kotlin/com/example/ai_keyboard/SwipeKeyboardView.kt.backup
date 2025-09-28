@@ -80,23 +80,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         color = Color.parseColor("#1A73E8") // Gboard blue
     }
     
-    // Enhanced gesture recognition
-    private var backspaceSlideStartX = 0f
-    private var isSlideToDeleteActive = false
-    private var spacebarSwipeStartX = 0f
-    private var isCursorControlActive = false
-    private var gestureStartTime = 0L
-    private val SLIDE_THRESHOLD = 80f
-    private val CURSOR_THRESHOLD = 30f
-    
-    // Special key detection and theming
-    private fun isSpecialKey(code: Int): Boolean = when (code) {
-        Keyboard.KEYCODE_SHIFT, Keyboard.KEYCODE_DELETE, Keyboard.KEYCODE_DONE,
-        -10 /* ?123 */, -11 /* ABC */, -12 /* ?123 */, -13 /* Mic */, 
-        -14 /* Globe */, -15 /* Emoji */, -16 /* Voice */ -> true
-        else -> false
-    }
-    
     // Clipboard layout state
     private var isClipboardMode = false
     private var clipboardItems = listOf<ClipboardItem>()
@@ -270,15 +253,13 @@ class SwipeKeyboardView @JvmOverloads constructor(
             (key.y + key.height).toFloat() - padding
         )
         
-        // Enhanced key type identification using centralized logic
-        val keyCode = key.codes[0]
-        val isActionKey = isSpecialKey(keyCode)
-        val isShiftKey = keyCode == Keyboard.KEYCODE_SHIFT || keyCode == -1
-        val isSpaceKey = keyCode == 32
-        val isVoiceKey = keyCode == -13
-        val isEmojiKey = keyCode == -15
-        val isGlobeKey = keyCode == -14
-        val isDeleteKey = keyCode == Keyboard.KEYCODE_DELETE || keyCode == -5
+        // Identify key types for proper styling
+        val isActionKey = key.codes[0] < 0 && key.codes[0] != -32 // space is not action key
+        val isShiftKey = key.codes[0] == -1 // Shift key code
+        val isSpaceKey = key.codes[0] == 32 // Space key code
+        val isVoiceKey = key.codes[0] == -13 // Voice input key code
+        val isEmojiKey = key.codes[0] == -15 // Emoji key code
+        val isGlobeKey = key.codes[0] == -14 // Globe/Language key code
         
         // Gboard-style subtle shadow
         val shadowPaint = Paint().apply {
@@ -352,26 +333,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         // Draw key background
         canvas.drawRoundRect(keyRect, cornerRadius, cornerRadius, fillPaint)
-        
-        // Draw key icon with theme-aware tinting (for special keys)
-        if (key.icon != null && isActionKey) {
-            val iconDrawable = key.icon.mutate() // Create mutable copy to avoid affecting other instances
-            val palette = themeManager?.getCurrentPalette()
-            
-            // Apply runtime tint to vector drawable
-            if (palette != null) {
-                androidx.core.graphics.drawable.DrawableCompat.setTint(iconDrawable, palette.specialKeyIcon)
-                androidx.core.graphics.drawable.DrawableCompat.setTintMode(iconDrawable, android.graphics.PorterDuff.Mode.SRC_IN)
-            }
-            
-            // Calculate icon position (centered in key)
-            val iconSize = (minOf(key.width, key.height) * 0.4f).toInt()
-            val iconLeft = key.x + (key.width - iconSize) / 2
-            val iconTop = key.y + (key.height - iconSize) / 2
-            
-            iconDrawable.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
-            iconDrawable.draw(canvas)
-        }
         
         // Theme-aware border
         keyBorderPaint?.let { borderPaint ->
@@ -514,10 +475,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
         
         return try {
-            // Handle enhanced gestures first
-            val gestureHandled = handleEnhancedGestures(me)
-            if (gestureHandled) return true
-            
             // Handle shift key long press detection
             val shiftKeyHandled = handleShiftKeyTouch(me)
             if (shiftKeyHandled) return true
@@ -539,95 +496,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     /**
-     * Handle enhanced gestures for backspace slide-to-delete and spacebar cursor control
-     */
-    private fun handleEnhancedGestures(event: MotionEvent): Boolean {
-        val keys = keyboard?.keys ?: return false
-        val key = getKeyAtPosition(event.x, event.y, keys)
-        
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                gestureStartTime = System.currentTimeMillis()
-                when (key?.codes?.firstOrNull()) {
-                    Keyboard.KEYCODE_DELETE -> {
-                        backspaceSlideStartX = event.x
-                        isSlideToDeleteActive = false
-                    }
-                    32 -> { // Space key
-                        spacebarSwipeStartX = event.x
-                        isCursorControlActive = false
-                    }
-                }
-                return false
-            }
-            
-            MotionEvent.ACTION_MOVE -> {
-                when (key?.codes?.firstOrNull()) {
-                    Keyboard.KEYCODE_DELETE -> {
-                        val deltaX = kotlin.math.abs(event.x - backspaceSlideStartX)
-                        if (deltaX > SLIDE_THRESHOLD && !isSlideToDeleteActive && 
-                            System.currentTimeMillis() - gestureStartTime > 200) {
-                            isSlideToDeleteActive = true
-                            (context as? AIKeyboardService)?.activateSlideToDelete()
-                            return true
-                        }
-                    }
-                    32 -> { // Space key
-                        val deltaX = kotlin.math.abs(event.x - spacebarSwipeStartX)
-                        if (deltaX > CURSOR_THRESHOLD && !isCursorControlActive) {
-                            isCursorControlActive = true
-                            return true
-                        } else if (isCursorControlActive) {
-                            handleSpacebarCursorControl(event.x - spacebarSwipeStartX)
-                            return true
-                        }
-                    }
-                }
-                return false
-            }
-            
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (isSlideToDeleteActive) {
-                    isSlideToDeleteActive = false
-                    (context as? AIKeyboardService)?.deactivateSlideToDelete()
-                    return true
-                }
-                if (isCursorControlActive) {
-                    isCursorControlActive = false
-                    return true
-                }
-                return false
-            }
-        }
-        
-        return false
-    }
-    
-    /**
-     * Handle spacebar cursor control
-     */
-    private fun handleSpacebarCursorControl(deltaX: Float) {
-        val sensitivity = 15f // Pixels per cursor movement
-        val cursorMoves = (deltaX / sensitivity).toInt()
-        
-        (context as? AIKeyboardService)?.let { service ->
-            service.currentInputConnection?.let { ic ->
-                try {
-                    val extractedText = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
-                    val currentPos = extractedText?.selectionStart ?: 0
-                    val textLength = extractedText?.text?.length ?: 0
-                    val newPos = (currentPos + cursorMoves).coerceIn(0, textLength)
-                    
-                    ic.setSelection(newPos, newPos)
-                    android.util.Log.d("SpacebarCursor", "Moved cursor from $currentPos to $newPos")
-                } catch (e: Exception) {
-                    android.util.Log.e("SpacebarCursor", "Error moving cursor", e)
-                }
-            }
-        }
-    }
-
-    /**
      * Handle shift key touch events for long press detection
      */
     private fun handleShiftKeyTouch(event: MotionEvent): Boolean {
@@ -638,16 +506,12 @@ class SwipeKeyboardView @JvmOverloads constructor(
         if (key?.codes?.firstOrNull() == Keyboard.KEYCODE_SHIFT) {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    // Notify AIKeyboardService to start long press detection
-                    (context as? AIKeyboardService)?.let { service ->
-                        service.startShiftKeyLongPressDetection()
-                    }
+                    // Handle shift key press - simplified version
+                    // Long press detection can be added later if needed
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // Cancel long press detection
-                    (context as? AIKeyboardService)?.let { service ->
-                        service.cancelShiftKeyLongPressDetection()
-                    }
+                    // Handle shift key release - simplified version
+                    // Long press detection can be added later if needed
                 }
             }
         }

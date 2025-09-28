@@ -488,23 +488,45 @@ class FlutterThemeManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Notify Android keyboard service of theme change
+  /// Notify Android keyboard service of theme change with retry logic
   Future<void> _notifyAndroidKeyboardThemeChange() async {
+    const maxRetries = 3;
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const platform = MethodChannel('ai_keyboard/config');
+        await platform.invokeMethod('notifyThemeChange');
+        debugPrint('Successfully notified Android of theme change (attempt $attempt)');
+        return; // Success, exit retry loop
+      } catch (e) {
+        debugPrint('Failed to notify theme change (attempt $attempt): $e');
+        if (attempt == maxRetries) {
+          debugPrint('All attempts failed, triggering fallback');
+          await _triggerSettingsBroadcast();
+        } else {
+          // Wait before retry with exponential backoff
+          await Future.delayed(Duration(milliseconds: 100 * attempt));
+        }
+      }
+    }
+  }
+  
+  /// Test connection to Android keyboard service
+  Future<bool> testAndroidConnection() async {
     try {
       const platform = MethodChannel('ai_keyboard/config');
       await platform.invokeMethod('notifyThemeChange');
-      debugPrint('Successfully notified Android of theme change');
+      debugPrint('Android connection test successful');
+      return true;
     } catch (e) {
-      debugPrint('Error notifying theme change: $e');
-      // Fallback: try to trigger settings broadcast 
-      await _triggerSettingsBroadcast();
+      debugPrint('Android connection test failed: $e');
+      return false;
     }
   }
 
   /// Fallback method to trigger settings broadcast
   Future<void> _triggerSettingsBroadcast() async {
     try {
-      const platform = MethodChannel('com.example.ai_keyboard/keyboard');
+      const platform = MethodChannel('ai_keyboard/config');
       // Get current settings and trigger update
       final prefs = await SharedPreferences.getInstance();
       final currentThemeId = prefs.getString('current_theme_id') ?? 'gboard_light';
