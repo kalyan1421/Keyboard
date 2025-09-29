@@ -75,7 +75,10 @@ class ThemeManager(private val context: Context) {
         val suggestBg: Int,
         val suggestText: Int,
         val suggestChipBg: Int,
-        val suggestChipText: Int
+        val suggestChipText: Int,
+        val cornerRadius: Float,
+        val fontSize: Float,
+        val suggestionBarHeight: Float
     )
     
     /**
@@ -317,12 +320,15 @@ class ThemeManager(private val context: Context) {
             specialKeyText = theme.keyTextColor,
             specialKeyIcon = theme.keyTextColor,
             accent = theme.accentColor,
-            toolbarBg = theme.suggestionBarColor,
+            toolbarBg = theme.backgroundColor, // Use keyboard bg for toolbar
             toolbarIcon = theme.keyTextColor,
             suggestBg = theme.suggestionBarColor,
             suggestText = theme.suggestionTextColor,
             suggestChipBg = theme.keyBackgroundColor,
-            suggestChipText = theme.keyTextColor
+            suggestChipText = theme.keyTextColor,
+            cornerRadius = theme.keyCornerRadius,
+            fontSize = theme.fontSize,
+            suggestionBarHeight = 56f // Increased from 48dp for better touch targets
         )
     }
     

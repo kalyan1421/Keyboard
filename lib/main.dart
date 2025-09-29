@@ -1,7 +1,4 @@
 // main.dart
-import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
-import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
-import 'package:ai_keyboard/screens/onboarding/on_boarding_screen_1.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,7 +35,7 @@ class AIKeyboardApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'noto_sans',
       ),
-      home: mainscreen(),
+      home: const KeyboardConfigScreen(),
     );
   }
 }
@@ -439,9 +436,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     }
   }
 
-<<<<<<< HEAD
   // Theme methods removed - using single default keyboard
-=======
   String _getThemeDisplayName(String theme) {
     switch (theme) {
       case 'gboard':
@@ -458,7 +453,6 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
             .join(' ');
     }
   }
->>>>>>> eshwar-ui/UI
 
   void _showIOSInstructions() {
     showDialog(
@@ -1553,9 +1547,7 @@ class AIService {
   }
 }
 
-<<<<<<< HEAD
 // Theme configuration removed - using single default keyboard style
-=======
 // Keyboard theme configuration
 class KeyboardTheme {
   final String name;
@@ -1628,7 +1620,6 @@ class KeyboardTheme {
   }
 }
 
->>>>>>> eshwar-ui/UI
 /// System keyboard status panel
 class SystemKeyboardStatusPanel extends StatelessWidget {
   const SystemKeyboardStatusPanel({super.key});

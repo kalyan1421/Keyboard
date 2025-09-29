@@ -93,7 +93,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private fun isSpecialKey(code: Int): Boolean = when (code) {
         Keyboard.KEYCODE_SHIFT, Keyboard.KEYCODE_DELETE, Keyboard.KEYCODE_DONE,
         -10 /* ?123 */, -11 /* ABC */, -12 /* ?123 */, -13 /* Mic */, 
-        -14 /* Globe */, -15 /* Emoji */, -16 /* Voice */ -> true
+        -14 /* Globe */, -15 /* Emoji */, -16 /* Voice */, 
+        10 /* Enter */, -4 /* Enter variant */ -> true
         else -> false
     }
     
@@ -125,6 +126,16 @@ class SwipeKeyboardView @JvmOverloads constructor(
         initializeThemeColors()
         invalidateAllKeys()
         invalidate()
+    }
+    
+    /**
+     * Refresh theme colors and invalidate view for live theme updates
+     */
+    fun refreshTheme() {
+        initializeThemeColors()
+        invalidateAllKeys()
+        invalidate()
+        requestLayout()
     }
     
     private fun createStableKeyBackground(): Drawable {
@@ -337,7 +348,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 specialKeyPaint ?: Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = theme?.specialKeyColor ?: adjustColorBrightness(Color.WHITE, 0.9f)
+                    color = theme?.specialKeyColor ?: 0xFFE0E0E0.toInt() // Use theme default instead of adjusted white
                 }
             }
             else -> {
@@ -345,7 +356,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 keyPaint ?: Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = theme?.keyBackgroundColor ?: Color.WHITE
+                    color = theme?.keyBackgroundColor ?: 0xFFFFFFFF.toInt() // Use explicit white for consistency
                 }
             }
         }
@@ -358,11 +369,16 @@ class SwipeKeyboardView @JvmOverloads constructor(
             val iconDrawable = key.icon.mutate() // Create mutable copy to avoid affecting other instances
             val palette = themeManager?.getCurrentPalette()
             
-            // Apply runtime tint to vector drawable
-            if (palette != null) {
-                androidx.core.graphics.drawable.DrawableCompat.setTint(iconDrawable, palette.specialKeyIcon)
-                androidx.core.graphics.drawable.DrawableCompat.setTintMode(iconDrawable, android.graphics.PorterDuff.Mode.SRC_IN)
+            // Apply runtime tint to vector drawable based on key state
+            val tintColor = when {
+                isShiftKey && (isCapsLockActive || isShiftHighlighted) -> Color.WHITE // White on accent background
+                isVoiceKey && isVoiceKeyActive -> Color.WHITE // White on accent background
+                isEmojiKey && isEmojiKeyActive -> Color.WHITE // White on accent background
+                else -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.BLACK
             }
+            
+            androidx.core.graphics.drawable.DrawableCompat.setTint(iconDrawable, tintColor)
+            androidx.core.graphics.drawable.DrawableCompat.setTintMode(iconDrawable, android.graphics.PorterDuff.Mode.SRC_IN)
             
             // Calculate icon position (centered in key)
             val iconSize = (minOf(key.width, key.height) * 0.4f).toInt()
@@ -460,8 +476,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 val iconLeft = centerX - iconSize / 2
                 val iconTop = centerY - iconSize / 2 - 4  // Move up slightly
                 
-                // Tint icon with themed text color
-                key.icon.setTint(Color.BLACK)
+                // Tint icon with white (on accent background)
+                key.icon.setTint(Color.WHITE)
                 key.icon.setBounds(
                     iconLeft.toInt(),
                     iconTop.toInt(),
@@ -472,7 +488,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 
                 // Draw underline to indicate caps lock
                 val underlinePaint = Paint().apply {
-                    color = Color.BLACK
+                    color = Color.WHITE
                     strokeWidth = 3f
                     isAntiAlias = true
                 }
@@ -482,13 +498,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
                     underlinePaint
                 )
             } else {
-                // Regular icon
+                // Regular icon with theme-aware tinting
                 val iconSize = 30 // Gboard-style icon size
                 val iconLeft = centerX - iconSize / 2
                 val iconTop = centerY - iconSize / 2
                 
-                // Tint icon with themed colors
-                key.icon.setTint(Color.BLACK)
+                // Apply theme-aware tint
+                val palette = themeManager?.getCurrentPalette()
+                val tintColor = palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.BLACK
+                key.icon.setTint(tintColor)
                 
                 key.icon.setBounds(
                     iconLeft.toInt(),

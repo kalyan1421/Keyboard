@@ -702,22 +702,24 @@ class AIKeyboardService : InputMethodService(),
         
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            // Use theme-aware suggestion bar background
-            setBackgroundColor(themeManager.getCurrentTheme().suggestionBarColor)
-            setPadding(8, 4, 8, 4)
+            // Use theme-aware suggestion bar background and height
+            val palette = themeManager.getCurrentPalette()
+            setBackgroundColor(palette.suggestBg)
+            setPadding(12, 8, 12, 8) // Increased padding for better touch targets
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                resources.getDimensionPixelSize(R.dimen.suggestion_bar_height)
+                (palette.suggestionBarHeight * resources.displayMetrics.density).toInt()
             )
         }
         
         // Add three AI suggestion text views
         repeat(3) { index ->
             val suggestion = TextView(this).apply {
-                // Use theme-aware suggestion text color
-                setTextColor(themeManager.getCurrentTheme().suggestionTextColor)
-                textSize = 16f
+                // Use comprehensive theme-aware styling
+                val palette = themeManager.getCurrentPalette()
+                setTextColor(palette.suggestText)
+                textSize = palette.fontSize // Use theme font size
                 setPadding(16, 8, 16, 8)
                 setBackgroundResource(R.drawable.key_background_default)
                 isClickable = true
@@ -1143,6 +1145,7 @@ class AIKeyboardService : InputMethodService(),
                 // Update theme manager reference in keyboard view
                 if (view is SwipeKeyboardView) {
                     view.setThemeManager(themeManager)
+                    view.refreshTheme() // Ensure complete theme refresh
                 }
                 
                 // Force complete redraw to apply icon tinting and new colors
@@ -1156,12 +1159,18 @@ class AIKeyboardService : InputMethodService(),
             // Update suggestion bar with unified palette
             suggestionContainer?.let { container ->
                 container.setBackgroundColor(palette.suggestBg)
+                // Update container height with theme value
+                container.layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (palette.suggestionBarHeight * resources.displayMetrics.density).toInt()
+                )
                 
                 // Update all suggestion text views
                 for (i in 0 until container.childCount) {
                     val child = container.getChildAt(i)
                     if (child is TextView) {
                         child.setTextColor(palette.suggestText)
+                        child.textSize = palette.fontSize // Apply theme font size
                         // Update suggestion chip background
                         child.setBackgroundColor(palette.suggestChipBg)
                     }
@@ -1180,11 +1189,12 @@ class AIKeyboardService : InputMethodService(),
                         // Update toolbar button background
                         child.setBackgroundColor(palette.keyBg)
                         
-                        // Update icon text color in button
+                        // Update icon text color and size in button
                         for (j in 0 until child.childCount) {
                             val icon = child.getChildAt(j)
                             if (icon is TextView) {
                                 icon.setTextColor(palette.toolbarIcon)
+                                icon.textSize = palette.fontSize // Apply theme font size
                             }
                         }
                     }
@@ -4207,8 +4217,9 @@ class AIKeyboardService : InputMethodService(),
                 resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
                 resources.getDimensionPixelSize(R.dimen.toolbar_button_padding)
             )
-            // Use theme-aware toolbar background
-            setBackgroundColor(themeManager.getCurrentTheme().suggestionBarColor)
+            // Use comprehensive theme-aware toolbar background
+            val palette = themeManager.getCurrentPalette()
+            setBackgroundColor(palette.toolbarBg)
         }
         
         // Tone button (✨ auto_awesome)
@@ -4295,12 +4306,13 @@ class AIKeyboardService : InputMethodService(),
             setOnClickListener { onClick() }
         }
         
-        // Create icon text view with proper sizing
+        // Create icon text view with comprehensive theme support
         val iconView = TextView(this).apply {
             text = icon
-            textSize = resources.getDimension(R.dimen.toolbar_icon_size) / resources.displayMetrics.scaledDensity
-            // Use theme-aware text color
-            setTextColor(themeManager.getCurrentTheme().keyTextColor)
+            val palette = themeManager.getCurrentPalette()
+            textSize = palette.fontSize // Use theme font size for icons
+            // Use theme-aware text color for toolbar icons
+            setTextColor(palette.toolbarIcon)
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target),
