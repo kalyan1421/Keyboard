@@ -300,7 +300,7 @@ class OpenAIConfig private constructor(private val context: Context) {
      */
     private fun encryptApiKey(apiKey: String): String {
         val secretKey = getOrCreateEncryptionKey()
-        val cipher = Cipher.getInstance("AES/ECB/PKCS1Padding")
+        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, secretKey)
         val encryptedBytes = cipher.doFinal(apiKey.toByteArray())
         return Base64.encodeToString(encryptedBytes, Base64.DEFAULT)
@@ -311,7 +311,7 @@ class OpenAIConfig private constructor(private val context: Context) {
      */
     private fun decryptApiKey(encryptedKey: String): String {
         val secretKey = getOrCreateEncryptionKey()
-        val cipher = Cipher.getInstance("AES/ECB/PKCS1Padding")
+        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
         cipher.init(Cipher.DECRYPT_MODE, secretKey)
         val encryptedBytes = Base64.decode(encryptedKey, Base64.DEFAULT)
         val decryptedBytes = cipher.doFinal(encryptedBytes)

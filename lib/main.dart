@@ -5,13 +5,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'keyboard_feedback_system.dart';
 import 'theme_manager.dart';
 import 'theme_editor_screen.dart';
+import 'services/firebase_auth_service.dart';
+import 'widgets/account_section.dart';
+import 'screens/auth_wrapper.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    print('Firebase initialized successfully');
+  } catch (e) {
+    print('Firebase initialization failed: $e');
+  }
 
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
@@ -35,7 +50,7 @@ class AIKeyboardApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'noto_sans',
       ),
-      home: const KeyboardConfigScreen(),
+      home: const AuthWrapper(),
     );
   }
 }
@@ -65,6 +80,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
   FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
   FeedbackIntensity _visualIntensity = FeedbackIntensity.medium;
   double _soundVolume = 0.3;
+
+  // Firebase Auth Service
+  final FirebaseAuthService _authService = FirebaseAuthService();
 
   final List<String> _themes = [
     'gboard',
@@ -905,6 +923,27 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               ),
             ),
 
+            // User Account Section
+            const SizedBox(height: 24),
+            _buildSectionHeader('👤 Account & Sync'),
+            const SizedBox(height: 16),
+            AccountSection(
+              keyboardSettings: {
+                'aiSuggestionsEnabled': _aiSuggestionsEnabled,
+                'swipeTypingEnabled': _swipeTypingEnabled,
+                'vibrationEnabled': _vibrationEnabled,
+                'keyPreviewEnabled': _keyPreviewEnabled,
+                'shiftFeedbackEnabled': _shiftFeedbackEnabled,
+                'showNumberRow': _showNumberRow,
+                'soundEnabled': _soundEnabled,
+                'currentLanguage': _currentLanguage,
+                'hapticIntensity': _hapticIntensity.toString(),
+                'soundIntensity': _soundIntensity.toString(),
+                'visualIntensity': _visualIntensity.toString(),
+                'soundVolume': _soundVolume,
+              },
+            ),
+
             // Advanced Feedback Settings Section
             const SizedBox(height: 24),
             _buildSectionHeader('🎯 Advanced Feedback Settings'),
@@ -1678,6 +1717,7 @@ class SystemKeyboardStatusPanel extends StatelessWidget {
       ),
     );
   }
+
 }
 
 /// AI Service information widget
