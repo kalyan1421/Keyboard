@@ -175,7 +175,7 @@ class _ReminderCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       SizedBox(
-                        width: 240,
+                        width: MediaQuery.of(context).size.width * 0.5,
                         child: Text(
                           'Your premium was expired, Renew or upgrade premium  for better experience.',
                           style: AppTextStyle.bodySmall,
