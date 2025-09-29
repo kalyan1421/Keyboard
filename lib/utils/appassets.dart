@@ -9,6 +9,8 @@ class AppAssets {
       'assets/images/success_illustration.png';
   static const String userIcon = 'assets/images/user_image.png';
   static const String languages_image = 'assets/icons/language_image.png';
+  static const String keyboardSetupIllustration =
+      'assets/images/keyboard_setup_illustration.svg';
 }
 
 class AppColors {
