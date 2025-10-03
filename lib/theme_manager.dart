@@ -64,6 +64,11 @@ class KeyboardThemeData {
   final bool useMaterialYou;
   final bool followSystemTheme;
   
+  // Swipe Typing
+  final Color swipeTrailColor;
+  final double swipeTrailWidth;
+  final double swipeTrailOpacity;
+  
   // Performance Optimizations
   final bool enableAnimations;
   final int animationDuration;
@@ -126,6 +131,11 @@ class KeyboardThemeData {
     this.useMaterialYou = false,
     this.followSystemTheme = false,
     
+    // Swipe Typing
+    this.swipeTrailColor = const Color(0xFF2196F3),
+    this.swipeTrailWidth = 8.0,
+    this.swipeTrailOpacity = 0.7,
+    
     // Performance
     this.enableAnimations = true,
     this.animationDuration = 150,
@@ -173,6 +183,9 @@ class KeyboardThemeData {
     'imageScaleType': imageScaleType,
     'useMaterialYou': useMaterialYou,
     'followSystemTheme': followSystemTheme,
+    'swipeTrailColor': swipeTrailColor.value,
+    'swipeTrailWidth': swipeTrailWidth,
+    'swipeTrailOpacity': swipeTrailOpacity,
     'enableAnimations': enableAnimations,
     'animationDuration': animationDuration,
   };
@@ -221,6 +234,9 @@ class KeyboardThemeData {
     imageScaleType: json['imageScaleType'] ?? 'cover',
     useMaterialYou: json['useMaterialYou'] ?? false,
     followSystemTheme: json['followSystemTheme'] ?? false,
+    swipeTrailColor: Color(json['swipeTrailColor'] ?? json['accentColor'] ?? 0xFF2196F3),
+    swipeTrailWidth: (json['swipeTrailWidth'] ?? 8.0).toDouble(),
+    swipeTrailOpacity: (json['swipeTrailOpacity'] ?? 0.7).toDouble(),
     enableAnimations: json['enableAnimations'] ?? true,
     animationDuration: json['animationDuration'] ?? 150,
   );
@@ -267,6 +283,9 @@ class KeyboardThemeData {
     String? imageScaleType,
     bool? useMaterialYou,
     bool? followSystemTheme,
+    Color? swipeTrailColor,
+    double? swipeTrailWidth,
+    double? swipeTrailOpacity,
     bool? enableAnimations,
     int? animationDuration,
   }) => KeyboardThemeData(
@@ -310,6 +329,9 @@ class KeyboardThemeData {
     imageScaleType: imageScaleType ?? this.imageScaleType,
     useMaterialYou: useMaterialYou ?? this.useMaterialYou,
     followSystemTheme: followSystemTheme ?? this.followSystemTheme,
+    swipeTrailColor: swipeTrailColor ?? this.swipeTrailColor,
+    swipeTrailWidth: swipeTrailWidth ?? this.swipeTrailWidth,
+    swipeTrailOpacity: swipeTrailOpacity ?? this.swipeTrailOpacity,
     enableAnimations: enableAnimations ?? this.enableAnimations,
     animationDuration: animationDuration ?? this.animationDuration,
   );
@@ -348,6 +370,7 @@ class FlutterThemeManager extends ChangeNotifier {
     suggestionBarColor: Color(0xFFFAFAFA),
     keyCornerRadius: 6.0,
     showKeyShadows: true,
+    swipeTrailColor: Color(0xFF1A73E8), // Match accent
   );
 
   /// Initialize theme manager
@@ -386,6 +409,7 @@ class FlutterThemeManager extends ChangeNotifier {
       keyBackgroundColor: Color(0xFF7C4DFF),
       keyTextColor: Color(0xFFFFFFFF),
       accentColor: Color(0xFFBB86FC),
+      swipeTrailColor: Color(0xFFBB86FC), // Match accent
       useMaterialYou: true,
       followSystemTheme: true,
     );

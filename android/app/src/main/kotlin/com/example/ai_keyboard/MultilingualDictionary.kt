@@ -8,6 +8,9 @@ import android.util.Log
 import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.FileNotFoundException
+import java.io.File
+import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -196,7 +199,16 @@ class MultilingualDictionary(context: Context) : SQLiteOpenHelper(context, DATAB
                     }
                 }
                 db.setTransactionSuccessful()
-                Log.d(TAG, "Loaded words for language: $language")
+                
+                // Count loaded words for logging
+                val cursor = db.rawQuery("SELECT COUNT(*) FROM $TABLE_WORDS WHERE $COL_WORD_LANGUAGE = ?", arrayOf(language))
+                var wordCount = 0
+                cursor.use {
+                    if (it.moveToFirst()) {
+                        wordCount = it.getInt(0)
+                    }
+                }
+                Log.i(TAG, "✅ Loaded $language with ${wordCount}k words")
             } finally {
                 db.endTransaction()
             }
@@ -256,12 +268,69 @@ class MultilingualDictionary(context: Context) : SQLiteOpenHelper(context, DATAB
                     }
                 }
                 db.setTransactionSuccessful()
-                Log.d(TAG, "Loaded bigrams for language: $language")
+                Log.i(TAG, "✅ [Dictionary] Loaded ${language}_bigrams from assets")
+            } finally {
+                db.endTransaction()
+            }
+        } catch (e: FileNotFoundException) {
+            Log.w(TAG, "⚠️ [Dictionary] Missing bigrams for $language, trying Firebase fallback...")
+            loadBigramsFromFirebase(language)
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ [Dictionary] Using fallback (basic mode) for $language", e)
+        }
+    }
+    
+    private suspend fun loadBigramsFromFirebase(language: String) = withContext(Dispatchers.IO) {
+        try {
+            // Check if we have cached Firebase bigrams
+            val cacheDir = File(context.cacheDir, "dictionaries")
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs()
+            }
+            
+            val cachedFile = File(cacheDir, "${language}_bigrams.txt")
+            
+            if (cachedFile.exists()) {
+                // Load from cached file
+                loadBigramsFromCachedFile(language, cachedFile)
+                Log.i(TAG, "✅ [Dictionary] Loaded ${language}_bigrams from cache")
+            } else {
+                // TODO: Implement Firebase Storage download
+                // For now, log that we're using fallback mode
+                Log.w(TAG, "⚠️ [Dictionary] No cached bigrams for $language, using fallback (basic mode)")
+                // downloadBigramsFromFirebaseStorage(language, cachedFile)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ [Dictionary] Firebase bigrams fallback failed for $language, using basic mode", e)
+        }
+    }
+    
+    private suspend fun loadBigramsFromCachedFile(language: String, file: File) = withContext(Dispatchers.IO) {
+        try {
+            val reader = BufferedReader(InputStreamReader(FileInputStream(file)))
+            val db = writableDatabase
+            
+            db.beginTransaction()
+            try {
+                reader.useLines { lines ->
+                    lines.forEach { line ->
+                        val parts = line.trim().split("\t")
+                        if (parts.size >= 3) {
+                            val word1 = parts[0].trim()
+                            val word2 = parts[1].trim()
+                            val frequency = parts[2].toIntOrNull() ?: 1
+                            
+                            addBigramToDatabase(db, language, word1, word2, frequency)
+                        }
+                    }
+                }
+                db.setTransactionSuccessful()
+                Log.i(TAG, "✅ [Dictionary] Loaded ${language}_bigrams from Firebase cache")
             } finally {
                 db.endTransaction()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not load bigrams for language: $language", e)
+            Log.w(TAG, "⚠️ [Dictionary] Error loading cached bigrams for $language", e)
         }
     }
     

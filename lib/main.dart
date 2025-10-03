@@ -13,19 +13,30 @@ import 'theme_editor_screen.dart';
 import 'services/firebase_auth_service.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
+import 'screens/main%20screens/mainscreen.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
+  // Initialize Firebase with robust duplicate app handling
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    print('Firebase initialized successfully');
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } else {
+      debugPrint("Firebase already initialized, continuing...");
+    }
   } catch (e) {
-    print('Firebase initialization failed: $e');
+    // Handle duplicate app error gracefully - common during hot restart
+    if (e.toString().contains('duplicate-app')) {
+      debugPrint("Firebase already initialized, continuing...");
+    } else {
+      // Re-throw other Firebase errors as they might be configuration issues
+      debugPrint("Firebase initialization error: $e");
+      rethrow;
+    }
   }
 
   // Initialize the advanced feedback system
@@ -541,12 +552,64 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
       appBar: AppBar(
         title: const Text('AI Keyboard Settings'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.of(context).push(MaterialPageRoute(builder: (context) => const mainscreen()));
+            },
+            icon: const Icon(Icons.home),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _checkKeyboardStatus,
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (context) => const mainscreen()));
+              },
+              child: Container(
+                height: 100,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Try UI', style: Theme.of(context).textTheme.headlineLarge),
+                      IconButton(
+                        onPressed: () {
+                          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const mainscreen()));
+                        },
+                        icon: const Icon(Icons.home, color: Colors.blue),
+                      )
+                    ],
+                  ),
+                ),)),
+            // Container(
+            //   height: 100,
+            //   width: double.infinity,
+            //   decoration: BoxDecoration(
+            //     color: Colors.blue.shade50,
+            //     borderRadius: BorderRadius.circular(10),
+            //   ),
+            //   child:  Center(
+            //     child: Row(
+            //       mainAxisAlignment: MainAxisAlignment.center,
+            //       children: [
+            //         Text('Try UI', style: Theme.of(context).textTheme.headlineLarge),IconButton(
+            // onPressed: () {
+            //   Navigator.of(context).push(MaterialPageRoute(builder: (context) => const mainscreen()));
+            // },
+            // icon: const Icon(Icons.home, color: Colors.blue),
+            //    ) ]))
+                    
+            // ),
             _buildKeyboardStatusCard(),
             const SizedBox(height: 20),
             _buildPlatformInfoCard(),

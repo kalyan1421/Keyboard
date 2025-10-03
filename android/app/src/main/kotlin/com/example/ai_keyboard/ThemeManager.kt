@@ -11,6 +11,8 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
+import androidx.palette.graphics.Palette
+import android.app.WallpaperManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -62,23 +64,64 @@ class ThemeManager(private val context: Context) {
      * Unified theme palette for consistent theming across all UI elements
      */
     data class ThemePalette(
+        // Keyboard background
         val keyboardBg: Int,
+        
+        // Regular keys
         val keyBg: Int,
         val keyText: Int,
         val keyPressedBg: Int,
+        val keyPressedText: Int,
+        
+        // Special keys (space, return, shift, backspace)
         val specialKeyBg: Int,
         val specialKeyText: Int,
         val specialKeyIcon: Int,
+        val specialKeyPressedBg: Int,
+        
+        // Accent & highlights
         val accent: Int,
+        val accentPressed: Int,
+        
+        // Toolbar
         val toolbarBg: Int,
         val toolbarIcon: Int,
+        val toolbarIconPressed: Int,
+        val toolbarDivider: Int,
+        
+        // Suggestion bar
         val suggestBg: Int,
         val suggestText: Int,
         val suggestChipBg: Int,
         val suggestChipText: Int,
+        val suggestChipPressed: Int,
+        val suggestChipBorder: Int,
+        
+        // Bottom navigation
+        val navBarBg: Int,
+        val navBarIcon: Int,
+        val navBarIconSelected: Int,
+        val navBarDivider: Int,
+        
+        // Emoji panel
+        val emojiPanelBg: Int,
+        val emojiPanelHeader: Int,
+        val emojiCategoryBg: Int,
+        val emojiCategorySelected: Int,
+        val emojiCategoryText: Int,
+        
+        // GIF/Sticker panels
+        val mediaPanelBg: Int,
+        val mediaPanelHeader: Int,
+        val mediaPanelSearchBg: Int,
+        
+        // Key styling
         val cornerRadius: Float,
+        val keyBorderWidth: Float,
+        val keyBorderColor: Int,
         val fontSize: Float,
-        val suggestionBarHeight: Float
+        val suggestionBarHeight: Float,
+        val toolbarHeight: Float
     )
     
     /**
@@ -143,6 +186,11 @@ class ThemeManager(private val context: Context) {
         val useMaterialYou: Boolean,
         val followSystemTheme: Boolean,
         
+        // Swipe Typing
+        val swipeTrailColor: Int,
+        val swipeTrailWidth: Float,
+        val swipeTrailOpacity: Float,
+        
         // Performance Optimizations
         val enableAnimations: Boolean,
         val animationDuration: Int
@@ -199,6 +247,9 @@ class ThemeManager(private val context: Context) {
                     imageScaleType = json.optString("imageScaleType", "cover"),
                     useMaterialYou = json.optBoolean("useMaterialYou", false),
                     followSystemTheme = json.optBoolean("followSystemTheme", false),
+                    swipeTrailColor = json.optInt("swipeTrailColor", json.optInt("accentColor", DEFAULT_ACCENT)),
+                    swipeTrailWidth = json.optDouble("swipeTrailWidth", 8.0).toFloat(),
+                    swipeTrailOpacity = json.optDouble("swipeTrailOpacity", 0.7).toFloat(),
                     enableAnimations = json.optBoolean("enableAnimations", true),
                     animationDuration = json.optInt("animationDuration", 150)
                 )
@@ -245,6 +296,9 @@ class ThemeManager(private val context: Context) {
                 imageScaleType = "cover",
                 useMaterialYou = false,
                 followSystemTheme = false,
+                swipeTrailColor = DEFAULT_ACCENT,
+                swipeTrailWidth = 8.0f,
+                swipeTrailOpacity = 0.7f,
                 enableAnimations = true,
                 animationDuration = 150
             )
@@ -312,24 +366,76 @@ class ThemeManager(private val context: Context) {
     fun getCurrentPalette(): ThemePalette {
         val theme = getCurrentTheme()
         return ThemePalette(
+            // Keyboard background
             keyboardBg = theme.backgroundColor,
+            
+            // Regular keys
             keyBg = theme.keyBackgroundColor,
             keyText = theme.keyTextColor,
             keyPressedBg = theme.keyPressedColor,
-            specialKeyBg = theme.specialKeyColor,
+            keyPressedText = theme.keyPressedTextColor,
+            
+            // Special keys (space, return, shift, backspace)
+            // Use slightly darker version of key background for contrast
+            specialKeyBg = adjustColorBrightness(theme.keyBackgroundColor, 0.9f),
             specialKeyText = theme.keyTextColor,
             specialKeyIcon = theme.keyTextColor,
+            specialKeyPressedBg = adjustColorBrightness(theme.keyBackgroundColor, 0.75f),
+            
+            // Accent & highlights
             accent = theme.accentColor,
-            toolbarBg = theme.backgroundColor, // Use keyboard bg for toolbar
+            accentPressed = adjustColorBrightness(theme.accentColor, 0.8f),
+            
+            // Toolbar
+            toolbarBg = theme.backgroundColor,
             toolbarIcon = theme.keyTextColor,
+            toolbarIconPressed = theme.accentColor,
+            toolbarDivider = adjustColorBrightness(theme.backgroundColor, 0.9f),
+            
+            // Suggestion bar
             suggestBg = theme.suggestionBarColor,
             suggestText = theme.suggestionTextColor,
             suggestChipBg = theme.keyBackgroundColor,
             suggestChipText = theme.keyTextColor,
+            suggestChipPressed = theme.keyPressedColor,
+            suggestChipBorder = adjustColorBrightness(theme.keyBackgroundColor, 0.85f),
+            
+            // Bottom navigation
+            navBarBg = theme.backgroundColor,
+            navBarIcon = theme.keyTextColor,
+            navBarIconSelected = theme.accentColor,
+            navBarDivider = adjustColorBrightness(theme.backgroundColor, 0.9f),
+            
+            // Emoji panel
+            emojiPanelBg = theme.backgroundColor,
+            emojiPanelHeader = adjustColorBrightness(theme.backgroundColor, 0.97f),
+            emojiCategoryBg = theme.backgroundColor,
+            emojiCategorySelected = theme.accentColor,
+            emojiCategoryText = theme.keyTextColor,
+            
+            // GIF/Sticker panels
+            mediaPanelBg = theme.backgroundColor,
+            mediaPanelHeader = adjustColorBrightness(theme.backgroundColor, 0.97f),
+            mediaPanelSearchBg = theme.keyBackgroundColor,
+            
+            // Key styling
             cornerRadius = theme.keyCornerRadius,
+            keyBorderWidth = theme.keyBorderWidth,
+            keyBorderColor = theme.keyBorderColor,
             fontSize = theme.fontSize,
-            suggestionBarHeight = 56f // Increased from 48dp for better touch targets
+            suggestionBarHeight = 56f, // Increased from 48dp for better touch targets
+            toolbarHeight = 48f
         )
+    }
+    
+    /**
+     * Adjust color brightness for visual hierarchy
+     */
+    private fun adjustColorBrightness(color: Int, factor: Float): Int {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(color, hsv)
+        hsv[2] = (hsv[2] * factor).coerceIn(0f, 1f)
+        return Color.HSVToColor(hsv)
     }
     
     /**
@@ -655,6 +761,163 @@ class ThemeManager(private val context: Context) {
     }
     
     /**
+     * Extract Material You theme from wallpaper (Android 8.1+)
+     * Uses Palette API for dominant color extraction
+     */
+    fun extractMaterialYouTheme(): ThemeData? {
+        return try {
+            val wallpaperManager = WallpaperManager.getInstance(context)
+            val wallpaperDrawable = wallpaperManager.drawable ?: return null
+            
+            // Convert drawable to bitmap
+            val bitmap = when (wallpaperDrawable) {
+                is BitmapDrawable -> wallpaperDrawable.bitmap
+                else -> {
+                    val width = wallpaperDrawable.intrinsicWidth.coerceAtLeast(1)
+                    val height = wallpaperDrawable.intrinsicHeight.coerceAtLeast(1)
+                    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bmp)
+                    wallpaperDrawable.setBounds(0, 0, canvas.width, canvas.height)
+                    wallpaperDrawable.draw(canvas)
+                    bmp
+                }
+            }
+            
+            // Extract color palette from wallpaper
+            val palette = Palette.from(bitmap).generate()
+            
+            // Determine if dark mode based on dominant color
+            val dominantColor = palette.getDominantColor(Color.BLUE)
+            val isDarkMode = isColorDark(dominantColor)
+            
+            // Extract Material You colors
+            val primaryColor = palette.getVibrantColor(dominantColor)
+            val secondaryColor = palette.getLightVibrantColor(palette.getLightMutedColor(Color.CYAN))
+            val accentColor = palette.getDarkVibrantColor(palette.getVibrantColor(Color.MAGENTA))
+            val backgroundColor = if (isDarkMode) {
+                Color.parseColor("#1C1B1F") // Dark background
+            } else {
+                Color.parseColor("#FFFBFE") // Light background
+            }
+            
+            // Create adaptive key colors with proper contrast
+            val keyBackgroundColor = if (isDarkMode) {
+                adjustColorBrightness(primaryColor, 0.3f)
+            } else {
+                adjustColorBrightness(primaryColor, 1.8f)
+            }
+            
+            val keyTextColor = if (isColorDark(keyBackgroundColor)) Color.WHITE else Color.BLACK
+            
+            val specialKeyColor = if (isDarkMode) {
+                adjustColorBrightness(secondaryColor, 0.4f)
+            } else {
+                adjustColorBrightness(secondaryColor, 1.6f)
+            }
+            
+            // Create Material You theme
+            ThemeData(
+                id = "material_you_${System.currentTimeMillis()}",
+                name = "Material You",
+                description = "Adaptive colors from your wallpaper",
+                backgroundColor = backgroundColor,
+                keyBackgroundColor = keyBackgroundColor,
+                keyPressedColor = adjustColorBrightness(keyBackgroundColor, 0.85f),
+                keyDisabledColor = adjustColorAlpha(keyBackgroundColor, 0.5f),
+                keyTextColor = keyTextColor,
+                keyPressedTextColor = keyTextColor,
+                fontSize = 18f,
+                fontFamily = "Roboto",
+                isBold = false,
+                isItalic = false,
+                accentColor = accentColor,
+                specialKeyColor = specialKeyColor,
+                deleteKeyColor = accentColor,
+                suggestionBarColor = adjustColorAlpha(backgroundColor, 0.95f),
+                suggestionTextColor = keyTextColor,
+                suggestionHighlightColor = accentColor,
+                suggestionFontSize = 16f,
+                suggestionBold = false,
+                suggestionItalic = false,
+                keyCornerRadius = 8f,
+                showKeyShadows = true,
+                shadowDepth = 2f,
+                shadowColor = if (isDarkMode) 0x40000000 else 0x1A000000,
+                keyBorderWidth = 0f,
+                keyBorderColor = Color.TRANSPARENT,
+                keyHeight = 48f,
+                keyWidth = 32f,
+                keySpacing = 4f,
+                rowSpacing = 8f,
+                backgroundType = "solid",
+                gradientColors = listOf(backgroundColor, adjustColorBrightness(backgroundColor, 0.95f)),
+                gradientAngle = 45f,
+                backgroundImagePath = null,
+                backgroundOpacity = 1f,
+                imageScaleType = "cover",
+                useMaterialYou = true,
+                followSystemTheme = true,
+                swipeTrailColor = accentColor,
+                swipeTrailWidth = 8f,
+                swipeTrailOpacity = 0.7f,
+                enableAnimations = true,
+                animationDuration = 200
+            ).also {
+                Log.d(TAG, "🎨 Material You theme extracted successfully")
+                Log.d(TAG, "Primary: ${Integer.toHexString(primaryColor)}, " +
+                          "Secondary: ${Integer.toHexString(secondaryColor)}, " +
+                          "Accent: ${Integer.toHexString(accentColor)}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting Material You theme", e)
+            null
+        }
+    }
+    
+    /**
+     * Check if a color is considered dark
+     */
+    private fun isColorDark(color: Int): Boolean {
+        val darkness = 1 - (0.299 * Color.red(color) + 
+                           0.587 * Color.green(color) + 
+                           0.114 * Color.blue(color)) / 255
+        return darkness >= 0.5
+    }
+    
+    /**
+     * Adjust color alpha channel
+     */
+    private fun adjustColorAlpha(color: Int, alpha: Float): Int {
+        val a = (255 * alpha).toInt().coerceIn(0, 255)
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        return Color.argb(a, r, g, b)
+    }
+    
+    /**
+     * Get system theme colors (Android 12+)
+     */
+    @RequiresApi(Build.VERSION_CODES.S)
+    fun getSystemDynamicColors(): Map<String, Int>? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                mapOf(
+                    "primary" to ContextCompat.getColor(context, android.R.color.system_accent1_600),
+                    "secondary" to ContextCompat.getColor(context, android.R.color.system_accent2_600),
+                    "tertiary" to ContextCompat.getColor(context, android.R.color.system_accent3_600),
+                    "background" to ContextCompat.getColor(context, android.R.color.system_neutral1_50),
+                    "surface" to ContextCompat.getColor(context, android.R.color.system_neutral1_100),
+                    "onSurface" to ContextCompat.getColor(context, android.R.color.system_neutral1_900)
+                )
+            } else null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting system dynamic colors", e)
+            null
+        }
+    }
+    
+    /**
      * Cleanup theme manager resources
      */
     fun cleanup() {
@@ -681,5 +944,71 @@ class ThemeManager(private val context: Context) {
             Font Size: ${theme.fontSize}
             Background Type: ${theme.backgroundType}
         """.trimIndent()
+    }
+    
+    /**
+     * Create themed drawable for toolbar buttons
+     */
+    fun createToolbarButtonDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(android.graphics.Color.TRANSPARENT)
+            cornerRadius = palette.cornerRadius
+        }
+    }
+    
+    /**
+     * Create themed drawable for suggestion chips
+     */
+    fun createSuggestionChipDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(palette.suggestChipBg)
+            cornerRadius = palette.cornerRadius
+            if (palette.keyBorderWidth > 0) {
+                setStroke(palette.keyBorderWidth.toInt(), palette.suggestChipBorder)
+            }
+        }
+    }
+    
+    /**
+     * Create themed drawable for special keys (space, return, etc.)
+     */
+    fun createSpecialKeyDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(palette.specialKeyBg)
+            cornerRadius = palette.cornerRadius
+            if (palette.keyBorderWidth > 0) {
+                setStroke(palette.keyBorderWidth.toInt(), palette.keyBorderColor)
+            }
+        }
+    }
+    
+    /**
+     * Create themed paint for toolbar icons
+     */
+    fun createToolbarIconPaint(): Paint {
+        val palette = getCurrentPalette()
+        return Paint().apply {
+            isAntiAlias = true
+            color = palette.toolbarIcon
+            style = Paint.Style.FILL
+        }
+    }
+    
+    /**
+     * Create themed paint for special key icons
+     */
+    fun createSpecialKeyIconPaint(): Paint {
+        val palette = getCurrentPalette()
+        return Paint().apply {
+            isAntiAlias = true
+            color = palette.specialKeyIcon
+            style = Paint.Style.FILL
+        }
     }
 }

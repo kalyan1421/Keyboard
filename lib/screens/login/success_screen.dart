@@ -1,5 +1,6 @@
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
+import 'package:ai_keyboard/main.dart';
 import 'package:flutter/material.dart';
 
 class SuccessScreen extends StatelessWidget {
@@ -7,8 +8,11 @@ class SuccessScreen extends StatelessWidget {
 
   // Template onTap handlers for this page
   void onTapGoHome(BuildContext context) {
-    // Navigate to main app or home screen
-    Navigator.popUntil(context, (route) => route.isFirst);
+    // Navigate to KeyboardConfigScreen (main app screen)
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const KeyboardConfigScreen()),
+      (route) => false, // Remove all previous routes
+    );
   }
 
   @override
@@ -52,8 +56,8 @@ class SuccessScreen extends StatelessWidget {
   }
 
   Widget _buildGoHomeButton(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onTapGoHome(context),
+      return GestureDetector(
+        onTap: () => onTapGoHome(context),
       child: Container(
         width: MediaQuery.of(context).size.width * 0.7,
         height: 50,

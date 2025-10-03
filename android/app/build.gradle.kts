@@ -68,6 +68,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     
+    // Palette library for Material You color extraction
+    implementation("androidx.palette:palette-ktx:1.0.0")
+    
     // Glide for image loading in theme editor
     implementation("com.github.bumptech.glide:glide:4.16.0")
     kapt("com.github.bumptech.glide:compiler:4.16.0")

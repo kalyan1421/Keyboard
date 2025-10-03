@@ -171,14 +171,22 @@ class CleverTypeAIService(private val context: Context) {
                 val cacheKey = "tone_variations_${tone.name}_${text.hashCode()}"
                 cache.get(cacheKey)?.let { cachedResponse ->
                     Log.d(TAG, "Tone variations from cache")
-                    val variations = cachedResponse.split("|||").filter { it.isNotBlank() }
+                    val variations = cachedResponse.split("|||")
+                        .filter { it.isNotBlank() }
+                        .map { line ->
+                            // Remove numbering in case old cached values have it
+                            line.trim()
+                                .replaceFirst(Regex("^\\d+[.)]\\s*"), "")  // Remove "1. " or "1) "
+                                .replaceFirst(Regex("^[•\\-*]\\s*"), "")   // Remove bullet points
+                                .trim()
+                        }
                     return@withContext ToneResult(
                         originalText = text,
-                        adjustedText = variations.firstOrNull()?.trim() ?: text,
+                        adjustedText = variations.firstOrNull() ?: text,
                         tone = tone,
                         processingTimeMs = System.currentTimeMillis() - startTime,
                         fromCache = true,
-                        variations = variations.map { it.trim() }
+                        variations = variations
                     )
                 }
                 
@@ -193,21 +201,31 @@ class CleverTypeAIService(private val context: Context) {
                     4. Make each variation unique but appropriate
                     5. Use natural, conversational language
                     6. Maintain similar length to the original
+                    7. DO NOT include any numbering, bullets, or prefixes - just the plain text
                     
-                    Format your response as 3 separate lines, each containing one variation.
+                    Format your response as 3 separate lines, each containing ONLY the variation text.
                 """.trimIndent()
                 
                 val userPrompt = """Generate 3 ${tone.displayName.lowercase()} variations (${tone.description}) of this text:
                 
 $text
 
-Return exactly 3 variations, one per line."""
+Return exactly 3 variations, one per line. Do not number them or use bullets."""
                 
                 // Make API request for multiple variations
                 val response = makeOpenAIRequest(systemPrompt, userPrompt)
                 
-                // Parse response into variations
-                val variations = response.split('\n').filter { it.trim().isNotEmpty() }.take(3)
+                // Parse response into variations and clean them
+                val variations = response.split('\n')
+                    .filter { it.trim().isNotEmpty() }
+                    .take(3)
+                    .map { line ->
+                        // Remove numbering like "1. ", "2. ", "3. " or "1) ", "2) ", etc.
+                        line.trim()
+                            .replaceFirst(Regex("^\\d+[.)]\\s*"), "")  // Remove "1. " or "1) "
+                            .replaceFirst(Regex("^[•\\-*]\\s*"), "")   // Remove bullet points
+                            .trim()
+                    }
                 
                 // Ensure we have at least one variation
                 val finalVariations = if (variations.isEmpty()) {
@@ -219,7 +237,7 @@ Return exactly 3 variations, one per line."""
                     )
                     listOf(fallbackResponse.trim())
                 } else {
-                    variations.map { it.trim() }
+                    variations
                 }
                 
                 // Cache the variations (join with separator)

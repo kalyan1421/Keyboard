@@ -184,11 +184,11 @@ class WordDatabase private constructor(context: Context) : SQLiteOpenHelper(cont
                         put(WORD_IS_COMMON, isCommon)
                     }
                     
-                    db.insertOrThrow(TABLE_WORDS, null, values)
+                    db.insertWithOnConflict(TABLE_WORDS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
                 }
                 
                 db.setTransactionSuccessful()
-                Log.d(TAG, "Populated ${wordsArray.length()} words")
+                Log.i(TAG, "✅ Loaded ${wordsArray.length()} words from assets")
             } finally {
                 db.endTransaction()
             }
@@ -229,11 +229,7 @@ class WordDatabase private constructor(context: Context) : SQLiteOpenHelper(cont
                         put(WORD_IS_COMMON, 0)
                     }
                     
-                    try {
-                        db.insertOrThrow(TABLE_WORDS, null, misspellingValues)
-                    } catch (e: Exception) {
-                        // Word might already exist, ignore
-                    }
+                    db.insertWithOnConflict(TABLE_WORDS, null, misspellingValues, SQLiteDatabase.CONFLICT_IGNORE)
                     
                     // Ensure correction exists with higher frequency
                     val correctionValues = ContentValues().apply {
@@ -243,16 +239,15 @@ class WordDatabase private constructor(context: Context) : SQLiteOpenHelper(cont
                         put(WORD_IS_COMMON, 1)
                     }
                     
-                    try {
-                        db.insertOrThrow(TABLE_WORDS, null, correctionValues)
-                    } catch (e: Exception) {
+                    val result = db.insertWithOnConflict(TABLE_WORDS, null, correctionValues, SQLiteDatabase.CONFLICT_IGNORE)
+                    if (result == -1L) {
                         // Update existing word frequency
                         db.execSQL("UPDATE $TABLE_WORDS SET $WORD_FREQUENCY = MAX($WORD_FREQUENCY, 1000) WHERE $WORD_TEXT = ?", arrayOf(correction))
                     }
                 }
                 
                 db.setTransactionSuccessful()
-                Log.d(TAG, "Populated correction mappings")
+                Log.i(TAG, "✅ Loaded correction mappings from assets")
             } finally {
                 db.endTransaction()
             }

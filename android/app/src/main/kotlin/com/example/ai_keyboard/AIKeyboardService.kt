@@ -33,6 +33,7 @@ import android.widget.PopupWindow
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.graphics.drawable.ColorDrawable
+import android.graphics.Typeface
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -341,7 +342,7 @@ class AIKeyboardService : InputMethodService(),
         themeManager.initialize()
         
         loadSettings()
-        loadDictionaries()
+        loadDictionariesAsync()
         
         // Initialize multilingual components
         initializeMultilingualComponents()
@@ -396,26 +397,37 @@ class AIKeyboardService : InputMethodService(),
             aiBridge = AIServiceBridge.getInstance()
             Log.d(TAG, "AI Bridge initialized successfully")
             
-            // Check AI readiness periodically
+            // Check AI readiness periodically - retry up to 5 times only if dictionaries are not ready
             coroutineScope.launch {
                 delay(1000)
                 var retryCount = 0
+                val currentLang = availableLanguages[currentLanguageIndex].lowercase()
+                
                 while (!isAIReady && retryCount < 5) {
-                    isAIReady = aiBridge.isReady()
-                    if (isAIReady) {
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(this@AIKeyboardService, "🤖 AI Keyboard Ready", Toast.LENGTH_SHORT).show()
-                        }
-                        break
+                    // Check if dictionaries are ready first
+                    val dictionariesReady = multilingualDictionary?.isLanguageLoaded(currentLang) ?: false
+                    
+                    if (!dictionariesReady) {
+                        Log.d(TAG, "🔵 [AI] Waiting for dictionaries to load for $currentLang, retry $retryCount/5")
                     } else {
-                        Log.d(TAG, "AI not ready yet, retry $retryCount/5")
-                        delay(2000) // Retry after 2 seconds
-                        retryCount++
+                        isAIReady = aiBridge.isReady()
+                        if (isAIReady) {
+                            Log.i(TAG, "✅ AI initialized for $currentLang with dictionary + bigrams")
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(this@AIKeyboardService, "🤖 AI Keyboard Ready", Toast.LENGTH_SHORT).show()
+                            }
+                            break
+                        } else {
+                            Log.d(TAG, "🔵 [AI] AI service not ready yet, retry $retryCount/5")
+                        }
                     }
+                    
+                    delay(2000) // Retry after 2 seconds
+                    retryCount++
                 }
                 
                 if (!isAIReady) {
-                    Log.w(TAG, "AI failed to initialize after 5 retries - using enhanced basic mode")
+                    Log.w(TAG, "⚠️ AI unavailable, running in enhanced basic mode")
                     withContext(Dispatchers.Main) {
                         Toast.makeText(this@AIKeyboardService, "📝 Keyboard Ready (Basic Mode)", Toast.LENGTH_SHORT).show()
                     }
@@ -462,7 +474,7 @@ class AIKeyboardService : InputMethodService(),
                 
                 // Initialize swipe autocorrect engine
                 swipeAutocorrectEngine.initialize()
-                loadDictionaries()
+                loadDictionariesAsync()
                 Log.d(TAG, "Swipe autocorrect engine and dictionary initialization completed")
             }
             
@@ -698,47 +710,66 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun createSuggestionBar(parent: LinearLayout) {
-        Log.d(TAG, "Creating suggestion bar")
+        Log.d(TAG, "Creating suggestion bar with comprehensive theming")
+        
+        val palette = themeManager.getCurrentPalette()
         
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            // Use theme-aware suggestion bar background and height
-            val palette = themeManager.getCurrentPalette()
             setBackgroundColor(palette.suggestBg)
-            setPadding(12, 8, 12, 8) // Increased padding for better touch targets
+            setPadding(12, 8, 12, 8)
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 (palette.suggestionBarHeight * resources.displayMetrics.density).toInt()
             )
+            elevation = 2f // Add subtle elevation
+            tag = "suggestion_container" // Tag for theme updates
         }
         
-        // Add three AI suggestion text views
+        // Add three AI suggestion chips with full theming
         repeat(3) { index ->
             val suggestion = TextView(this).apply {
-                // Use comprehensive theme-aware styling
-                val palette = themeManager.getCurrentPalette()
-                setTextColor(palette.suggestText)
-                textSize = palette.fontSize // Use theme font size
-                setPadding(16, 8, 16, 8)
-                setBackgroundResource(R.drawable.key_background_default)
+                val theme = themeManager.getCurrentTheme()
+                
+                setTextColor(palette.suggestChipText)
+                textSize = theme.suggestionFontSize // Use theme font size
+                setPadding(20, 10, 20, 10)
+                gravity = Gravity.CENTER
+                
+                // Apply font styling (bold/italic)
+                val style = when {
+                    theme.suggestionBold && theme.suggestionItalic -> Typeface.BOLD_ITALIC
+                    theme.suggestionBold -> Typeface.BOLD
+                    theme.suggestionItalic -> Typeface.ITALIC
+                    else -> Typeface.NORMAL
+                }
+                typeface = Typeface.create(theme.fontFamily, style)
+                
+                // Apply themed chip background
+                background = themeManager.createSuggestionChipDrawable()
+                
                 isClickable = true
-                text = "AI Suggestion ${index + 1}" // Default text for testing
+                isFocusable = true
+                text = "" // Empty by default, filled by updateSuggestionUI
                 visibility = View.VISIBLE
                 
+                // Add pressed state with theme colors - use setOnClickListener instead
                 setOnClickListener { view ->
                     val suggestionText = (view as TextView).text.toString()
-                    Log.d(TAG, "AI Suggestion clicked: '$suggestionText'")
-                    if (suggestionText.isNotEmpty() && !suggestionText.startsWith("AI Suggestion")) {
+                    Log.d(TAG, "✅ Suggestion clicked: '$suggestionText'")
+                    if (suggestionText.isNotEmpty()) {
                         applySuggestion(suggestionText)
                     }
                 }
+                
+                tag = "suggestion_chip_$index" // Tag for theme updates
             }
             
             val params = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f
             ).apply {
-                setMargins(4, 0, 4, 0)
+                setMargins(6, 4, 6, 4) // Slightly more margin for better spacing
             }
             suggestion.layoutParams = params
             
@@ -1129,89 +1160,236 @@ class AIKeyboardService : InputMethodService(),
         }
     }
 
-    // Enhanced comprehensive theme application with unified palette
+    // Enhanced comprehensive theme application with unified palette and smooth transitions
     private fun applyThemeImmediately() {
         try {
             val theme = themeManager.getCurrentTheme()
             val palette = themeManager.getCurrentPalette()
-            Log.d(TAG, "Applying theme immediately: ${theme.name}")
+            val enableAnimations = theme.enableAnimations && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
             
-            // Update keyboard view with unified palette
+            Log.d(TAG, "🎨 Applying comprehensive theme: ${theme.name}${if (enableAnimations) " (animated)" else ""}")
+            
+            // 1. Update keyboard view with unified palette
             keyboardView?.let { view ->
-                // Set keyboard background
                 val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
                 view.background = backgroundDrawable
                 
-                // Update theme manager reference in keyboard view
                 if (view is SwipeKeyboardView) {
                     view.setThemeManager(themeManager)
-                    view.refreshTheme() // Ensure complete theme refresh
+                    view.refreshTheme()
                 }
                 
-                // Force complete redraw to apply icon tinting and new colors
                 view.invalidateAllKeys()
                 view.invalidate()
                 view.requestLayout()
                 
-                Log.d(TAG, "Keyboard view theme updated with unified palette")
+                Log.d(TAG, "✅ Keyboard view themed")
             }
             
-            // Update suggestion bar with unified palette
+            // 2. Update suggestion bar with themed chips
             suggestionContainer?.let { container ->
                 container.setBackgroundColor(palette.suggestBg)
-                // Update container height with theme value
                 container.layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     (palette.suggestionBarHeight * resources.displayMetrics.density).toInt()
                 )
                 
-                // Update all suggestion text views
+                // Update each suggestion chip with fresh themed drawable
                 for (i in 0 until container.childCount) {
                     val child = container.getChildAt(i)
                     if (child is TextView) {
-                        child.setTextColor(palette.suggestText)
-                        child.textSize = palette.fontSize // Apply theme font size
-                        // Update suggestion chip background
-                        child.setBackgroundColor(palette.suggestChipBg)
+                        child.setTextColor(palette.suggestChipText)
+                        child.textSize = theme.suggestionFontSize
+                        
+                        // Apply font styling (bold/italic)
+                        val style = when {
+                            theme.suggestionBold && theme.suggestionItalic -> Typeface.BOLD_ITALIC
+                            theme.suggestionBold -> Typeface.BOLD
+                            theme.suggestionItalic -> Typeface.ITALIC
+                            else -> Typeface.NORMAL
+                        }
+                        child.typeface = Typeface.create(theme.fontFamily, style)
+                        
+                        // Clear any tint list before applying new background
+                        child.backgroundTintList = null
+                        child.background = themeManager.createSuggestionChipDrawable()
                     }
                 }
-                Log.d(TAG, "Suggestion bar theme updated with unified palette")
+                Log.d(TAG, "✅ Suggestion bar themed - ${container.childCount} chips updated")
             }
             
-            // Update main toolbar colors with unified palette
+            // 3. Update main toolbar with icon theming
             cleverTypeToolbar?.let { toolbar ->
                 toolbar.setBackgroundColor(palette.toolbarBg)
                 
-                // Update all toolbar button colors
                 for (i in 0 until toolbar.childCount) {
                     val child = toolbar.getChildAt(i)
                     if (child is LinearLayout) {
-                        // Update toolbar button background
-                        child.setBackgroundColor(palette.keyBg)
+                        child.background = themeManager.createToolbarButtonDrawable()
                         
-                        // Update icon text color and size in button
                         for (j in 0 until child.childCount) {
                             val icon = child.getChildAt(j)
                             if (icon is TextView) {
                                 icon.setTextColor(palette.toolbarIcon)
-                                icon.textSize = palette.fontSize // Apply theme font size
+                                icon.textSize = palette.fontSize
                             }
                         }
                     }
                 }
-                Log.d(TAG, "Toolbar theme updated with unified palette")
+                Log.d(TAG, "✅ Toolbar themed")
             }
             
-            // Update top container
+            // 4. Update emoji panel theming
+            gboardEmojiPanel?.let { panel ->
+                applyThemeToEmojiPanel(panel, palette)
+                Log.d(TAG, "✅ Emoji panel themed")
+            }
+            
+            // 5. Update media panel theming
+            mediaPanelManager?.let { panel ->
+                applyThemeToMediaPanel(panel, palette)
+                Log.d(TAG, "✅ Media panel themed")
+            }
+            
+            // 6. Update top container (toolbar + suggestions)
             topContainer?.let { container ->
                 container.setBackgroundColor(theme.backgroundColor)
-                Log.d(TAG, "Top container theme updated")
+                Log.d(TAG, "✅ Top container themed")
             }
             
-            Log.d(TAG, "Complete theme application finished successfully")
+            // 7. Update keyboard container background
+            keyboardContainer?.setBackgroundColor(theme.backgroundColor)
+            
+            Log.d(TAG, "🎨 Complete theme application finished successfully")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error in comprehensive theme application", e)
+            Log.e(TAG, "🔴 Error in comprehensive theme application", e)
+        }
+    }
+    
+    /**
+     * Apply theme to emoji panel recursively
+     */
+    private fun applyThemeToEmojiPanel(panel: android.view.View, palette: ThemeManager.ThemePalette) {
+        try {
+            if (panel is android.view.ViewGroup) {
+                panel.setBackgroundColor(palette.emojiPanelBg)
+                
+                for (i in 0 until panel.childCount) {
+                    val child = panel.getChildAt(i)
+                    when (child) {
+                        is android.widget.LinearLayout -> {
+                            // Apply to category tabs and toolbar
+                            if (child.tag == "emoji_categories" || child.tag == "emoji_header") {
+                                child.setBackgroundColor(palette.emojiPanelHeader)
+                            }
+                            applyThemeToEmojiPanel(child, palette)
+                        }
+                        is android.widget.TextView -> {
+                            // Theme category text
+                            if (child.tag?.toString()?.startsWith("category_") == true) {
+                                child.setTextColor(palette.emojiCategoryText)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error theming emoji panel", e)
+        }
+    }
+    
+    /**
+     * Apply theme to media panel (GIF/Stickers)
+     */
+    private fun applyThemeToMediaPanel(panel: android.view.View, palette: ThemeManager.ThemePalette) {
+        try {
+            if (panel is android.view.ViewGroup) {
+                panel.setBackgroundColor(palette.mediaPanelBg)
+                
+                for (i in 0 until panel.childCount) {
+                    val child = panel.getChildAt(i)
+                    when (child) {
+                        is android.widget.LinearLayout -> {
+                            if (child.tag == "media_header") {
+                                child.setBackgroundColor(palette.mediaPanelHeader)
+                            }
+                            applyThemeToMediaPanel(child, palette)
+                        }
+                        is android.widget.EditText -> {
+                            // Theme search box
+                            child.setBackgroundColor(palette.mediaPanelSearchBg)
+                            child.setTextColor(palette.keyText)
+                            child.setHintTextColor(adjustColorAlpha(palette.keyText, 0.6f))
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error theming media panel", e)
+        }
+    }
+    
+    /**
+     * Adjust color alpha for hint text, etc.
+     */
+    private fun adjustColorAlpha(color: Int, alpha: Float): Int {
+        val a = (android.graphics.Color.alpha(color) * alpha).toInt()
+        val r = android.graphics.Color.red(color)
+        val g = android.graphics.Color.green(color)
+        val b = android.graphics.Color.blue(color)
+        return android.graphics.Color.argb(a, r, g, b)
+    }
+    
+    /**
+     * Animate background color change with smooth transition
+     */
+    private fun animateBackgroundColor(view: android.view.View, toColor: Int, duration: Long = 200) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                val fromColor = (view.background as? android.graphics.drawable.ColorDrawable)?.color ?: toColor
+                val colorAnimation = android.animation.ValueAnimator.ofObject(
+                    android.animation.ArgbEvaluator(),
+                    fromColor,
+                    toColor
+                )
+                colorAnimation.duration = duration
+                colorAnimation.addUpdateListener { animator ->
+                    view.setBackgroundColor(animator.animatedValue as Int)
+                }
+                colorAnimation.start()
+            } catch (e: Exception) {
+                // Fallback to instant color change
+                view.setBackgroundColor(toColor)
+            }
+        } else {
+            view.setBackgroundColor(toColor)
+        }
+    }
+    
+    /**
+     * Animate text color change with smooth transition
+     */
+    private fun animateTextColor(textView: android.widget.TextView, toColor: Int, duration: Long = 200) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                val fromColor = textView.currentTextColor
+                val colorAnimation = android.animation.ValueAnimator.ofObject(
+                    android.animation.ArgbEvaluator(),
+                    fromColor,
+                    toColor
+                )
+                colorAnimation.duration = duration
+                colorAnimation.addUpdateListener { animator ->
+                    textView.setTextColor(animator.animatedValue as Int)
+                }
+                colorAnimation.start()
+            } catch (e: Exception) {
+                // Fallback to instant color change
+                textView.setTextColor(toColor)
+            }
+        } else {
+            textView.setTextColor(toColor)
         }
     }
 
@@ -2477,6 +2655,38 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
+     * Load dictionaries asynchronously to prevent UI jank
+     */
+    private fun loadDictionariesAsync() {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "🔵 [Dictionary] Starting async dictionary load...")
+                
+                // Show loading indicator on main thread
+                withContext(Dispatchers.Main) {
+                    // On first launch, show async loading spinner until ready
+                    Toast.makeText(this@AIKeyboardService, "📚 Loading dictionaries...", Toast.LENGTH_SHORT).show()
+                }
+                
+                // Load dictionaries in background
+                loadDictionaries()
+                
+                // Update UI on main thread when complete
+                withContext(Dispatchers.Main) {
+                    Log.i(TAG, "🟢 [Dictionary] Async dictionary load completed")
+                    Toast.makeText(this@AIKeyboardService, "✅ Dictionaries loaded", Toast.LENGTH_SHORT).show()
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "🔴 [Dictionary] Error in async dictionary load", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@AIKeyboardService, "⚠️ Dictionary load failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    /**
      * Get built-in correction for a word using loaded corrections dictionary
      */
     private fun getBuiltInCorrection(word: String): String? {
@@ -2599,39 +2809,6 @@ class AIKeyboardService : InputMethodService(),
         
         val ic = currentInputConnection ?: run {
             Log.e(TAG, "No input connection available")
-            return
-        }
-        
-        // Check if this is a tone variation selection
-        if (currentToneVariations.isNotEmpty()) {
-            val cleanSuggestion = suggestion.replace(Regex("^[${CleverTypeAIService.ToneType.values().joinToString("") { it.emoji }}]\\s*"), "")
-                .replace("...", "")
-            
-            // Find the matching full variation
-            val selectedVariation = currentToneVariations.find { variation ->
-                val truncated = if (variation.length > 47) variation.take(47) else variation
-                cleanSuggestion.startsWith(truncated) || truncated.startsWith(cleanSuggestion)
-            } ?: cleanSuggestion
-            
-            // Replace the entire text with selected tone variation
-            currentToneReplacementText?.let { originalText ->
-                ic.beginBatchEdit()
-                val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text
-                if (allText != null) {
-                    ic.deleteSurroundingText(allText.length, 0)
-                    ic.commitText(selectedVariation, 1)
-                }
-                ic.endBatchEdit()
-                
-                Log.d(TAG, "Applied tone variation: '$originalText' → '$selectedVariation'")
-                Toast.makeText(this, "✨ Tone adjusted successfully!", Toast.LENGTH_SHORT).show()
-            }
-            
-            // Clear tone state
-            currentToneReplacementText = null
-            currentToneVariations = emptyList()
-            hideReplacementUI()
-            restoreKeyboard()
             return
         }
         
@@ -4279,13 +4456,15 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Create toolbar icon button with proper Material Design sizing
+     * Create toolbar icon button with comprehensive theme support
      */
     private fun createToolbarIconButton(
         icon: String,
         description: String,
         onClick: () -> Unit
     ): LinearLayout {
+        val palette = themeManager.getCurrentPalette()
+        
         val buttonContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -4301,17 +4480,33 @@ class AIKeyboardService : InputMethodService(),
             )
             gravity = Gravity.CENTER
             isClickable = true
-            background = ContextCompat.getDrawable(this@AIKeyboardService, R.drawable.key_background_default)
+            isFocusable = true
             
-            setOnClickListener { onClick() }
+            // Apply themed background with ripple effect
+            background = themeManager.createToolbarButtonDrawable()
+            
+            // Add pressed state color filter
+            setOnTouchListener { view, event ->
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        view.backgroundTintList = android.content.res.ColorStateList.valueOf(palette.toolbarIconPressed)
+                    }
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        view.backgroundTintList = null
+                        if (event.action == android.view.MotionEvent.ACTION_UP) {
+                            onClick()
+                        }
+                    }
+                }
+                true
+            }
         }
         
         // Create icon text view with comprehensive theme support
         val iconView = TextView(this).apply {
             text = icon
-            val palette = themeManager.getCurrentPalette()
             textSize = palette.fontSize // Use theme font size for icons
-            // Use theme-aware text color for toolbar icons
             setTextColor(palette.toolbarIcon)
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
@@ -4319,6 +4514,7 @@ class AIKeyboardService : InputMethodService(),
                 resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target)
             )
             contentDescription = description
+            tag = "toolbar_icon_$description" // Tag for theme updates
         }
         
         buttonContainer.addView(iconView)
@@ -4971,6 +5167,240 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
+     * Show Tone Suggestions UI (similar to grammar correction)
+     */
+    private fun showToneSuggestionsUI(tone: CleverTypeAIService.ToneType, originalText: String) {
+        keyboardContainer?.let { container ->
+            container.removeAllViews()
+            
+            // Create tone suggestions UI
+            val toneUI = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setBackgroundColor(Color.WHITE)
+                elevation = 12f
+            }
+            
+            // Header
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(8))
+                setBackgroundColor(Color.parseColor("#f8f9fa"))
+            }
+            
+            val title = TextView(this).apply {
+                text = "${tone.emoji} Choose ${tone.displayName} Variation"
+                textSize = 18f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(Color.parseColor("#202124"))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+            }
+            
+            val closeBtn = android.widget.Button(this).apply {
+                text = "✕"
+                textSize = 16f
+                setTextColor(Color.parseColor("#5f6368"))
+                layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
+                setBackgroundColor(Color.TRANSPARENT)
+                setOnClickListener {
+                    hideReplacementUI()
+                    restoreKeyboard()
+                }
+            }
+            
+            header.addView(title)
+            header.addView(closeBtn)
+            toneUI.addView(header)
+            
+            // Content
+            val scrollView = android.widget.ScrollView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dpToPx(280)
+                )
+            }
+            
+            val contentLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setPadding(dpToPx(20), dpToPx(12), dpToPx(20), dpToPx(16))
+            }
+            
+            // Progress text
+            val progressText = TextView(this).apply {
+                text = "✨ Generating ${tone.displayName} variations..."
+                textSize = 16f
+                setTextColor(Color.parseColor("#5f6368"))
+                gravity = android.view.Gravity.CENTER
+                setPadding(dpToPx(16), dpToPx(32), dpToPx(16), dpToPx(32))
+            }
+            
+            contentLayout.addView(progressText)
+            scrollView.addView(contentLayout)
+            toneUI.addView(scrollView)
+            container.addView(toneUI)
+            
+            // Start tone adjustment
+            performToneAdjustment(contentLayout, progressText, originalText, tone)
+        }
+    }
+    
+    /**
+     * Perform tone adjustment and show results
+     */
+    private fun performToneAdjustment(contentLayout: LinearLayout, progressText: TextView, originalText: String, tone: CleverTypeAIService.ToneType) {
+        if (!::cleverTypeService.isInitialized) {
+            progressText.text = "❌ AI service not available"
+            return
+        }
+        
+        coroutineScope.launch {
+            try {
+                val result = cleverTypeService.adjustTone(originalText, tone)
+                
+                withContext(Dispatchers.Main) {
+                    // Remove progress text
+                    contentLayout.removeView(progressText)
+                    
+                    // Store variations for later use
+                    currentToneVariations = result.variations
+                    
+                    // Show variations as buttons
+                    showToneVariationButtons(contentLayout, result.variations, originalText, tone)
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in tone adjustment", e)
+                withContext(Dispatchers.Main) {
+                    progressText.text = "❌ Error generating variations"
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        hideReplacementUI()
+                        restoreKeyboard()
+                    }, 2000)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Show tone variation buttons
+     */
+    private fun showToneVariationButtons(contentLayout: LinearLayout, variations: List<String>, originalText: String, tone: CleverTypeAIService.ToneType) {
+        if (variations.isEmpty()) {
+            val noVariationsText = TextView(this).apply {
+                text = "❌ No variations generated"
+                textSize = 16f
+                setTextColor(Color.parseColor("#d93025"))
+                gravity = android.view.Gravity.CENTER
+                setPadding(dpToPx(16), dpToPx(32), dpToPx(16), dpToPx(32))
+            }
+            contentLayout.addView(noVariationsText)
+            return
+        }
+        
+        // Add description
+        val descText = TextView(this).apply {
+            text = "Tap a variation to use it:"
+            textSize = 14f
+            setTextColor(Color.parseColor("#5f6368"))
+            setPadding(0, 0, 0, dpToPx(8))
+        }
+        contentLayout.addView(descText)
+        
+        // Show each variation as a button
+        variations.forEachIndexed { index, variation ->
+            // Create card for variation
+            val variationCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, dpToPx(8), 0, dpToPx(8))
+                }
+                setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+                setBackgroundColor(Color.parseColor("#f8f9fa"))
+                elevation = 2f
+                isClickable = true
+                isFocusable = true
+                
+                // Add click effect
+                setOnClickListener {
+                    replaceText(variation)
+                    hideReplacementUI()
+                    restoreKeyboard()
+                    Toast.makeText(this@AIKeyboardService, "✨ Tone adjusted to ${tone.displayName}!", Toast.LENGTH_SHORT).show()
+                }
+            }
+            
+            // Variation number and emoji
+            val variationHeader = TextView(this).apply {
+                text = "${tone.emoji} Variation ${index + 1}"
+                textSize = 12f
+                setTextColor(Color.parseColor("#1a73e8"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, dpToPx(4))
+            }
+            
+            // Variation text
+            val variationText = TextView(this).apply {
+                text = variation
+                textSize = 15f
+                setTextColor(Color.parseColor("#202124"))
+                setLineSpacing(dpToPx(2).toFloat(), 1f)
+            }
+            
+            variationCard.addView(variationHeader)
+            variationCard.addView(variationText)
+            contentLayout.addView(variationCard)
+        }
+        
+        // Add divider
+        val divider = android.view.View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(1)
+            ).apply {
+                setMargins(0, dpToPx(16), 0, dpToPx(8))
+            }
+            setBackgroundColor(Color.parseColor("#e0e0e0"))
+        }
+        contentLayout.addView(divider)
+        
+        // Keep original button
+        val keepOriginalButton = android.widget.Button(this).apply {
+            text = "Keep Original"
+            textSize = 14f
+            setTextColor(Color.parseColor("#5f6368"))
+            setBackgroundColor(Color.parseColor("#f1f3f4"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dpToPx(4), 0, 0)
+            }
+            setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+            setOnClickListener {
+                hideReplacementUI()
+                restoreKeyboard()
+            }
+        }
+        
+        contentLayout.addView(keepOriginalButton)
+    }
+    
+    /**
      * Show basic grammar fallback options
      */
     private fun showGrammarFallbackOptions(contentLayout: LinearLayout, progressText: TextView, originalText: String) {
@@ -5027,34 +5457,11 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
-        // Show loading state
-        updateSuggestionUI(listOf("Loading tone variations..."))
+        // Store the original text
+        currentToneReplacementText = allText
         
-        coroutineScope.launch {
-            try {
-                val result = cleverTypeService.adjustTone(allText, tone)
-                
-                withContext(Dispatchers.Main) {
-                    // Update suggestion strip with 3 tone variations
-                    updateToneSuggestionStrip(result.variations, tone)
-                    
-                    // Store current text for possible replacement
-                    currentToneReplacementText = allText
-                    currentToneVariations = result.variations
-                    
-                    // Don't auto-apply, let user choose from suggestions
-                    Toast.makeText(this@AIKeyboardService, "✨ Choose a ${tone.displayName} variation from suggestions", Toast.LENGTH_LONG).show()
-                }
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in tone adjustment for replacement", e)
-                withContext(Dispatchers.Main) {
-                    hideReplacementUI()
-                    restoreKeyboard()
-                    Toast.makeText(this@AIKeyboardService, "Error adjusting tone", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
+        // Show tone suggestions UI with loading state
+        showToneSuggestionsUI(tone, allText)
     }
     
     /**
@@ -5605,29 +6012,6 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    /**
-     * Update suggestion strip with tone variations (3 AI-generated options)
-     */
-    private fun updateToneSuggestionStrip(variations: List<String>, tone: CleverTypeAIService.ToneType) {
-        try {
-            if (variations.isEmpty()) {
-                updateSuggestionUI(emptyList())
-                return
-            }
-            
-            // Format tone variations with visual indicators
-            val suggestionTexts = variations.take(3).mapIndexed { index, variation ->
-                val truncated = if (variation.length > 50) "${variation.take(47)}..." else variation
-                "${tone.emoji} $truncated"
-            }
-            
-            updateSuggestionUI(suggestionTexts)
-            Log.d(TAG, "Tone suggestion strip updated with ${suggestionTexts.size} ${tone.displayName} variations")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating tone suggestion strip", e)
-        }
-    }
     
     /**
      * Initialize theme MethodChannel for Flutter communication

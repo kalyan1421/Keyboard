@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/firebase_auth_service.dart';
-import 'welcome_screen.dart';
 import '../main.dart';
+import 'package:ai_keyboard/screens/login/mobile_login_screen.dart';
+import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -22,7 +23,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     _checkFirstLaunch();
   }
 
-  Future<void> _checkFirstLaunch() async {
+  Future<void> _checkFirstLaunch() async {    
     print('🔵 [AuthWrapper] Checking if this is first app launch...');
     
     final prefs = await SharedPreferences.getInstance();
@@ -62,7 +63,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     // If it's first launch, show welcome screen
     if (_isFirstLaunch!) {
       print('🔵 [AuthWrapper] Showing welcome screen for first launch');
-      return const WelcomeScreen();
+      return const LoginIllustraionScreen();
     }
 
     // For subsequent launches, check authentication status
@@ -89,11 +90,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
         if (snapshot.hasData && snapshot.data != null) {
           // User is signed in, go to home screen
           print('🟢 [AuthWrapper] User authenticated, showing home screen');
-          return const KeyboardConfigScreen();
+          return  KeyboardConfigScreen();
         } else {
           // User is not signed in, show welcome screen
           print('🟡 [AuthWrapper] User not authenticated, showing welcome screen');
-          return const WelcomeScreen();
+          return const LoginIllustraionScreen();
         }
       },
     );

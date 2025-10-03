@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart';
 
 class FirebaseAuthService {
   static final FirebaseAuthService _instance = FirebaseAuthService._internal();
@@ -315,14 +316,15 @@ class FirebaseAuthService {
         print('🔵 [Firestore] Updating existing user profile...');
         
         final updateData = {
-          'lastSignIn': FieldValue.serverTimestamp(),
-          'displayName': displayName.isNotEmpty ? displayName : 'User',
-          'photoURL': user.photoURL, // Can be null
+          'displayName': user.displayName ?? (displayName.isNotEmpty ? displayName : 'User'),
+          'email': user.email,
+          'photoURL': user.photoURL,
+          'lastLogin': FieldValue.serverTimestamp(),
           'emailVerified': user.emailVerified,
         };
         
         print('🔵 [Firestore] Writing user update...');
-        await userDoc.update(updateData);
+        await userDoc.set(updateData, SetOptions(merge: true));
         print('🟢 [Firestore] Existing user sign-in updated successfully');
         print('🔵 [Firestore] Document path: users/${user.uid}');
       }
@@ -332,10 +334,10 @@ class FirebaseAuthService {
     } catch (e) {
       print('🔴 [Firestore] Firestore write operation failed:');
       print('🔴 [Firestore] Error Type: ${e.runtimeType}');
-      print('🔴 [Firestore] Error Message: ${e.toString()}');
       print('🔴 [Firestore] User UID: ${user.uid}');
       print('🔴 [Firestore] Display Name: "$displayName"');
       print('🔴 [Firestore] Is New User: $isNewUser');
+      debugPrint('🔴 [Firestore] Full error details: $e');
       
       // Don't throw here to avoid breaking the auth flow
       // The user is still authenticated even if Firestore fails
@@ -360,12 +362,16 @@ class FirebaseAuthService {
   // Update user keyboard settings
   Future<void> updateKeyboardSettings(String uid, Map<String, dynamic> settings) async {
     try {
-      await _firestore.collection('users').doc(uid).update({
+      print('🔵 [Firestore] Updating keyboard settings...');
+      await _firestore.collection('users').doc(uid).set({
         'keyboardSettings': settings,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
+      print('🟢 [Firestore] Keyboard settings updated successfully');
+      print('🔵 [Firestore] Document path: users/$uid');
     } catch (e) {
-      print('Error updating keyboard settings: $e');
+      print('🔴 [Firestore] Error updating keyboard settings:');
+      debugPrint('🔴 [Firestore] Full error details: $e');
     }
   }
 

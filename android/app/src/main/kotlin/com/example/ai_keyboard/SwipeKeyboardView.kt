@@ -34,11 +34,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var isSwipeInProgress = false
     private val swipePoints = mutableListOf<FloatArray>()
     private val swipePaint = Paint().apply {
-        color = Color.parseColor("#2196F3")
-        strokeWidth = 8f
         style = Paint.Style.STROKE
         isAntiAlias = true
-        alpha = 180
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
     private val swipePath = Path()
     private var swipeListener: SwipeListener? = null
@@ -124,6 +123,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     fun setThemeManager(manager: ThemeManager) {
         themeManager = manager
         initializeThemeColors()
+        updateSwipePaint()
         invalidateAllKeys()
         invalidate()
     }
@@ -133,9 +133,31 @@ class SwipeKeyboardView @JvmOverloads constructor(
      */
     fun refreshTheme() {
         initializeThemeColors()
+        updateSwipePaint()
         invalidateAllKeys()
         invalidate()
         requestLayout()
+    }
+    
+    /**
+     * Update swipe trail paint with theme colors
+     */
+    private fun updateSwipePaint() {
+        val theme = themeManager?.getCurrentTheme()
+        if (theme != null) {
+            swipePaint.apply {
+                color = theme.swipeTrailColor
+                strokeWidth = theme.swipeTrailWidth * context.resources.displayMetrics.density
+                alpha = (theme.swipeTrailOpacity * 255).toInt()
+            }
+        } else {
+            // Fallback to default
+            swipePaint.apply {
+                color = Color.parseColor("#2196F3")
+                strokeWidth = 8f * context.resources.displayMetrics.density
+                alpha = 180
+            }
+        }
     }
     
     private fun createStableKeyBackground(): Drawable {
@@ -286,6 +308,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val isActionKey = isSpecialKey(keyCode)
         val isShiftKey = keyCode == Keyboard.KEYCODE_SHIFT || keyCode == -1
         val isSpaceKey = keyCode == 32
+        val isReturnKey = keyCode == Keyboard.KEYCODE_DONE || keyCode == 10 || keyCode == -4
         val isVoiceKey = keyCode == -13
         val isEmojiKey = keyCode == -15
         val isGlobeKey = keyCode == -14
@@ -317,46 +340,79 @@ class SwipeKeyboardView @JvmOverloads constructor(
             canvas.drawRoundRect(shadowRect, cornerRadius, cornerRadius, shadowPaint!!)
         }
         
-        // Theme-aware key coloring
+        // Theme-aware key coloring with enhanced special key styling
+        val palette = themeManager?.getCurrentPalette()
         val fillPaint = when {
+            // Shift key with state indicators
             isShiftKey && isCapsLockActive -> {
                 // Caps lock - use accent color with brightness adjustment
-                accentKeyPaint ?: Paint().apply {
+                Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = adjustColorBrightness(theme?.accentColor ?: Color.parseColor("#1A73E8"), 1.2f)
+                    color = adjustColorBrightness(palette?.accent ?: Color.parseColor("#1A73E8"), 1.2f)
                 }
             }
             isShiftKey && isShiftHighlighted -> {
                 // Shift active - use accent color
-                accentKeyPaint ?: Paint().apply {
+                Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = theme?.accentColor ?: Color.parseColor("#1A73E8")
+                    color = palette?.accent ?: Color.parseColor("#1A73E8")
                 }
             }
+            // Return/Enter key with accent color
+            isReturnKey -> {
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = palette?.accent ?: theme?.accentColor ?: Color.parseColor("#1A73E8")
+                }
+            }
+            // Space bar with special full-width styling
+            isSpaceKey -> {
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = palette?.specialKeyBg ?: theme?.specialKeyColor ?: 0xFFE0E0E0.toInt()
+                }
+            }
+            // Backspace key with special styling
+            isDeleteKey -> {
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = palette?.specialKeyBg ?: theme?.specialKeyColor ?: 0xFFE0E0E0.toInt()
+                }
+            }
+            // Voice and Emoji keys with active states
             isVoiceKey && isVoiceKeyActive -> {
-                // Voice key active - special highlighting
-                accentKeyPaint ?: specialKeyHighlightPaint
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = palette?.accent ?: theme?.accentColor ?: Color.parseColor("#1A73E8")
+                }
             }
             isEmojiKey && isEmojiKeyActive -> {
-                // Emoji key active - special highlighting
-                accentKeyPaint ?: specialKeyHighlightPaint
+                Paint().apply {
+                    isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = palette?.accent ?: theme?.accentColor ?: Color.parseColor("#1A73E8")
+                }
             }
+            // Other special keys (123, ABC, globe, etc.)
             isActionKey -> {
-                // Special keys (shift, delete, etc.)
                 specialKeyPaint ?: Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = theme?.specialKeyColor ?: 0xFFE0E0E0.toInt() // Use theme default instead of adjusted white
+                    color = palette?.specialKeyBg ?: theme?.specialKeyColor ?: 0xFFE0E0E0.toInt()
                 }
             }
+            // Regular letter/number keys
             else -> {
-                // Regular letter/number keys
                 keyPaint ?: Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = theme?.keyBackgroundColor ?: 0xFFFFFFFF.toInt() // Use explicit white for consistency
+                    color = palette?.keyBg ?: theme?.keyBackgroundColor ?: 0xFFFFFFFF.toInt()
                 }
             }
         }
@@ -367,13 +423,17 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Draw key icon with theme-aware tinting (for special keys)
         if (key.icon != null && isActionKey) {
             val iconDrawable = key.icon.mutate() // Create mutable copy to avoid affecting other instances
-            val palette = themeManager?.getCurrentPalette()
             
             // Apply runtime tint to vector drawable based on key state
             val tintColor = when {
-                isShiftKey && (isCapsLockActive || isShiftHighlighted) -> Color.WHITE // White on accent background
-                isVoiceKey && isVoiceKeyActive -> Color.WHITE // White on accent background
-                isEmojiKey && isEmojiKeyActive -> Color.WHITE // White on accent background
+                // White icons on accent backgrounds
+                isShiftKey && (isCapsLockActive || isShiftHighlighted) -> Color.WHITE
+                isReturnKey -> Color.WHITE // Return key always has accent background
+                isVoiceKey && isVoiceKeyActive -> Color.WHITE
+                isEmojiKey && isEmojiKeyActive -> Color.WHITE
+                // Themed icons for other special keys
+                isDeleteKey -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.parseColor("#424242")
+                isSpaceKey -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.parseColor("#424242")
                 else -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.BLACK
             }
             
@@ -381,7 +441,9 @@ class SwipeKeyboardView @JvmOverloads constructor(
             androidx.core.graphics.drawable.DrawableCompat.setTintMode(iconDrawable, android.graphics.PorterDuff.Mode.SRC_IN)
             
             // Calculate icon position (centered in key)
-            val iconSize = (minOf(key.width, key.height) * 0.4f).toInt()
+            // Make return and delete icons slightly larger for better visibility
+            val iconSizeMultiplier = if (isReturnKey || isDeleteKey) 0.45f else 0.4f
+            val iconSize = (minOf(key.width, key.height) * iconSizeMultiplier).toInt()
             val iconLeft = key.x + (key.width - iconSize) / 2
             val iconTop = key.y + (key.height - iconSize) / 2
             
@@ -467,6 +529,18 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 }
                 
                 canvas.drawText(displayText, centerX, centerY + textOffset, themedTextPaint)
+                
+                // Draw popup hint (special characters above number keys) with themed color
+                if (key.popupCharacters != null && key.popupCharacters.isNotEmpty()) {
+                    val hintPaint = Paint(themedTextPaint).apply {
+                        textSize = themedTextPaint.textSize * 0.5f // Half size for hint
+                        color = adjustColorBrightness(theme?.keyTextColor ?: Color.BLACK, 0.7f) // Slightly darker
+                    }
+                    // Draw hint in top-left corner
+                    val hintX = keyRect.left + (keyRect.width() * 0.2f)
+                    val hintY = keyRect.top + (hintPaint.textSize * 1.2f)
+                    canvas.drawText(key.popupCharacters[0].toString(), hintX, hintY, hintPaint)
+                }
             }
         } else if (key.icon != null) {
             // Gboard-style icon handling
