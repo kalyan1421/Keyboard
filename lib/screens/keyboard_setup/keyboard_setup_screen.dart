@@ -184,6 +184,7 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
     return Scaffold(
       backgroundColor: AppColors.primary,
       body: SafeArea(
+        bottom: false,
         child: Stack(
           children: [
             Column(
@@ -244,6 +245,14 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
                       decoration: BoxDecoration(
                         color: AppColors.primary,
                         borderRadius: BorderRadius.circular(50),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            spreadRadius: 2,
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: Row(
                         children: [
@@ -266,6 +275,42 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
                         ],
                       ),
                     ),
+                    Spacer(),
+                    Text(
+                      'by installing or using the product, you agree to',
+                      style: AppTextStyle.bodySmall.copyWith(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'Privacy Policy',
+                            style: TextStyle(
+                              color: AppColors.secondary,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: ' and ',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'Term of Use Agreement',
+                            style: TextStyle(
+                              color: AppColors.secondary,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 24),
                   ],
                 ),
               ),

@@ -1,6 +1,7 @@
 import 'package:ai_keyboard/screens/main%20screens/ai_rewriting_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/clipboard_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/dictionary_screen.dart';
+import 'package:ai_keyboard/screens/main%20screens/gestures_glide_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/sounds_vibration_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/typing_suggestion_screen.dart';
 import 'package:flutter/material.dart';
@@ -122,7 +123,14 @@ class SettingScreen extends StatelessWidget {
                     icon: AppIcons.gestures_glide_icon,
                     title: 'Gestures & Glide typing',
                     subtitle: 'Manage gestures & glide trail',
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const GesturesGlideScreen(),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 80), // Space for FAB
                 ],

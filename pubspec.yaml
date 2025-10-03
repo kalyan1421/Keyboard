@@ -39,6 +39,12 @@ dependencies:
   sqflite: ^2.3.0
   # Google Fonts for better typography
   google_fonts: ^6.1.0
+  # Image picker for file selection
+  image_picker: ^1.0.4
+  # Image cropper for cropping images
+  image_cropper: ^8.0.2
+  # Permission handler for managing permissions
+  permission_handler: ^11.3.1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

@@ -53,6 +53,9 @@ class AppIcons {
   static const String help_center_icon = 'assets/icons/help_center.png';
   static const String info_app_icon = 'assets/icons/info_icon.png';
   static const String logout_icon = 'assets/icons/logout_icon.png';
+  static const String image_icon = 'assets/icons/image_icon.png';
+  static const String global_icon = 'assets/icons/globe_icon.png';
+  static const String sparkle_icon = 'assets/icons/sparkle_icon.png';
 
   // Settings Icons
   static const String keyboard_icon = 'assets/icons/keyboard_icon.png';
@@ -69,4 +72,7 @@ class AppIcons {
 class Appkeyboards {
   static const String keyboard_white = 'assets/keyboards/keyboard_white.png';
   static const String keyboard_black = 'assets/keyboards/keyboard_dark.png';
+  static const String keyboard_yellow = 'assets/keyboards/keyboard_yellow.png';
+  static const String keyboard_red = 'assets/keyboards/keyboard_red.png';
+  static const String keyboard_blue = 'assets/keyboards/keyboard_blue.png';
 }
