@@ -22,6 +22,17 @@ class SwipeKeyboardView @JvmOverloads constructor(
         private const val MIN_SWIPE_TIME = 300L // Minimum time for swipe (ms)
         private const val MIN_SWIPE_DISTANCE = 100f // Minimum distance for swipe (pixels)
         private const val SWIPE_START_THRESHOLD = 50f // Movement threshold to start swipe
+        
+        // Adaptive sizing constants
+        private const val SCREEN_SIZE_SMALL = 720
+        private const val SCREEN_SIZE_NORMAL = 1080
+        private const val SCREEN_SIZE_LARGE = 1440
+        
+        // Spacebar gesture constants
+        private const val SPACEBAR_GESTURE_THRESHOLD = 50f
+        private const val CURSOR_CONTROL_SENSITIVITY = 15f
+        private const val WORD_DELETE_VELOCITY_THRESHOLD = -500f
+        private const val PERIOD_INSERT_VELOCITY_THRESHOLD = 500f
     }
     
     interface SwipeListener {
@@ -47,14 +58,32 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var themeManager: ThemeManager? = null
     
     // Theme-aware paint objects (will be created by ThemeManager)
-    private var keyPaint: Paint? = null
-    private var keyBorderPaint: Paint? = null
     private var keyTextPaint: Paint? = null
-    private var pressedKeyPaint: Paint? = null
-    private var pressedKeyTextPaint: Paint? = null
-    private var specialKeyPaint: Paint? = null
-    private var accentKeyPaint: Paint? = null
-    private var shadowPaint: Paint? = null
+    private var suggestionTextPaint: Paint? = null
+    private var spaceLabelPaint: Paint? = null
+    
+    // Enhanced features
+    private var isAdaptiveSizingEnabled = true
+    private var isFloatingMode = false
+    private var isSplitMode = false
+    private var isSmallScreenOptimized = false
+    private var spacebarGestureEnabled = true
+    
+    // Adaptive sizing
+    private var adaptiveKeyWidth = 0f
+    private var adaptiveKeyHeight = 0f
+    private var touchTargetExpansion = 0f
+    
+    // Spacebar gesture detection
+    private var isSpacebarPressed = false
+    private var spacebarStartX = 0f
+    private var spacebarStartY = 0f
+    private var lastSpacebarX = 0f
+    
+    // Floating mode properties
+    private var floatingX = 0f
+    private var floatingY = 0f
+    private var isDragging = false
     
     // Theme change listener removed - using static default colors
     
@@ -73,10 +102,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
     // Enhanced special key state tracking
     private var isVoiceKeyActive = false
     private var isEmojiKeyActive = false
-    private val specialKeyHighlightPaint = Paint().apply {
+    private var specialKeyHighlightPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
-        color = Color.parseColor("#1A73E8") // Gboard blue
+        color = Color.parseColor("#1A73E8") // Will be updated by theme
     }
     
     // Enhanced gesture recognition
@@ -104,35 +133,28 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var clipboardService: AIKeyboardService? = null
     
     init {
-        // Initialize with default colors (will be overridden by theme manager)
-        initializeDefaultColors()
-        
-        // Create default key background
-        try {
-            val keyBackground = createStableKeyBackground()
-            background = keyBackground
-        } catch (e: Exception) {
-            // If drawable creation fails, set a simple background
-            setBackgroundColor(Color.parseColor("#F5F5F5")) // Light gray
-        }
+        // Initialize with ThemeManager V2 - no hardcoded colors
+        initializeFromTheme()
     }
     
     /**
-     * Set the theme manager for dynamic theming
+     * Set the theme manager V2 for dynamic theming
      */
     fun setThemeManager(manager: ThemeManager) {
         themeManager = manager
-        initializeThemeColors()
-        updateSwipePaint()
-        invalidateAllKeys()
-        invalidate()
+        initializeFromTheme()
+        manager.addThemeChangeListener(object : ThemeManager.ThemeChangeListener {
+            override fun onThemeChanged(theme: com.example.ai_keyboard.themes.KeyboardThemeV2, palette: com.example.ai_keyboard.themes.ThemePaletteV2) {
+                refreshTheme()
+            }
+        })
     }
     
     /**
      * Refresh theme colors and invalidate view for live theme updates
      */
     fun refreshTheme() {
-        initializeThemeColors()
+        initializeFromTheme()
         updateSwipePaint()
         invalidateAllKeys()
         invalidate()
@@ -140,15 +162,41 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     /**
+     * Initialize all theme-dependent objects from ThemeManager V2
+     */
+    private fun initializeFromTheme() {
+        val manager = themeManager
+        if (manager == null) {
+            // Fallback to default theme
+            setBackgroundColor(Color.parseColor("#F5F5F5"))
+            return
+        }
+        
+        val palette = manager.getCurrentPalette()
+        
+        // Initialize cached paints from factory
+        keyTextPaint = manager.createKeyTextPaint()
+        suggestionTextPaint = manager.createSuggestionTextPaint() 
+        spaceLabelPaint = manager.createSpaceLabelPaint()
+        
+        // Set background from theme
+        background = manager.createKeyboardBackground()
+        
+        // Update swipe trail paint
+        updateSwipePaint()
+    }
+    
+    /**
      * Update swipe trail paint with theme colors
      */
     private fun updateSwipePaint() {
-        val theme = themeManager?.getCurrentTheme()
-        if (theme != null) {
+        val manager = themeManager
+        if (manager != null) {
+            val palette = manager.getCurrentPalette()
             swipePaint.apply {
-                color = theme.swipeTrailColor
-                strokeWidth = theme.swipeTrailWidth * context.resources.displayMetrics.density
-                alpha = (theme.swipeTrailOpacity * 255).toInt()
+                color = palette.specialAccent
+                strokeWidth = 8f * context.resources.displayMetrics.density
+                alpha = (palette.rippleAlpha * 255 * 2).toInt() // Make swipe trail more visible
             }
         } else {
             // Fallback to default
@@ -160,15 +208,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
     }
     
-    private fun createStableKeyBackground(): Drawable {
-        // Create a single stable drawable with no state changes
-        return android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            setColor(Color.WHITE)
-            setStroke(1, Color.parseColor("#E0E0E0"))
-            cornerRadius = 6f
-        }
-    }
     
     fun setSwipeEnabled(enabled: Boolean) {
         swipeEnabled = enabled
@@ -205,55 +244,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
         invalidate()
     }
     
-    private fun initializeDefaultColors() {
-        // Create default paint objects when no theme manager is available
-        keyPaint = Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = Color.WHITE
-        }
-        keyBorderPaint = Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-            color = adjustColorBrightness(Color.WHITE, 0.8f)
-        }
-        keyTextPaint = Paint().apply {
-            isAntiAlias = true
-            textAlign = Paint.Align.CENTER
-            textSize = 18f * context.resources.displayMetrics.density
-            color = Color.BLACK
-            typeface = Typeface.DEFAULT
-        }
-        
-        // Set default accent colors for special states
-        shiftHighlightPaint.color = Color.parseColor("#1A73E8") // Blue
-        capsLockPaint.color = adjustColorBrightness(Color.parseColor("#1A73E8"), 1.2f)
-        
-        // Set default background
-        setBackgroundColor(Color.parseColor("#F5F5F5")) // Light gray
-    }
     
-    private fun initializeThemeColors() {
-        themeManager?.let { manager ->
-            // Get theme-aware paint objects from ThemeManager
-            keyPaint = manager.createKeyBackgroundPaint()
-            keyBorderPaint = manager.createKeyBorderPaint()
-            keyTextPaint = manager.createKeyTextPaint()
-            pressedKeyPaint = manager.createPressedKeyBackgroundPaint()
-            pressedKeyTextPaint = manager.createPressedKeyTextPaint()
-            specialKeyPaint = manager.createSpecialKeyBackgroundPaint()
-            accentKeyPaint = manager.createAccentKeyBackgroundPaint()
-            shadowPaint = manager.createKeyShadowPaint()
-            
-            val theme = manager.getCurrentTheme()
-            
-            // Update special state colors with theme
-            shiftHighlightPaint.color = theme.accentColor
-            capsLockPaint.color = adjustColorBrightness(theme.accentColor, 1.2f)
-            specialKeyHighlightPaint.color = theme.accentColor
-        }
-    }
     
     /**
      * Adjust color brightness for visual hierarchy
@@ -294,8 +285,17 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     private fun drawThemedKey(canvas: Canvas, key: Keyboard.Key) {
-        // Reduced padding for tighter key spacing
-        val padding = 1f
+        val manager = themeManager
+        if (manager == null) {
+            // Fallback to basic key drawing
+            drawBasicKey(canvas, key)
+            return
+        }
+        
+        val palette = manager.getCurrentPalette()
+        
+        // Key rectangle with padding
+        val padding = 1f * context.resources.displayMetrics.density
         val keyRect = RectF(
             key.x.toFloat() + padding,
             key.y.toFloat() + padding,
@@ -303,293 +303,166 @@ class SwipeKeyboardView @JvmOverloads constructor(
             (key.y + key.height).toFloat() - padding
         )
         
-        // Enhanced key type identification using centralized logic
+        // Identify key type using centralized logic
         val keyCode = key.codes[0]
-        val isActionKey = isSpecialKey(keyCode)
-        val isShiftKey = keyCode == Keyboard.KEYCODE_SHIFT || keyCode == -1
-        val isSpaceKey = keyCode == 32
-        val isReturnKey = keyCode == Keyboard.KEYCODE_DONE || keyCode == 10 || keyCode == -4
-        val isVoiceKey = keyCode == -13
-        val isEmojiKey = keyCode == -15
-        val isGlobeKey = keyCode == -14
-        val isDeleteKey = keyCode == Keyboard.KEYCODE_DELETE || keyCode == -5
+        val keyType = getKeyType(keyCode)
         
-        // Gboard-style subtle shadow
-        val shadowPaint = Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = Color.parseColor("#08000000") // Very subtle shadow
+        // Get appropriate drawable from factory
+        val keyDrawable = when {
+            keyType == "shift" && isCapsLockActive -> manager.createSpecialKeyDrawable()
+            keyType == "shift" && isShiftHighlighted -> manager.createSpecialKeyDrawable()
+            keyType == "enter" && manager.shouldUseAccentForEnter() -> manager.createSpecialKeyDrawable()
+            keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
+            manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
+            else -> manager.createKeyDrawable()
         }
         
-        // Draw shadow with minimal offset for modern look
-        val shadowOffset = 1f
-        val shadowRect = RectF(
-            keyRect.left + shadowOffset,
-            keyRect.top + shadowOffset,
-            keyRect.right + shadowOffset,
-            keyRect.bottom + shadowOffset
-        )
+        // Draw key background using cached drawable
+        keyDrawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
+        keyDrawable.draw(canvas)
         
-        // Get theme properties
-        val theme = themeManager?.getCurrentTheme()
-        val cornerRadius = theme?.keyCornerRadius ?: 6f
-        val showShadows = theme?.showKeyShadows ?: true
-        
-        // Draw shadow if enabled
-        if (showShadows && shadowPaint != null) {
-            canvas.drawRoundRect(shadowRect, cornerRadius, cornerRadius, shadowPaint!!)
-        }
-        
-        // Theme-aware key coloring with enhanced special key styling
-        val palette = themeManager?.getCurrentPalette()
-        val fillPaint = when {
-            // Shift key with state indicators
-            isShiftKey && isCapsLockActive -> {
-                // Caps lock - use accent color with brightness adjustment
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = adjustColorBrightness(palette?.accent ?: Color.parseColor("#1A73E8"), 1.2f)
-                }
-            }
-            isShiftKey && isShiftHighlighted -> {
-                // Shift active - use accent color
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.accent ?: Color.parseColor("#1A73E8")
-                }
-            }
-            // Return/Enter key with accent color
-            isReturnKey -> {
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.accent ?: theme?.accentColor ?: Color.parseColor("#1A73E8")
-                }
-            }
-            // Space bar with special full-width styling
-            isSpaceKey -> {
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.specialKeyBg ?: theme?.specialKeyColor ?: 0xFFE0E0E0.toInt()
-                }
-            }
-            // Backspace key with special styling
-            isDeleteKey -> {
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.specialKeyBg ?: theme?.specialKeyColor ?: 0xFFE0E0E0.toInt()
-                }
-            }
-            // Voice and Emoji keys with active states
-            isVoiceKey && isVoiceKeyActive -> {
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.accent ?: theme?.accentColor ?: Color.parseColor("#1A73E8")
-                }
-            }
-            isEmojiKey && isEmojiKeyActive -> {
-                Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.accent ?: theme?.accentColor ?: Color.parseColor("#1A73E8")
-                }
-            }
-            // Other special keys (123, ABC, globe, etc.)
-            isActionKey -> {
-                specialKeyPaint ?: Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.specialKeyBg ?: theme?.specialKeyColor ?: 0xFFE0E0E0.toInt()
-                }
-            }
-            // Regular letter/number keys
-            else -> {
-                keyPaint ?: Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = palette?.keyBg ?: theme?.keyBackgroundColor ?: 0xFFFFFFFF.toInt()
-                }
-            }
-        }
-        
-        // Draw key background
-        canvas.drawRoundRect(keyRect, cornerRadius, cornerRadius, fillPaint)
-        
-        // Draw key icon with theme-aware tinting (for special keys)
-        if (key.icon != null && isActionKey) {
-            val iconDrawable = key.icon.mutate() // Create mutable copy to avoid affecting other instances
-            
-            // Apply runtime tint to vector drawable based on key state
-            val tintColor = when {
-                // White icons on accent backgrounds
-                isShiftKey && (isCapsLockActive || isShiftHighlighted) -> Color.WHITE
-                isReturnKey -> Color.WHITE // Return key always has accent background
-                isVoiceKey && isVoiceKeyActive -> Color.WHITE
-                isEmojiKey && isEmojiKeyActive -> Color.WHITE
-                // Themed icons for other special keys
-                isDeleteKey -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.parseColor("#424242")
-                isSpaceKey -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.parseColor("#424242")
-                else -> palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.BLACK
-            }
-            
-            androidx.core.graphics.drawable.DrawableCompat.setTint(iconDrawable, tintColor)
-            androidx.core.graphics.drawable.DrawableCompat.setTintMode(iconDrawable, android.graphics.PorterDuff.Mode.SRC_IN)
-            
-            // Calculate icon position (centered in key)
-            // Make return and delete icons slightly larger for better visibility
-            val iconSizeMultiplier = if (isReturnKey || isDeleteKey) 0.45f else 0.4f
-            val iconSize = (minOf(key.width, key.height) * iconSizeMultiplier).toInt()
-            val iconLeft = key.x + (key.width - iconSize) / 2
-            val iconTop = key.y + (key.height - iconSize) / 2
-            
-            iconDrawable.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
-            iconDrawable.draw(canvas)
-        }
-        
-        // Theme-aware border
-        keyBorderPaint?.let { borderPaint ->
-            if (theme?.keyBorderWidth ?: 0f > 0) {
-                canvas.drawRoundRect(keyRect, cornerRadius, cornerRadius, borderPaint)
-            }
-        }
-        
-        // Draw key text or icon with Gboard styling
+        // Draw key content (icon or text)
         val centerX = keyRect.centerX()
         val centerY = keyRect.centerY()
         
-        if (key.label != null && key.label.isNotEmpty()) {
-            // Use theme-aware text paint or create with theme properties
-            val themedTextPaint = keyTextPaint?.let { basePaint ->
-                Paint(basePaint).apply {
-                    // Adjust size based on key type while respecting theme base size
-                    val sizeMultiplier = when {
-                        isSpaceKey -> 0.7f  // Smaller for space bar text
-                        key.label.length > 3 -> 0.8f  // Slightly smaller for labels like "123"
-                        key.label.length > 1 -> 0.9f  // Slightly smaller for multi-char labels
-                        else -> 1.0f  // Normal size for single characters
-                    }
-                    textSize = (theme?.fontSize ?: 18f) * context.resources.displayMetrics.density * sizeMultiplier
-                    
-                    // Apply theme font properties
-                    theme?.let { t ->
-                        val style = when {
-                            t.isBold && t.isItalic -> Typeface.BOLD_ITALIC
-                            t.isBold -> Typeface.BOLD
-                            t.isItalic -> Typeface.ITALIC
-                            else -> Typeface.NORMAL
-                        }
-                        typeface = when (t.fontFamily.lowercase()) {
-                            "roboto" -> Typeface.create("sans-serif", style)
-                            "roboto-mono", "monospace" -> Typeface.create("monospace", style)
-                            "serif" -> Typeface.create("serif", style)
-                            else -> Typeface.create(t.fontFamily, style)
-                        }
-                        color = if (isSpaceKey) {
-                            adjustColorBrightness(t.keyTextColor, 0.7f)
+        if (key.icon != null) {
+            // Draw icon with proper tinting
+            drawKeyIcon(canvas, key, centerX, centerY, keyType)
+        } else if (key.label != null) {
+            // Draw text using themed paint
+            drawKeyText(canvas, key, centerX, centerY, keyType)
+        }
+    }
+    
+    /**
+     * Get key type for theme application
+     */
+    private fun getKeyType(keyCode: Int): String = when (keyCode) {
+        Keyboard.KEYCODE_SHIFT, -1 -> "shift"
+        Keyboard.KEYCODE_DELETE, -5 -> "backspace"
+        Keyboard.KEYCODE_DONE, 10, -4 -> "enter"
+        32 -> "space"
+        -13, -16 -> "mic"
+        -15 -> "emoji"
+        -14 -> "globe"
+        -10, -11, -12 -> "symbols"
+        else -> "regular"
+    }
+    
+    /**
+     * Check if a special key is currently active
+     */
+    private fun isKeyActive(keyType: String): Boolean = when (keyType) {
+        "voice", "mic" -> isVoiceKeyActive
+        "emoji" -> isEmojiKeyActive
+        else -> false
+    }
+    
+    /**
+     * Draw key icon with proper theming
+     */
+    private fun drawKeyIcon(canvas: Canvas, key: Keyboard.Key, centerX: Float, centerY: Float, keyType: String) {
+        val manager = themeManager ?: return
+        val palette = manager.getCurrentPalette()
+        
+        val iconDrawable = key.icon.mutate()
+        val iconSize = minOf(key.width, key.height) * 0.4f // 40% of key size
+        
+        // Apply tint based on key type and state
+            val tintColor = when {
+            keyType == "space" -> palette.spaceLabelColor
+            manager.shouldUseAccentForKey(keyType) -> Color.WHITE // White text on accent background
+            else -> palette.keyText
+        }
+        
+        iconDrawable.setColorFilter(tintColor, PorterDuff.Mode.SRC_IN)
+        iconDrawable.setBounds(
+            (centerX - iconSize/2).toInt(),
+            (centerY - iconSize/2).toInt(),
+            (centerX + iconSize/2).toInt(),
+            (centerY + iconSize/2).toInt()
+        )
+            iconDrawable.draw(canvas)
+        }
+        
+    /**
+     * Draw key text with proper theming
+     */
+    private fun drawKeyText(canvas: Canvas, key: Keyboard.Key, centerX: Float, centerY: Float, keyType: String) {
+        val manager = themeManager ?: return
+        val palette = manager.getCurrentPalette()
+        
+        val textPaint = when (keyType) {
+            "space" -> spaceLabelPaint ?: manager.createSpaceLabelPaint()
+            else -> keyTextPaint ?: manager.createKeyTextPaint()
+        }
+        
+        // Override text color for special keys with accent background
+        if (manager.shouldUseAccentForKey(keyType) || 
+            (keyType == "shift" && (isShiftHighlighted || isCapsLockActive)) ||
+            (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
+            isKeyActive(keyType)) {
+            textPaint.color = Color.WHITE // White text on accent background
                         } else {
-                            t.keyTextColor
-                        }
-                    }
-                }
-            } ?: Paint().apply {
-                isAntiAlias = true
-                textAlign = Paint.Align.CENTER
-                textSize = 18f * context.resources.displayMetrics.density
-                typeface = Typeface.DEFAULT
-                color = theme?.keyTextColor ?: Color.BLACK
-            }
-            
-            // Special handling for space bar
-            if (isSpaceKey) {
-                val spaceText = "English (US)" // Show current language
-                val textHeight = themedTextPaint.descent() - themedTextPaint.ascent()
-                val textOffset = (textHeight / 2) - themedTextPaint.descent()
-                canvas.drawText(spaceText, centerX, centerY + textOffset, themedTextPaint)
+            textPaint.color = palette.keyText
+        }
+        
+        val text = if (keyType == "space") {
+            "space" // Show "space" label on spacebar
+        } else if (isCapsLockActive && key.label != null && key.label.length == 1) {
+            // Show uppercase when caps lock active
+            key.label[0].uppercaseChar().toString()
             } else {
-                val textHeight = themedTextPaint.descent() - themedTextPaint.ascent()
-                val textOffset = (textHeight / 2) - themedTextPaint.descent()
-                
-                // Show uppercase letters when caps lock is active
-                val displayText = if (isCapsLockActive && key.label != null && key.label.length == 1) {
-                    val char = key.label[0]
-                    if (Character.isLetter(char)) {
-                        val upperText = char.uppercaseChar().toString()
-                        android.util.Log.d("SwipeKeyboardView", "Caps active: converting '$char' to '$upperText'")
-                        upperText
-                    } else {
-                        key.label.toString()
-                    }
-                } else {
-                    key.label.toString()
-                }
-                
-                canvas.drawText(displayText, centerX, centerY + textOffset, themedTextPaint)
-                
-                // Draw popup hint (special characters above number keys) with themed color
+            key.label?.toString() ?: ""
+        }
+        
+        // Center the text
+        val textHeight = textPaint.descent() - textPaint.ascent()
+        val textOffset = (textHeight / 2) - textPaint.descent()
+        canvas.drawText(text, centerX, centerY + textOffset, textPaint)
+        
+        // Draw popup hint for number keys
                 if (key.popupCharacters != null && key.popupCharacters.isNotEmpty()) {
-                    val hintPaint = Paint(themedTextPaint).apply {
-                        textSize = themedTextPaint.textSize * 0.5f // Half size for hint
-                        color = adjustColorBrightness(theme?.keyTextColor ?: Color.BLACK, 0.7f) // Slightly darker
-                    }
-                    // Draw hint in top-left corner
-                    val hintX = keyRect.left + (keyRect.width() * 0.2f)
-                    val hintY = keyRect.top + (hintPaint.textSize * 1.2f)
+            val hintPaint = Paint(textPaint).apply {
+                textSize = textPaint.textSize * 0.5f
+                alpha = (255 * 0.7f).toInt() // 70% opacity
+            }
+            val hintX = centerX - (key.width * 0.3f)
+            val hintY = centerY - (key.height * 0.2f)
                     canvas.drawText(key.popupCharacters[0].toString(), hintX, hintY, hintPaint)
                 }
             }
-        } else if (key.icon != null) {
-            // Gboard-style icon handling
-            if (isShiftKey && isCapsLockActive) {
-                // Caps lock: Show icon with underline indicator
-                val iconSize = 20
-                val iconLeft = centerX - iconSize / 2
-                val iconTop = centerY - iconSize / 2 - 4  // Move up slightly
-                
-                // Tint icon with white (on accent background)
-                key.icon.setTint(Color.WHITE)
-                key.icon.setBounds(
-                    iconLeft.toInt(),
-                    iconTop.toInt(),
-                    (iconLeft + iconSize).toInt(),
-                    (iconTop + iconSize).toInt()
-                )
-                key.icon.draw(canvas)
-                
-                // Draw underline to indicate caps lock
-                val underlinePaint = Paint().apply {
-                    color = Color.WHITE
-                    strokeWidth = 3f
+    
+    /**
+     * Fallback key drawing when no theme manager available
+     */
+    private fun drawBasicKey(canvas: Canvas, key: Keyboard.Key) {
+        val keyRect = RectF(
+            key.x.toFloat(), key.y.toFloat(),
+            (key.x + key.width).toFloat(), (key.y + key.height).toFloat()
+        )
+        
+        val fillPaint = Paint().apply {
                     isAntiAlias = true
+                    style = Paint.Style.FILL
+                    color = Color.WHITE
                 }
-                canvas.drawLine(
-                    centerX - 8f, centerY + 12f,
-                    centerX + 8f, centerY + 12f,
-                    underlinePaint
-                )
-            } else {
-                // Regular icon with theme-aware tinting
-                val iconSize = 30 // Gboard-style icon size
-                val iconLeft = centerX - iconSize / 2
-                val iconTop = centerY - iconSize / 2
-                
-                // Apply theme-aware tint
-                val palette = themeManager?.getCurrentPalette()
-                val tintColor = palette?.specialKeyIcon ?: theme?.keyTextColor ?: Color.BLACK
-                key.icon.setTint(tintColor)
-                
-                key.icon.setBounds(
-                    iconLeft.toInt(),
-                    iconTop.toInt(),
-                    (iconLeft + iconSize).toInt(),
-                    (iconTop + iconSize).toInt()
-                )
-                key.icon.draw(canvas)
-            }
+        
+        val textPaint = Paint().apply {
+                    isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            textSize = 18f * context.resources.displayMetrics.scaledDensity
+            color = Color.BLACK
+        }
+        
+        canvas.drawRoundRect(keyRect, 8f, 8f, fillPaint)
+        
+        if (key.label != null) {
+            val centerX = keyRect.centerX()
+            val centerY = keyRect.centerY()
+            val textHeight = textPaint.descent() - textPaint.ascent()
+            val textOffset = (textHeight / 2) - textPaint.descent()
+            canvas.drawText(key.label.toString(), centerX, centerY + textOffset, textPaint)
         }
     }
     
@@ -606,6 +479,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
         
         return try {
+            // Initialize adaptive sizing on first touch
+            if (isAdaptiveSizingEnabled && adaptiveKeyWidth == 0f) {
+                initializeAdaptiveSizing()
+            }
+            
+            // Handle spacebar gestures first
+            val spacebarHandled = handleSpacebarGesture(me)
+            if (spacebarHandled) return true
+            
             // Handle enhanced gestures first
             val gestureHandled = handleEnhancedGestures(me)
             if (gestureHandled) return true
@@ -695,29 +577,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         return false
     }
     
-    /**
-     * Handle spacebar cursor control
-     */
-    private fun handleSpacebarCursorControl(deltaX: Float) {
-        val sensitivity = 15f // Pixels per cursor movement
-        val cursorMoves = (deltaX / sensitivity).toInt()
-        
-        (context as? AIKeyboardService)?.let { service ->
-            service.currentInputConnection?.let { ic ->
-                try {
-                    val extractedText = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
-                    val currentPos = extractedText?.selectionStart ?: 0
-                    val textLength = extractedText?.text?.length ?: 0
-                    val newPos = (currentPos + cursorMoves).coerceIn(0, textLength)
-                    
-                    ic.setSelection(newPos, newPos)
-                    android.util.Log.d("SpacebarCursor", "Moved cursor from $currentPos to $newPos")
-                } catch (e: Exception) {
-                    android.util.Log.e("SpacebarCursor", "Error moving cursor", e)
-                }
-            }
-        }
-    }
 
     /**
      * Handle shift key touch events for long press detection
@@ -1073,11 +932,17 @@ class SwipeKeyboardView @JvmOverloads constructor(
      */
     private fun drawClipboardLayout(canvas: Canvas) {
         
-        val theme = themeManager?.getCurrentTheme()
-        val backgroundColor = theme?.backgroundColor ?: Color.parseColor("#F5F5F5")
-        val keyBackgroundColor = theme?.keyBackgroundColor ?: Color.parseColor("#FFFFFF")
-        val keyTextColor = theme?.keyTextColor ?: Color.parseColor("#000000")
-        val accentColor = theme?.accentColor ?: Color.parseColor("#1A73E8")
+        val manager = themeManager
+        if (manager == null) {
+            // Fallback colors if no theme manager
+            canvas.drawColor(Color.parseColor("#F5F5F5"))
+            return
+        }
+        val palette = manager.getCurrentPalette()
+        val backgroundColor = palette.keyboardBg
+        val keyBackgroundColor = palette.keyBg
+        val keyTextColor = palette.keyText
+        val accentColor = palette.specialAccent
         
         // Draw background
         canvas.drawColor(backgroundColor)
@@ -1114,7 +979,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
             // Draw text
             val textPaint = Paint().apply {
                 color = keyTextColor
-                textSize = theme?.fontSize?.toFloat() ?: 16f
+                textSize = palette.keyFontSize
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
@@ -1132,7 +997,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
             if (item.isTemplate && item.category != null) {
                 val categoryPaint = Paint().apply {
                     color = adjustColorAlpha(keyTextColor, 0.6f)
-                    textSize = (theme?.fontSize?.toFloat() ?: 16f) * 0.75f
+                    textSize = palette.keyFontSize * 0.75f
                     isAntiAlias = true
                     textAlign = Paint.Align.CENTER
                 }
@@ -1156,7 +1021,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
             // Draw back button text
             val backTextPaint = Paint().apply {
                 color = Color.WHITE
-                textSize = (theme?.fontSize?.toFloat() ?: 16f) * 1.2f
+                textSize = palette.keyFontSize * 1.2f
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
                 typeface = Typeface.DEFAULT_BOLD
@@ -1220,5 +1085,180 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val g = Color.green(color)
         val b = Color.blue(color)
         return Color.argb(a, r, g, b)
+    }
+    
+    /**
+     * Initialize adaptive sizing based on screen dimensions
+     */
+    private fun initializeAdaptiveSizing() {
+        if (!isAdaptiveSizingEnabled) return
+        
+        val displayMetrics = context.resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val density = displayMetrics.density
+        
+        // Determine screen size category
+        val screenWidthDp = screenWidth / density
+        
+        when {
+            screenWidthDp < SCREEN_SIZE_SMALL -> {
+                isSmallScreenOptimized = true
+                touchTargetExpansion = context.resources.getDimension(R.dimen.small_screen_touch_expansion)
+            }
+            else -> {
+                touchTargetExpansion = context.resources.getDimension(R.dimen.touch_target_expansion)
+            }
+        }
+    }
+    
+    /**
+     * Enable floating keyboard mode
+     */
+    fun enableFloatingMode(enable: Boolean) {
+        isFloatingMode = enable
+        if (enable) {
+            elevation = 12f
+        } else {
+            elevation = 0f
+        }
+        invalidate()
+    }
+    
+    /**
+     * Handle spacebar gesture detection
+     */
+    private fun handleSpacebarGesture(event: MotionEvent): Boolean {
+        if (!spacebarGestureEnabled) return false
+        
+        val key = getKeyAtPosition(event.x, event.y)
+        if (key?.codes?.firstOrNull() != 32) { // Not spacebar
+            isSpacebarPressed = false
+            return false
+        }
+        
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                isSpacebarPressed = true
+                spacebarStartX = event.x
+                lastSpacebarX = event.x
+                return false
+            }
+            
+            MotionEvent.ACTION_MOVE -> {
+                if (!isSpacebarPressed) return false
+                
+                val deltaX = event.x - lastSpacebarX
+                val totalDeltaX = event.x - spacebarStartX
+                
+                if (Math.abs(totalDeltaX) > SPACEBAR_GESTURE_THRESHOLD) {
+                    handleSpacebarCursorControl(deltaX)
+                    lastSpacebarX = event.x
+                    return true
+                }
+            }
+            
+            MotionEvent.ACTION_UP -> {
+                if (!isSpacebarPressed) return false
+                
+                val deltaX = event.x - spacebarStartX
+                val distance = Math.abs(deltaX)
+                
+                if (distance > SPACEBAR_GESTURE_THRESHOLD) {
+                    when {
+                        deltaX < WORD_DELETE_VELOCITY_THRESHOLD -> {
+                            handleSpacebarSwipeLeft()
+                            return true
+                        }
+                        deltaX > PERIOD_INSERT_VELOCITY_THRESHOLD -> {
+                            handleSpacebarSwipeRight()
+                            return true
+                        }
+                    }
+                }
+                
+                isSpacebarPressed = false
+            }
+        }
+        
+        return false
+    }
+    
+    /**
+     * Handle spacebar swipe left - delete word
+     */
+    private fun handleSpacebarSwipeLeft() {
+        (context as? AIKeyboardService)?.let { service ->
+            service.currentInputConnection?.let { ic ->
+                val beforeCursor = ic.getTextBeforeCursor(50, 0)
+                if (!beforeCursor.isNullOrEmpty()) {
+                    val words = beforeCursor.toString().split(Regex("\\s+"))
+                    if (words.isNotEmpty()) {
+                        val lastWord = words.last()
+                        if (lastWord.isNotEmpty()) {
+                            ic.deleteSurroundingText(lastWord.length, 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle spacebar swipe right - insert period and space
+     */
+    private fun handleSpacebarSwipeRight() {
+        (context as? AIKeyboardService)?.let { service ->
+            service.currentInputConnection?.commitText(". ", 1)
+        }
+    }
+    
+    /**
+     * Handle spacebar cursor control
+     */
+    private fun handleSpacebarCursorControl(deltaX: Float) {
+        val cursorMoves = (deltaX / CURSOR_CONTROL_SENSITIVITY).toInt()
+        
+        (context as? AIKeyboardService)?.let { service ->
+            service.currentInputConnection?.let { ic ->
+                try {
+                    val extractedText = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+                    val currentPos = extractedText?.selectionStart ?: 0
+                    val textLength = extractedText?.text?.length ?: 0
+                    val newPos = (currentPos + cursorMoves).coerceIn(0, textLength)
+                    
+                    ic.setSelection(newPos, newPos)
+                } catch (e: Exception) {
+                    // Handle cursor control error
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get key at specific position with enhanced touch target detection
+     */
+    private fun getKeyAtPosition(x: Float, y: Float): Keyboard.Key? {
+        keyboard?.keys?.forEach { key ->
+            val expandedBounds = if (isSmallScreenOptimized) {
+                RectF(
+                    key.x.toFloat() - touchTargetExpansion,
+                    key.y.toFloat() - touchTargetExpansion,
+                    (key.x + key.width).toFloat() + touchTargetExpansion,
+                    (key.y + key.height).toFloat() + touchTargetExpansion
+                )
+            } else {
+                RectF(
+                    key.x.toFloat(),
+                    key.y.toFloat(),
+                    (key.x + key.width).toFloat(),
+                    (key.y + key.height).toFloat()
+                )
+            }
+            
+            if (expandedBounds.contains(x, y)) {
+                return key
+            }
+        }
+        return null
     }
 }

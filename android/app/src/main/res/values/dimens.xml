@@ -12,13 +12,13 @@
     <dimen name="toolbar_icon_size">24dp</dimen>
     
     <!-- Gboard suggestion bar -->
-    <dimen name="suggestion_text_size">16sp</dimen>
-    <dimen name="suggestion_padding">16dp</dimen>
+    <dimen name="suggestion_text_size">15sp</dimen>
+    <dimen name="suggestion_padding">12dp</dimen>
     <dimen name="suggestion_margin">4dp</dimen>
-    <dimen name="suggestion_bar_height">48dp</dimen>
+    <dimen name="suggestion_bar_height">36dp</dimen>
     
     <!-- Toolbar dimensions -->
-    <dimen name="toolbar_height">52dp</dimen>
+    <dimen name="toolbar_height">48dp</dimen>
     <dimen name="toolbar_button_padding">8dp</dimen>
     <dimen name="toolbar_min_touch_target">48dp</dimen>
     
@@ -32,16 +32,44 @@
     <dimen name="special_key_width">56dp</dimen>
     <dimen name="space_key_min_width">160dp</dimen>
     
+    <!-- Adaptive key dimensions for different screen sizes -->
+    <dimen name="adaptive_key_width">32dp</dimen>
+    <dimen name="adaptive_key_height">50dp</dimen>
+    <dimen name="adaptive_key_width_small">28dp</dimen>
+    <dimen name="adaptive_key_height_small">45dp</dimen>
+    <dimen name="adaptive_key_width_large">36dp</dimen>
+    <dimen name="adaptive_key_height_large">55dp</dimen>
+    <dimen name="adaptive_key_width_xlarge">40dp</dimen>
+    <dimen name="adaptive_key_height_xlarge">60dp</dimen>
+    
+    <!-- Touch target expansion for small screens -->
+    <dimen name="touch_target_expansion">4dp</dimen>
+    <dimen name="small_screen_touch_expansion">6dp</dimen>
+    
+    <!-- Floating keyboard dimensions -->
+    <dimen name="floating_keyboard_width">320dp</dimen>
+    <dimen name="floating_keyboard_height">200dp</dimen>
+    <dimen name="floating_keyboard_margin">16dp</dimen>
+    
+    <!-- Split keyboard dimensions -->
+    <dimen name="split_keyboard_gap">80dp</dimen>
+    <dimen name="split_keyboard_half_width">35%p</dimen>
+    
     <!-- Gboard visual styling -->
     <dimen name="key_corner_radius">6dp</dimen>
     <dimen name="key_elevation">1dp</dimen>
     <dimen name="key_pressed_elevation">2dp</dimen>
     <dimen name="suggestion_elevation">2dp</dimen>
     <dimen name="popup_elevation">8dp</dimen>
+    <dimen name="floating_keyboard_elevation">12dp</dimen>
     
     <!-- Gboard spacing and margins -->
     <dimen name="row_vertical_gap">4dp</dimen>
     <dimen name="key_horizontal_gap">2dp</dimen>
     <dimen name="suggestion_chip_padding">12dp</dimen>
     <dimen name="popup_padding">8dp</dimen>
+    
+    <!-- Gesture detection thresholds -->
+    <dimen name="spacebar_gesture_threshold">50dp</dimen>
+    <dimen name="cursor_control_sensitivity">15dp</dimen>
 </resources>

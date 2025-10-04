@@ -46,6 +46,12 @@ class KeyboardLayoutManager(private val context: Context) {
     private var currentLayoutType = LayoutType.QWERTY
     private var currentLanguage = "en"
     
+    // Bilingual typing support
+    private var bilingualModeEnabled = false
+    private var primaryLanguage = "en"
+    private var secondaryLanguage = "es"
+    private var currentBilingualContext = "en"
+    
     /**
      * Get keyboard for specific layout type and mode
      */
@@ -187,50 +193,128 @@ class KeyboardLayoutManager(private val context: Context) {
     }
     
     /**
-     * Get accent mappings for a language
+     * Get enhanced accent mappings for a language with symbols and currency
      */
     private fun getAccentMappings(languageCode: String): Map<String, List<String>> {
-        return when (languageCode) {
+        val baseMapping = when (languageCode) {
             "es" -> mapOf(
-                "a" to listOf("á", "à", "ä", "â"),
-                "e" to listOf("é", "è", "ë", "ê"),
-                "i" to listOf("í", "ì", "ï", "î"),
-                "o" to listOf("ó", "ò", "ö", "ô"),
-                "u" to listOf("ú", "ù", "ü", "û"),
-                "n" to listOf("ñ"),
-                "c" to listOf("ç")
+                "a" to listOf("á", "à", "ä", "â", "ã", "å", "ā", "ă", "ą", "α", "@"),
+                "e" to listOf("é", "è", "ë", "ê", "ē", "ė", "ę", "ε", "€"),
+                "i" to listOf("í", "ì", "ï", "î", "ī", "į", "ι"),
+                "o" to listOf("ó", "ò", "ö", "ô", "õ", "ō", "ő", "œ", "ø", "ω"),
+                "u" to listOf("ú", "ù", "ü", "û", "ū", "ů", "ű", "μ"),
+                "n" to listOf("ñ", "ń", "ņ", "ň", "ŋ", "η"),
+                "c" to listOf("ç", "ć", "č", "ĉ", "©"),
+                "s" to listOf("ß", "ś", "š", "ş", "σ", "$"),
+                "?" to listOf("¿", "‽"),
+                "!" to listOf("¡")
             )
             "fr" -> mapOf(
-                "a" to listOf("à", "â", "á", "ä"),
-                "e" to listOf("é", "è", "ê", "ë"),
-                "i" to listOf("î", "ï", "í", "ì"),
-                "o" to listOf("ô", "ö", "ó", "ò"),
-                "u" to listOf("ù", "û", "ü", "ú"),
-                "c" to listOf("ç"),
-                "y" to listOf("ÿ")
+                "a" to listOf("à", "â", "á", "ä", "ã", "å", "ā", "ă", "ą", "α", "@"),
+                "e" to listOf("é", "è", "ê", "ë", "ē", "ė", "ę", "ε", "€"),
+                "i" to listOf("î", "ï", "í", "ì", "ī", "į", "ι"),
+                "o" to listOf("ô", "ö", "ó", "ò", "õ", "ō", "ő", "œ", "ø", "ω"),
+                "u" to listOf("ù", "û", "ü", "ú", "ū", "ů", "ű", "μ"),
+                "c" to listOf("ç", "ć", "č", "ĉ", "©"),
+                "y" to listOf("ÿ", "ý", "ŷ", "¥"),
+                "s" to listOf("ś", "š", "ş", "σ", "$")
             )
             "de" -> mapOf(
-                "a" to listOf("ä", "á", "à", "â"),
-                "o" to listOf("ö", "ó", "ò", "ô"),
-                "u" to listOf("ü", "ú", "ù", "û"),
-                "s" to listOf("ß")
+                "a" to listOf("ä", "á", "à", "â", "ã", "å", "ā", "ă", "ą", "α", "@"),
+                "o" to listOf("ö", "ó", "ò", "ô", "õ", "ō", "ő", "œ", "ø", "ω"),
+                "u" to listOf("ü", "ú", "ù", "û", "ū", "ů", "ű", "μ"),
+                "s" to listOf("ß", "ś", "š", "ş", "σ", "$"),
+                "e" to listOf("é", "è", "ê", "ë", "ē", "ė", "ę", "ε", "€")
+            )
+            "hi" -> mapOf(
+                "a" to listOf("आ", "अ", "ा", "ं"),
+                "e" to listOf("ए", "ै", "े"),
+                "i" to listOf("इ", "ी", "ि"),
+                "o" to listOf("ओ", "ौ", "ो"),
+                "u" to listOf("उ", "ू", "ु"),
+                "n" to listOf("न", "ण", "ञ", "ङ", "ं")
             )
             "pt" -> mapOf(
-                "a" to listOf("á", "à", "â", "ã", "ä"),
-                "e" to listOf("é", "è", "ê", "ë"),
-                "i" to listOf("í", "ì", "î", "ï"),
-                "o" to listOf("ó", "ò", "ô", "õ", "ö"),
-                "u" to listOf("ú", "ù", "û", "ü"),
-                "c" to listOf("ç")
+                "a" to listOf("á", "à", "â", "ã", "ä", "å", "ā", "ă", "ą", "α", "@"),
+                "e" to listOf("é", "è", "ê", "ë", "ē", "ė", "ę", "ε", "€"),
+                "i" to listOf("í", "ì", "î", "ï", "ī", "į", "ι"),
+                "o" to listOf("ó", "ò", "ô", "õ", "ö", "ō", "ő", "œ", "ø", "ω"),
+                "u" to listOf("ú", "ù", "û", "ü", "ū", "ů", "ű", "μ"),
+                "c" to listOf("ç", "ć", "č", "ĉ", "©")
             )
             "it" -> mapOf(
-                "a" to listOf("à", "á", "â", "ä"),
-                "e" to listOf("è", "é", "ê", "ë"),
-                "i" to listOf("ì", "í", "î", "ï"),
-                "o" to listOf("ò", "ó", "ô", "ö"),
-                "u" to listOf("ù", "ú", "û", "ü")
+                "a" to listOf("à", "á", "â", "ä", "ã", "å", "ā", "ă", "ą", "α", "@"),
+                "e" to listOf("è", "é", "ê", "ë", "ē", "ė", "ę", "ε", "€"),
+                "i" to listOf("ì", "í", "î", "ï", "ī", "į", "ι"),
+                "o" to listOf("ò", "ó", "ô", "ö", "õ", "ō", "ő", "œ", "ø", "ω"),
+                "u" to listOf("ù", "ú", "û", "ü", "ū", "ů", "ű", "μ")
             )
             else -> emptyMap()
+        }
+        
+        // Add bilingual mappings if enabled
+        return if (bilingualModeEnabled && languageCode == primaryLanguage) {
+            val secondaryMappings = getAccentMappings(secondaryLanguage)
+            baseMapping.toMutableMap().apply {
+                secondaryMappings.forEach { (key, values) ->
+                    this[key] = (this[key] ?: emptyList()) + values
+                }
+            }
+        } else {
+            baseMapping
+        }
+    }
+    
+    /**
+     * Enable bilingual typing mode
+     */
+    fun enableBilingualMode(primary: String, secondary: String) {
+        bilingualModeEnabled = true
+        primaryLanguage = primary
+        secondaryLanguage = secondary
+        currentBilingualContext = primary
+        
+        // Clear cache to reload with bilingual mappings
+        clearCache()
+        Log.d(TAG, "Enabled bilingual mode: $primary + $secondary")
+    }
+    
+    /**
+     * Disable bilingual typing mode
+     */
+    fun disableBilingualMode() {
+        bilingualModeEnabled = false
+        clearCache()
+        Log.d(TAG, "Disabled bilingual mode")
+    }
+    
+    /**
+     * Smart language detection for bilingual typing
+     */
+    fun detectLanguageContext(inputText: String): String {
+        if (!bilingualModeEnabled) return currentLanguage
+        
+        val primaryPatterns = getLanguagePatterns(primaryLanguage)
+        val secondaryPatterns = getLanguagePatterns(secondaryLanguage)
+        
+        val primaryScore = primaryPatterns.count { inputText.contains(it, true) }
+        val secondaryScore = secondaryPatterns.count { inputText.contains(it, true) }
+        
+        currentBilingualContext = if (secondaryScore > primaryScore) secondaryLanguage else primaryLanguage
+        return currentBilingualContext
+    }
+    
+    /**
+     * Get language-specific patterns for detection
+     */
+    private fun getLanguagePatterns(languageCode: String): List<String> {
+        return when (languageCode) {
+            "es" -> listOf("ñ", "¿", "¡", "rr", "ll", "ch", "qu")
+            "fr" -> listOf("ç", "œ", "tion", "ment", "eau", "eux")
+            "de" -> listOf("ß", "sch", "ung", "ich", "ein", "der")
+            "hi" -> listOf("क", "ख", "ग", "च", "ज", "त", "प", "म")
+            "en" -> listOf("th", "ing", "tion", "qu", "ph", "gh")
+            else -> emptyList()
         }
     }
     

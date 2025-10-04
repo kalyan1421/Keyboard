@@ -26,6 +26,7 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputContentInfo
 import android.content.ClipDescription
 import android.net.Uri
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -84,6 +85,17 @@ class AIKeyboardService : InputMethodService(),
         private const val SHIFT_CAPS = 2
     }
     
+    /**
+     * Keyboard mode enum for CleverType-style cycling
+     * Letters → Numbers → Symbols → Letters
+     */
+    enum class KeyboardMode {
+        LETTERS,
+        NUMBERS,
+        SYMBOLS,
+        EMOJI
+    }
+    
     // UI Components
     private var keyboardView: SwipeKeyboardView? = null
     private var keyboard: Keyboard? = null
@@ -101,6 +113,10 @@ class AIKeyboardService : InputMethodService(),
     private var isShifted = false
     private var currentKeyboard = KEYBOARD_LETTERS
     private var currentInputMode = INPUT_MODE_NORMAL
+    
+    // CleverType keyboard mode cycling
+    private var currentKeyboardMode = KeyboardMode.LETTERS
+    private var previousKeyboardMode = KeyboardMode.LETTERS  // For emoji panel return
     
     // Replacement UI state
     private var isReplacementUIVisible = false
@@ -121,6 +137,14 @@ class AIKeyboardService : InputMethodService(),
     
     // Enhanced gesture support
     private var isSlideToDeleteModeActive = false
+    
+    // Advanced keyboard settings from Flutter
+    private lateinit var keyboardSettings: KeyboardSettings
+    
+    // Enhanced layout features
+    private var bilingualModeEnabled = false
+    private var floatingModeEnabled = false
+    private var adaptiveSizingEnabled = true
     
     // Accent mappings for long-press functionality
     private val accentMap = mapOf(
@@ -274,7 +298,7 @@ class AIKeyboardService : InputMethodService(),
                                 loadSettings()
                                 
                                 // Reload theme from Flutter SharedPreferences
-                                themeManager.reloadTheme()
+                                themeManager.reload()
                                 applyTheme()
                                 
                                 Log.d(TAG, "Applying settings immediately...")
@@ -287,23 +311,46 @@ class AIKeyboardService : InputMethodService(),
                     }
                     "com.example.ai_keyboard.THEME_CHANGED" -> {
                         val themeId = intent?.getStringExtra("theme_id")
+                        val themeName = intent?.getStringExtra("theme_name") ?: "Unknown"
                         val hasThemeData = intent?.getBooleanExtra("has_theme_data", false) ?: false
-                        Log.d(TAG, "THEME_CHANGED broadcast received! Theme ID: $themeId, Has data: $hasThemeData")
+                        val isV2Theme = intent?.getBooleanExtra("is_v2_theme", false) ?: false
                         
-                        // Verify theme data in SharedPreferences
-                        verifyThemeData()
+                        Log.d(TAG, "🎨 THEME_CHANGED broadcast received! Theme: $themeName ($themeId), V2: $isV2Theme, Has data: $hasThemeData")
+                        
+                        // Add small delay to ensure SharedPreferences are fully written
+                        Thread.sleep(50)
+                        
+                        // Force reload theme from SharedPreferences
+                        themeManager.reload()
+                        
+                        // Verify theme was actually loaded
+                        val loadedTheme = themeManager.getCurrentTheme()
+                        Log.d(TAG, "Loaded theme after reload: ${loadedTheme.name} (${loadedTheme.id})")
                         
                         // Check if keyboard view is ready
                         if (keyboardView != null) {
-                            // Apply immediately
+                            // Apply immediately with full refresh
                             mainHandler.post {
-                                Log.d(TAG, "Applying theme update immediately on main thread")
-                                applyThemeFromBroadcast()
+                                Log.d(TAG, "⚡ Applying theme update immediately - V2: $isV2Theme")
+                                applyThemeImmediately() // Use the comprehensive theme application
+                                
+                                // Additional refresh for V2 themes
+                                if (isV2Theme) {
+                                    mainHandler.postDelayed({
+                                        keyboardView?.let { view ->
+                                            if (view is SwipeKeyboardView) {
+                                                view.refreshTheme()
+                                                view.invalidate()
+                                            }
+                                        }
+                                        Log.d(TAG, "🔄 V2 theme additional refresh completed")
+                                    }, 100)
+                                }
                             }
                         } else {
                             // Queue for later application
                             pendingThemeUpdate = true
-                            Log.d(TAG, "Keyboard view not ready, queuing theme update for later")
+                            Log.d(TAG, "Keyboard view not ready, queuing V2 theme update for later")
                         }
                     }
                     "com.example.ai_keyboard.CLIPBOARD_CHANGED" -> {
@@ -339,10 +386,25 @@ class AIKeyboardService : InputMethodService(),
         // Initialize settings and theme
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         themeManager = ThemeManager(this)
-        themeManager.initialize()
+        
+        // Register as theme change listener for live updates
+        themeManager.addThemeChangeListener(object : ThemeManager.ThemeChangeListener {
+            override fun onThemeChanged(theme: com.example.ai_keyboard.themes.KeyboardThemeV2, palette: com.example.ai_keyboard.themes.ThemePaletteV2) {
+                Log.d(TAG, "🎨 Theme changed: ${theme.name}, applying to keyboard...")
+                mainHandler.post {
+                    applyThemeImmediately()
+                }
+            }
+        })
+        
+        // Initialize keyboard layout manager
+        keyboardLayoutManager = KeyboardLayoutManager(this)
         
         loadSettings()
         loadDictionariesAsync()
+        
+        // Load enhanced settings
+        loadEnhancedSettings()
         
         // Initialize multilingual components
         initializeMultilingualComponents()
@@ -366,6 +428,11 @@ class AIKeyboardService : InputMethodService(),
         // Initialize clipboard history manager
         clipboardHistoryManager = ClipboardHistoryManager(this)
         clipboardHistoryManager.initialize()
+        
+        // Initialize keyboard settings with defaults first
+        keyboardSettings = KeyboardSettings()
+        // Load keyboard settings from Flutter SharedPreferences  
+        loadKeyboardSettings()
         clipboardHistoryManager.addListener(clipboardHistoryListener)
         
         // Register broadcast receiver for settings changes
@@ -520,17 +587,16 @@ class AIKeyboardService : InputMethodService(),
             
             // Update keyboard view if available
             keyboardView?.let { kv ->
-                val currentMode = when (currentKeyboard) {
+                val mode = when (currentKeyboard) {
                     KEYBOARD_LETTERS -> "letters"
                     KEYBOARD_SYMBOLS -> "symbols"
                     KEYBOARD_NUMBERS -> "numbers"
                     else -> "letters"
                 }
-                
-                val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(currentMode)
+                val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(mode)
                 if (newKeyboard != null) {
                     keyboard = newKeyboard
-                    kv.keyboard = newKeyboard
+                    kv.keyboard = keyboard
                     kv.invalidateAllKeys()
                 }
             }
@@ -577,7 +643,7 @@ class AIKeyboardService : InputMethodService(),
         // Create the main keyboard container with system insets handling
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getThemeBackgroundColor())
+            background = themeManager.createKeyboardBackground()
             fitsSystemWindows = true
         }
         
@@ -682,7 +748,7 @@ class AIKeyboardService : InputMethodService(),
         // Create container for suggestions only (language switch moved to global button)
         topContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(getThemeKeyColor())
+            background = themeManager.createToolbarBackground()
             setPadding(4, 4, 4, 4)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -710,66 +776,56 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun createSuggestionBar(parent: LinearLayout) {
-        Log.d(TAG, "Creating suggestion bar with comprehensive theming")
+        Log.d(TAG, "Creating suggestion bar - SIMPLIFIED: text-only, no chip backgrounds")
         
         val palette = themeManager.getCurrentPalette()
         
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(palette.suggestBg)
-            setPadding(12, 8, 12, 8)
+            background = themeManager.createSuggestionBarBackground() // Matches keyboard bg
+            setPadding(dpToPx(12), dpToPx(4), dpToPx(12), dpToPx(4)) // Reduced padding for compact bar
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                (palette.suggestionBarHeight * resources.displayMetrics.density).toInt()
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            elevation = 2f // Add subtle elevation
-            tag = "suggestion_container" // Tag for theme updates
+            elevation = 0f // No shadow - seamless with keyboard
+            tag = "suggestion_container"
         }
         
-        // Add three AI suggestion chips with full theming
+        // Create 3 plain text suggestions (CleverType/Gboard style)
         repeat(3) { index ->
             val suggestion = TextView(this).apply {
-                val theme = themeManager.getCurrentTheme()
-                
-                setTextColor(palette.suggestChipText)
-                textSize = theme.suggestionFontSize // Use theme font size
-                setPadding(20, 10, 20, 10)
+                // Text-only styling - NO CHIP BACKGROUND
+                setTextColor(palette.suggestionText)  // Auto-contrast
+                textSize = 14f  // Smaller for compact bar
+                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))  // Reduced padding
                 gravity = Gravity.CENTER
                 
-                // Apply font styling (bold/italic)
-                val style = when {
-                    theme.suggestionBold && theme.suggestionItalic -> Typeface.BOLD_ITALIC
-                    theme.suggestionBold -> Typeface.BOLD
-                    theme.suggestionItalic -> Typeface.ITALIC
-                    else -> Typeface.NORMAL
-                }
-                typeface = Typeface.create(theme.fontFamily, style)
-                
-                // Apply themed chip background
-                background = themeManager.createSuggestionChipDrawable()
+                // NO BACKGROUND - completely transparent
+                setBackgroundColor(Color.TRANSPARENT)
                 
                 isClickable = true
                 isFocusable = true
-                text = "" // Empty by default, filled by updateSuggestionUI
+                text = ""
                 visibility = View.VISIBLE
                 
-                // Add pressed state with theme colors - use setOnClickListener instead
+                // Simple click handling
                 setOnClickListener { view ->
                     val suggestionText = (view as TextView).text.toString()
-                    Log.d(TAG, "✅ Suggestion clicked: '$suggestionText'")
+                    Log.d(TAG, "Suggestion clicked: '$suggestionText'")
                     if (suggestionText.isNotEmpty()) {
                         applySuggestion(suggestionText)
                     }
                 }
                 
-                tag = "suggestion_chip_$index" // Tag for theme updates
+                tag = "suggestion_text_$index"
             }
             
             val params = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f
             ).apply {
-                setMargins(6, 4, 6, 4) // Slightly more margin for better spacing
+                setMargins(dpToPx(4), 0, dpToPx(4), 0)  // Minimal spacing
             }
             suggestion.layoutParams = params
             
@@ -1143,7 +1199,7 @@ class AIKeyboardService : InputMethodService(),
             val theme = themeManager.getCurrentTheme()
             
             // Set keyboard background
-            val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
+            val backgroundDrawable = themeManager.createKeyboardBackground()
             view.background = backgroundDrawable
             
             // The SwipeKeyboardView will request paint objects from ThemeManager
@@ -1156,7 +1212,7 @@ class AIKeyboardService : InputMethodService(),
             view.invalidate()
             
             Log.d(TAG, "Applied theme: ${theme.name} (${theme.id})")
-            Log.d(TAG, "Theme debug info: ${themeManager.getThemeDebugInfo()}")
+            Log.d(TAG, "Theme debug info: V2 theme applied successfully")
         }
     }
 
@@ -1165,78 +1221,73 @@ class AIKeyboardService : InputMethodService(),
         try {
             val theme = themeManager.getCurrentTheme()
             val palette = themeManager.getCurrentPalette()
-            val enableAnimations = theme.enableAnimations && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+            val enableAnimations = true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP // Always enable animations for V2
             
             Log.d(TAG, "🎨 Applying comprehensive theme: ${theme.name}${if (enableAnimations) " (animated)" else ""}")
             
             // 1. Update keyboard view with unified palette
             keyboardView?.let { view ->
-                val backgroundDrawable = themeManager.createKeyboardBackgroundDrawable()
+                val backgroundDrawable = themeManager.createKeyboardBackground()
                 view.background = backgroundDrawable
                 
                 if (view is SwipeKeyboardView) {
                     view.setThemeManager(themeManager)
                     view.refreshTheme()
+                    
+                    // Force complete repaint of all keys
+                    view.invalidateAllKeys()
+                    view.invalidate()
+                    view.requestLayout()
+                    
+                    // Additional force refresh to ensure all components update
+                    mainHandler.postDelayed({
+                        view.invalidate()
+                        Log.d(TAG, "🔄 Additional keyboard invalidation completed")
+                    }, 50)
                 }
                 
-                view.invalidateAllKeys()
-                view.invalidate()
-                view.requestLayout()
-                
-                Log.d(TAG, "✅ Keyboard view themed")
+                Log.d(TAG, "✅ Keyboard view themed with V2 system")
             }
             
-            // 2. Update suggestion bar with themed chips
+            // 2. Update suggestion bar with V2 theming (SIMPLIFIED: text-only)
             suggestionContainer?.let { container ->
-                container.setBackgroundColor(palette.suggestBg)
-                container.layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    (palette.suggestionBarHeight * resources.displayMetrics.density).toInt()
-                )
+                // Background matches keyboard
+                container.background = themeManager.createSuggestionBarBackground()
+                container.elevation = 0f
                 
-                // Update each suggestion chip with fresh themed drawable
+                // Update each suggestion - text-only, NO chip backgrounds
                 for (i in 0 until container.childCount) {
                     val child = container.getChildAt(i)
                     if (child is TextView) {
-                        child.setTextColor(palette.suggestChipText)
-                        child.textSize = theme.suggestionFontSize
-                        
-                        // Apply font styling (bold/italic)
-                        val style = when {
-                            theme.suggestionBold && theme.suggestionItalic -> Typeface.BOLD_ITALIC
-                            theme.suggestionBold -> Typeface.BOLD
-                            theme.suggestionItalic -> Typeface.ITALIC
-                            else -> Typeface.NORMAL
-                        }
-                        child.typeface = Typeface.create(theme.fontFamily, style)
-                        
-                        // Clear any tint list before applying new background
-                        child.backgroundTintList = null
-                        child.background = themeManager.createSuggestionChipDrawable()
+                        // Only update text color - auto-contrast
+                        child.setTextColor(palette.suggestionText)
+                        child.setBackgroundColor(Color.TRANSPARENT)
                     }
                 }
-                Log.d(TAG, "✅ Suggestion bar themed - ${container.childCount} chips updated")
+                Log.d(TAG, "✅ Suggestion bar themed - text-only, no chips")
             }
             
-            // 3. Update main toolbar with icon theming
+            // 3. Update main toolbar with V2 theming (seamless with keys)
             cleverTypeToolbar?.let { toolbar ->
-                toolbar.setBackgroundColor(palette.toolbarBg)
+                // Use themed toolbar background - matches keys exactly
+                toolbar.background = themeManager.createToolbarBackground()
+                toolbar.elevation = 0f // Remove any shadow/elevation for seamless connection
                 
+                // Set height from theme
+                toolbar.layoutParams?.height = (palette.toolbarHeight * resources.displayMetrics.density).toInt()
+                
+                // SIMPLIFIED: Toolbar icons are already PNG ImageViews with no backgrounds
+                // Just ensure no filters are applied
                 for (i in 0 until toolbar.childCount) {
                     val child = toolbar.getChildAt(i)
-                    if (child is LinearLayout) {
-                        child.background = themeManager.createToolbarButtonDrawable()
-                        
-                        for (j in 0 until child.childCount) {
-                            val icon = child.getChildAt(j)
-                            if (icon is TextView) {
-                                icon.setTextColor(palette.toolbarIcon)
-                                icon.textSize = palette.fontSize
-                            }
-                        }
+                    if (child is ImageView) {
+                        // Ensure no color filter or tint
+                        child.clearColorFilter()
+                        child.imageTintList = null
+                        child.setBackgroundColor(Color.TRANSPARENT)
                     }
                 }
-                Log.d(TAG, "✅ Toolbar themed")
+                toolbar.requestLayout()
             }
             
             // 4. Update emoji panel theming
@@ -1253,12 +1304,12 @@ class AIKeyboardService : InputMethodService(),
             
             // 6. Update top container (toolbar + suggestions)
             topContainer?.let { container ->
-                container.setBackgroundColor(theme.backgroundColor)
+                container.background = themeManager.createKeyboardBackground()
                 Log.d(TAG, "✅ Top container themed")
             }
             
             // 7. Update keyboard container background
-            keyboardContainer?.setBackgroundColor(theme.backgroundColor)
+            keyboardContainer?.background = themeManager.createKeyboardBackground()
             
             Log.d(TAG, "🎨 Complete theme application finished successfully")
             
@@ -1270,10 +1321,10 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Apply theme to emoji panel recursively
      */
-    private fun applyThemeToEmojiPanel(panel: android.view.View, palette: ThemeManager.ThemePalette) {
+    private fun applyThemeToEmojiPanel(panel: android.view.View, palette: com.example.ai_keyboard.themes.ThemePaletteV2) {
         try {
             if (panel is android.view.ViewGroup) {
-                panel.setBackgroundColor(palette.emojiPanelBg)
+                panel.setBackgroundColor(palette.keyboardBg)
                 
                 for (i in 0 until panel.childCount) {
                     val child = panel.getChildAt(i)
@@ -1281,14 +1332,14 @@ class AIKeyboardService : InputMethodService(),
                         is android.widget.LinearLayout -> {
                             // Apply to category tabs and toolbar
                             if (child.tag == "emoji_categories" || child.tag == "emoji_header") {
-                                child.setBackgroundColor(palette.emojiPanelHeader)
+                                child.setBackgroundColor(palette.toolbarBg)
                             }
                             applyThemeToEmojiPanel(child, palette)
                         }
                         is android.widget.TextView -> {
                             // Theme category text
                             if (child.tag?.toString()?.startsWith("category_") == true) {
-                                child.setTextColor(palette.emojiCategoryText)
+                                child.setTextColor(palette.keyText)
                             }
                         }
                     }
@@ -1302,23 +1353,23 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Apply theme to media panel (GIF/Stickers)
      */
-    private fun applyThemeToMediaPanel(panel: android.view.View, palette: ThemeManager.ThemePalette) {
+    private fun applyThemeToMediaPanel(panel: android.view.View, palette: com.example.ai_keyboard.themes.ThemePaletteV2) {
         try {
             if (panel is android.view.ViewGroup) {
-                panel.setBackgroundColor(palette.mediaPanelBg)
+                panel.setBackgroundColor(palette.keyboardBg)
                 
                 for (i in 0 until panel.childCount) {
                     val child = panel.getChildAt(i)
                     when (child) {
                         is android.widget.LinearLayout -> {
                             if (child.tag == "media_header") {
-                                child.setBackgroundColor(palette.mediaPanelHeader)
+                                child.setBackgroundColor(palette.toolbarBg)
                             }
                             applyThemeToMediaPanel(child, palette)
                         }
                         is android.widget.EditText -> {
                             // Theme search box
-                            child.setBackgroundColor(palette.mediaPanelSearchBg)
+                            child.setBackgroundColor(palette.keyBg)
                             child.setTextColor(palette.keyText)
                             child.setHintTextColor(adjustColorAlpha(palette.keyText, 0.6f))
                         }
@@ -1402,7 +1453,8 @@ class AIKeyboardService : InputMethodService(),
                     firstSuggestion?.apply {
                         val themeName = themeManager.getCurrentTheme().name
                         text = "✨ Theme: $themeName"
-                        setTextColor(Color.parseColor("#4CAF50"))
+                        val palette = themeManager.getCurrentPalette()
+                        setTextColor(palette.specialAccent)
                         visibility = View.VISIBLE
                     }
                     
@@ -1427,7 +1479,8 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "Applying theme from broadcast...")
             
             // Reload theme from SharedPreferences
-            val reloadSuccess = themeManager.reloadTheme()
+            themeManager.reload()
+            val reloadSuccess = true // V2 always succeeds with fallback to default
             if (!reloadSuccess) {
                 Log.w(TAG, "Failed to reload theme from SharedPreferences")
                 return
@@ -1471,23 +1524,29 @@ class AIKeyboardService : InputMethodService(),
         }
     }
 
-    // Update suggestion bar theme
+    // Update suggestion bar theme (SIMPLIFIED: text-only, no chips)
     private fun updateSuggestionBarTheme() {
+        val palette = themeManager.getCurrentPalette()
+        
         suggestionContainer?.let { container ->
-            val theme = themeManager.getCurrentTheme()
-            container.setBackgroundColor(theme.suggestionBarColor)
+            container.background = themeManager.createSuggestionBarBackground()
+            container.elevation = 0f
             
+            // Update text color only - NO chip backgrounds
             for (i in 0 until container.childCount) {
                 val child = container.getChildAt(i)
                 if (child is TextView) {
-                    child.setTextColor(theme.suggestionTextColor)
+                    child.setTextColor(palette.suggestionText)
+                    child.setBackgroundColor(Color.TRANSPARENT)
                 }
             }
+            container.requestLayout()
         }
         
         topContainer?.let { container ->
-            val theme = themeManager.getCurrentTheme()
-            container.setBackgroundColor(theme.backgroundColor)
+            container.background = themeManager.createSuggestionBarBackground()
+            container.elevation = 0f
+            container.requestLayout()
         }
     }
 
@@ -1511,19 +1570,6 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun getThemeBackgroundColor(): Int {
-        // Return default background color
-        return Color.parseColor("#F5F5F5") // Light gray background
-    }
-    
-    private fun getKeyBackgroundDrawable(): Int = R.drawable.key_background_default
-    
-    private fun getActionKeyBackgroundDrawable(): Int = R.drawable.key_background_default
-    
-    private fun getThemeKeyColor(): Int {
-        // Return default key color
-        return Color.WHITE
-    }
     
     private fun getThemeTextColor(): Int {
         // Return default text color
@@ -1543,22 +1589,24 @@ class AIKeyboardService : InputMethodService(),
                 handleEnterKey(ic)
             }
             KEYCODE_SPACE -> handleSpace(ic)
-            KEYCODE_SYMBOLS -> switchToSymbols()
-            KEYCODE_LETTERS -> switchToLetters()
-            KEYCODE_NUMBERS -> switchToNumbers()
+            KEYCODE_SYMBOLS -> cycleKeyboardMode()  // ?123 key cycles forward
+            KEYCODE_LETTERS -> returnToLetters()    // ABC key returns to letters
+            KEYCODE_NUMBERS -> cycleKeyboardMode()  // Also cycle
+            -3 -> cycleKeyboardMode()  // Handle XML ?123 code
+            -2 -> returnToLetters()    // Handle XML ABC code
             KEYCODE_VOICE -> {
                 // Enhanced voice input with visual feedback
                 handleVoiceInput()
                 ensureCursorStability()
             }
             KEYCODE_GLOBE -> {
-                // Language switching - show available languages or switch to next
-                handleLanguageSwitch()
+                // Enhanced language switching with bilingual support
+                handleEnhancedLanguageSwitch()
                 ensureCursorStability()
             }
             KEYCODE_EMOJI -> {
                 // Enhanced emoji panel with visual feedback
-                handleEmojiToggle()
+                switchKeyboardMode(KeyboardMode.EMOJI)
                 ensureCursorStability()
             }
             else -> handleCharacter(primaryCode, ic)
@@ -2246,13 +2294,82 @@ class AIKeyboardService : InputMethodService(),
         else -> "UNKNOWN"
     }
     
-    private fun switchToSymbols() {
-        if (currentKeyboard != KEYBOARD_SYMBOLS) {
-            keyboard = Keyboard(this, R.xml.symbols)
-            currentKeyboard = KEYBOARD_SYMBOLS
-            keyboardView?.keyboard = keyboard
-            applyTheme() // Reapply theme after layout change
+    /**
+     * Switch keyboard mode with CleverType-style cycling
+     * Letters → Numbers → Symbols → Letters
+     */
+    private fun switchKeyboardMode(targetMode: KeyboardMode) {
+        Log.d(TAG, "🔄 Switching from $currentKeyboardMode to $targetMode")
+        
+        // Save previous mode for emoji panel return
+        if (currentKeyboardMode != KeyboardMode.EMOJI) {
+            previousKeyboardMode = currentKeyboardMode
         }
+        
+        when (targetMode) {
+            KeyboardMode.LETTERS -> {
+                val lang = availableLanguages[currentLanguageIndex]
+                val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
+                keyboard = Keyboard(this, keyboardResource)
+                currentKeyboard = KEYBOARD_LETTERS
+                keyboardView?.keyboard = keyboard
+                keyboardView?.showNormalLayout()
+                applyTheme()
+            }
+            
+            KeyboardMode.NUMBERS -> {
+                keyboard = Keyboard(this, R.xml.symbols)  // Use symbols.xml which has numbers row
+                currentKeyboard = KEYBOARD_NUMBERS
+                keyboardView?.keyboard = keyboard
+                keyboardView?.showNormalLayout()
+                applyTheme()
+            }
+            
+            KeyboardMode.SYMBOLS -> {
+                keyboard = Keyboard(this, R.xml.symbols)
+                currentKeyboard = KEYBOARD_SYMBOLS
+                keyboardView?.keyboard = keyboard
+                keyboardView?.showNormalLayout()
+                applyTheme()
+            }
+            
+            KeyboardMode.EMOJI -> {
+                handleEmojiToggle()
+                return  // Don't update currentKeyboardMode yet, handleEmojiToggle will do it
+            }
+        }
+        
+        currentKeyboardMode = targetMode
+        Log.d(TAG, "✅ Switched to $currentKeyboardMode")
+    }
+    
+    /**
+     * Cycle to next keyboard mode (CleverType behavior)
+     * Letters → Numbers → Symbols → Letters
+     */
+    private fun cycleKeyboardMode() {
+        val nextMode = when (currentKeyboardMode) {
+            KeyboardMode.LETTERS -> KeyboardMode.NUMBERS
+            KeyboardMode.NUMBERS -> KeyboardMode.SYMBOLS
+            KeyboardMode.SYMBOLS -> KeyboardMode.LETTERS
+            KeyboardMode.EMOJI -> previousKeyboardMode
+        }
+        Log.d(TAG, "⚡ Cycling keyboard: $currentKeyboardMode → $nextMode")
+        switchKeyboardMode(nextMode)
+    }
+    
+    /**
+     * Return to letters mode (ABC button)
+     */
+    private fun returnToLetters() {
+        Log.d(TAG, "🔤 Returning to letters mode")
+        switchKeyboardMode(KeyboardMode.LETTERS)
+    }
+    
+    // DEPRECATED - kept for backward compatibility
+    @Deprecated("Use switchKeyboardMode() instead", ReplaceWith("switchKeyboardMode(KeyboardMode.SYMBOLS)"))
+    private fun switchToSymbols() {
+        switchKeyboardMode(KeyboardMode.SYMBOLS)
     }
     
     /**
@@ -2269,64 +2386,14 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
+    @Deprecated("Use switchKeyboardMode() instead", ReplaceWith("switchKeyboardMode(KeyboardMode.LETTERS)"))
     private fun switchToLetters() {
-        // Always reload the keyboard layout (for language/number row changes)
-        val lang = availableLanguages[currentLanguageIndex]
-        val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
-        
-        try {
-            Log.d(TAG, "Loading keyboard resource: $keyboardResource for language: $lang")
-            
-            // Create new keyboard instance
-            val newKeyboard = Keyboard(this, keyboardResource)
-            keyboard = newKeyboard
-            currentKeyboard = KEYBOARD_LETTERS
-            
-            keyboardView?.let { view ->
-                Log.d(TAG, "Setting new keyboard to view...")
-                
-                // Set the new keyboard
-                view.keyboard = newKeyboard
-                
-                // Force complete refresh of the keyboard view
-                view.invalidateAllKeys()
-                view.invalidate()
-                view.requestLayout()
-                
-                // Post additional refresh to ensure UI thread updates
-                view.post {
-                    view.invalidateAllKeys()
-                    view.invalidate()
-                    view.requestLayout()
-                }
-                
-                // Force redraw after a short delay to ensure everything is updated
-                view.postDelayed({
-                    view.invalidateAllKeys()
-                    view.invalidate()
-                    Log.d(TAG, "Delayed refresh completed")
-                }, 50)
-                
-                Log.d(TAG, "Keyboard view updated with new layout")
-            } ?: Log.e(TAG, "KeyboardView is null!")
-            
-            applyTheme() // Reapply theme after layout change
-            
-            // Caps display is handled by SwipeKeyboardView drawing
-            
-            Log.d(TAG, "Successfully switched to $lang letters keyboard with number row: $showNumberRow")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error switching to letters keyboard", e)
-        }
+        switchKeyboardMode(KeyboardMode.LETTERS)
     }
     
+    @Deprecated("Use switchKeyboardMode() instead", ReplaceWith("switchKeyboardMode(KeyboardMode.NUMBERS)"))
     private fun switchToNumbers() {
-        if (currentKeyboard != KEYBOARD_NUMBERS) {
-            keyboard = Keyboard(this, R.xml.numbers)
-            currentKeyboard = KEYBOARD_NUMBERS
-            keyboardView?.keyboard = keyboard
-            applyTheme() // Reapply theme after layout change
-        }
+        switchKeyboardMode(KeyboardMode.NUMBERS)
     }
     
     private fun handleLanguageSwitch() {
@@ -2500,8 +2567,9 @@ class AIKeyboardService : InputMethodService(),
                 val firstSuggestion = container.getChildAt(0) as TextView
                 firstSuggestion.apply {
                     text = "✓ $corrected"
-                    setTextColor(Color.parseColor("#4CAF50")) // Green for corrections
-                    setBackgroundColor(Color.parseColor("#E8F5E8")) // Light green background
+                    val palette = themeManager.getCurrentPalette()
+                    setTextColor(palette.specialAccent) // Theme accent for corrections
+                    setBackgroundColor(adjustColorBrightness(palette.specialAccent, 1.8f)) // Light accent background
                     visibility = View.VISIBLE
                 }
             }
@@ -3057,7 +3125,7 @@ class AIKeyboardService : InputMethodService(),
         }
         
         // Reset visual feedback
-        keyboardView?.setBackgroundColor(getThemeBackgroundColor())
+        keyboardView?.background = themeManager.createKeyboardBackground()
         
         // Clear swipe data
         swipePath.clear()
@@ -3309,7 +3377,7 @@ class AIKeyboardService : InputMethodService(),
     override fun onSwipeEnded() {
         try {
             // Reset visual feedback
-            keyboardView?.setBackgroundColor(getThemeBackgroundColor())
+            keyboardView?.background = themeManager.createKeyboardBackground()
             
             // Hide swipe mode indicator
             showSwipeIndicator(false)
@@ -3326,7 +3394,8 @@ class AIKeyboardService : InputMethodService(),
                 val confidenceText = if (confidence > 0.5) " (${(confidence * 100).toInt()}%)" else ""
                 firstSuggestion.apply {
                     text = "✓ $word$confidenceText"
-                    setTextColor(Color.parseColor("#4CAF50")) // Green for success
+                    val palette = themeManager.getCurrentPalette()
+                    setTextColor(palette.specialAccent) // Theme accent for success
                     visibility = View.VISIBLE
                 }
                 
@@ -3368,11 +3437,142 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun getSwipeActiveColor(): Int = Color.parseColor("#E3F2FD") // Light blue for swipe mode
-    private fun getSwipeTextColor(): Int = Color.parseColor("#1976D2") // Blue for swipe predictions
+    private fun getSwipeActiveColor(): Int {
+        return themeManager.getCurrentPalette().keyPressed
+    }
+    private fun getSwipeTextColor(): Int {
+        return themeManager.getCurrentPalette().specialAccent
+    }
     
     private fun handleClose() {
         requestHideSelf(0)
+    }
+    
+    /**
+     * Adjust color brightness for visual hierarchy
+     */
+    private fun adjustColorBrightness(color: Int, factor: Float): Int {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(color, hsv)
+        hsv[2] = (hsv[2] * factor).coerceIn(0f, 1f)
+        return Color.HSVToColor(hsv)
+    }
+    
+    /**
+     * Data class for keyboard settings from Flutter
+     */
+    data class KeyboardSettings(
+        // General Settings
+        val numberRow: Boolean = false,
+        val hintedNumberRow: Boolean = false,
+        val hintedSymbols: Boolean = false,
+        val showUtilityKey: Boolean = true,
+        val displayLanguageOnSpace: Boolean = true,
+        val portraitFontSize: Double = 100.0,
+        val landscapeFontSize: Double = 100.0,
+        
+        // Layout Settings
+        val borderlessKeys: Boolean = false,
+        val oneHandedMode: Boolean = false,
+        val oneHandedModeWidth: Double = 87.0,
+        val landscapeFullScreenInput: Boolean = true,
+        val keyboardWidth: Double = 100.0,
+        val keyboardHeight: Double = 100.0,
+        val verticalKeySpacing: Double = 5.0,
+        val horizontalKeySpacing: Double = 2.0,
+        val portraitBottomOffset: Double = 1.0,
+        val landscapeBottomOffset: Double = 2.0,
+        
+        // Key Press Settings
+        val popupVisibility: Boolean = true,
+        val longPressDelay: Double = 200.0
+    )
+    
+    /**
+     * Load keyboard settings from SharedPreferences
+     */
+    private fun loadKeyboardSettings() {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            
+            keyboardSettings = KeyboardSettings(
+                // General Settings
+                numberRow = prefs.getBoolean("flutter.keyboard_settings.number_row", false),
+                hintedNumberRow = prefs.getBoolean("flutter.keyboard_settings.hinted_number_row", false),
+                hintedSymbols = prefs.getBoolean("flutter.keyboard_settings.hinted_symbols", false),
+                showUtilityKey = prefs.getBoolean("flutter.keyboard_settings.show_utility_key", true),
+                displayLanguageOnSpace = prefs.getBoolean("flutter.keyboard_settings.display_language_on_space", true),
+                portraitFontSize = prefs.getFloat("flutter.keyboard_settings.portrait_font_size", 100.0f).toDouble(),
+                landscapeFontSize = prefs.getFloat("flutter.keyboard_settings.landscape_font_size", 100.0f).toDouble(),
+                
+                // Layout Settings
+                borderlessKeys = prefs.getBoolean("flutter.keyboard_settings.borderless_keys", false),
+                oneHandedMode = prefs.getBoolean("flutter.keyboard_settings.one_handed_mode", false),
+                oneHandedModeWidth = prefs.getFloat("flutter.keyboard_settings.one_handed_mode_width", 87.0f).toDouble(),
+                landscapeFullScreenInput = prefs.getBoolean("flutter.keyboard_settings.landscape_full_screen_input", true),
+                keyboardWidth = prefs.getFloat("flutter.keyboard_settings.keyboard_width", 100.0f).toDouble(),
+                keyboardHeight = prefs.getFloat("flutter.keyboard_settings.keyboard_height", 100.0f).toDouble(),
+                verticalKeySpacing = prefs.getFloat("flutter.keyboard_settings.vertical_key_spacing", 5.0f).toDouble(),
+                horizontalKeySpacing = prefs.getFloat("flutter.keyboard_settings.horizontal_key_spacing", 2.0f).toDouble(),
+                portraitBottomOffset = prefs.getFloat("flutter.keyboard_settings.portrait_bottom_offset", 1.0f).toDouble(),
+                landscapeBottomOffset = prefs.getFloat("flutter.keyboard_settings.landscape_bottom_offset", 2.0f).toDouble(),
+                
+                // Key Press Settings
+                popupVisibility = prefs.getBoolean("flutter.keyboard_settings.popup_visibility", true),
+                longPressDelay = prefs.getFloat("flutter.keyboard_settings.long_press_delay", 200.0f).toDouble()
+            )
+            
+            // Apply settings immediately
+            applyKeyboardSettings()
+            
+            Log.d(TAG, "Keyboard settings loaded: numberRow=${keyboardSettings.numberRow}, " +
+                    "borderlessKeys=${keyboardSettings.borderlessKeys}, " +
+                    "oneHandedMode=${keyboardSettings.oneHandedMode}")
+                    
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading keyboard settings", e)
+        }
+    }
+    
+    /**
+     * Apply loaded keyboard settings to the keyboard view and layout
+     */
+    private fun applyKeyboardSettings() {
+        try {
+            // Apply number row setting
+            showNumberRow = keyboardSettings.numberRow
+            
+            // Apply font size settings (multiplier as percentage)
+            val fontMultiplier = (keyboardSettings.portraitFontSize / 100.0).toFloat()
+            
+            // Apply keyboard dimensions and spacing
+            keyboardView?.let { view ->
+                // Apply one-handed mode if enabled
+                if (keyboardSettings.oneHandedMode) {
+                    val layoutParams = view.layoutParams
+                    if (layoutParams != null) {
+                        val screenWidth = resources.displayMetrics.widthPixels
+                        val newWidth = (screenWidth * (keyboardSettings.oneHandedModeWidth / 100.0)).toInt()
+                        layoutParams.width = newWidth
+                        view.layoutParams = layoutParams
+                    }
+                }
+                
+                // Apply spacing settings via keyboard padding
+                val horizontalPadding = (keyboardSettings.horizontalKeySpacing * resources.displayMetrics.density).toInt()
+                val verticalPadding = (keyboardSettings.verticalKeySpacing * resources.displayMetrics.density).toInt()
+                view.setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
+                
+                // Invalidate to redraw with new settings
+                view.invalidate()
+            }
+            
+            // Apply long press delay
+            // Note: This would typically be applied to the KeyboardView's long press detection
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying keyboard settings", e)
+        }
     }
     
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -3546,7 +3746,8 @@ class AIKeyboardService : InputMethodService(),
                     val firstSuggestion = container.getChildAt(0) as TextView
                     firstSuggestion.apply {
                         text = "⚙️ Settings Updated"
-                        setTextColor(Color.parseColor("#4CAF50"))
+                        val palette = themeManager.getCurrentPalette()
+                        setTextColor(palette.specialAccent)
                         visibility = View.VISIBLE
                     }
                     
@@ -4171,6 +4372,10 @@ class AIKeyboardService : InputMethodService(),
                 container.removeAllViews()
                 
                 if (isEmojiPanelVisible) {
+                    // Save current mode before showing emoji
+                    previousKeyboardMode = currentKeyboardMode
+                    currentKeyboardMode = KeyboardMode.EMOJI
+                    
                     // Show comprehensive emoji panel instead of keyboard
                     gboardEmojiPanel?.let { emojiPanel ->
                         // Set proper layout parameters for emoji panel
@@ -4179,7 +4384,11 @@ class AIKeyboardService : InputMethodService(),
                             LinearLayout.LayoutParams.WRAP_CONTENT
                         )
                         container.addView(emojiPanel)
-                        Log.d(TAG, "Showing comprehensive emoji panel with proper dimensions")
+                        
+                        // Apply theme to emoji panel for consistent look
+                        applyThemeToEmojiPanel(emojiPanel, themeManager.getCurrentPalette())
+                        
+                        Log.d(TAG, "😊 Showing emoji panel (saved previous mode: $previousKeyboardMode)")
                     }
                     
                     // Keep suggestion bar visible for emoji search
@@ -4188,21 +4397,27 @@ class AIKeyboardService : InputMethodService(),
                     // Cleanup emoji panel popups before hiding
                     gboardEmojiPanel?.dismissAllPopups()
                     
+                    // Return to previous keyboard mode
+                    currentKeyboardMode = previousKeyboardMode
+                    
                     // Show keyboard
                     keyboardView?.let { kv ->
                         container.addView(kv)
-                        Log.d(TAG, "Showing keyboard")
+                        Log.d(TAG, "🔤 Returning to keyboard mode: $currentKeyboardMode")
                     }
                     
                     // Show suggestion bar when keyboard is visible
                     topContainer?.visibility = View.VISIBLE
                 }
                 
+                // Update emoji key visual state
+                keyboardView?.setEmojiKeyActive(isEmojiPanelVisible)
+                
                 // Request layout update
                 container.requestLayout()
             }
             
-            Log.d(TAG, "Comprehensive emoji panel toggled: visible=$isEmojiPanelVisible")
+            Log.d(TAG, "Emoji panel toggled: visible=$isEmojiPanelVisible, mode=$currentKeyboardMode")
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling comprehensive emoji panel", e)
         }
@@ -4388,29 +4603,28 @@ class AIKeyboardService : InputMethodService(),
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 resources.getDimensionPixelSize(R.dimen.toolbar_height)
             )
-            setPadding(
-                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
-                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
-                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
-                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding)
-            )
+            // Minimal padding for cleaner look (4dp horizontal, 6dp vertical)
+            setPadding(dpToPx(4), dpToPx(6), dpToPx(4), dpToPx(6))
+            gravity = Gravity.CENTER_VERTICAL // Center icons vertically
             // Use comprehensive theme-aware toolbar background
             val palette = themeManager.getCurrentPalette()
             setBackgroundColor(palette.toolbarBg)
         }
         
-        // Tone button (✨ auto_awesome)
-        val toneButton = createToolbarIconButton(
-            icon = "✨",
-            description = "Tone",
-            onClick = { handleToneAdjustment() }
+        // LEFT SIDE ICONS
+        
+        // Settings button (⚙️ settings)
+        val settingsButton = createToolbarIconButton(
+            icon = "⚙️",
+            description = "Settings",
+            onClick = { handleSettingsAccess() }
         )
         
-        // Rewrite button (✍️ edit_note)
-        val rewriteButton = createToolbarIconButton(
-            icon = "✍️",
-            description = "Rewrite",
-            onClick = { handleRewriteText() }
+        // Voice button (🎤 microphone)
+        val voiceButton = createToolbarIconButton(
+            icon = "🎤",
+            description = "Voice",
+            onClick = { handleVoiceInput() }
         )
         
         // Emoji button (😊 emoji_emotions)
@@ -4420,105 +4634,132 @@ class AIKeyboardService : InputMethodService(),
             onClick = { toggleEmojiPanel() }
         )
         
-        // GIF button (GIF gif_box)
-        val gifButton = createToolbarIconButton(
-            icon = "GIF",
-            description = "GIF",
-            onClick = { handleGifSelection() }
-        )
-        
-        // Clipboard button (📋 content_paste)
-        val clipboardButton = createToolbarIconButton(
-            icon = "📋",
-            description = "Clipboard",
-            onClick = { handleClipboardAccess() }
-        ).apply {
-            tag = "clipboard_button" // Add tag for finding this view later
+        // SPACER - pushes right icons to the end
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f // Weight = 1 to take all available space
+            )
         }
         
-        // Settings button (⚙️ settings)
-        val settingsButton = createToolbarIconButton(
-            icon = "⚙️",
-            description = "Settings",
-            onClick = { handleSettingsAccess() }
+        // RIGHT SIDE ICONS
+        
+        // ChatGPT button
+        val chatGPTButton = createToolbarIconButton(
+            icon = "💬",
+            description = "ChatGPT",
+            onClick = { handleClipboardAccess() }
         )
         
-        // Add buttons to toolbar
-        toolbar.addView(toneButton)
-        toolbar.addView(rewriteButton)
-        toolbar.addView(emojiButton)
-        toolbar.addView(gifButton)
-        toolbar.addView(clipboardButton)
-        toolbar.addView(settingsButton)
+        // Grammar/Rewrite button (✍️ edit_note)
+        val grammarButton = createToolbarIconButton(
+            icon = "✍️",
+            description = "Grammar",
+            onClick = { handleRewriteText() }
+        )
         
-        Log.d(TAG, "AI Features toolbar created with 6 buttons")
+        // AI Tone button (✨ auto_awesome)
+        val aiToneButton = createToolbarIconButton(
+            icon = "✨",
+            description = "AI Tone",
+            onClick = { handleToneAdjustment() }
+        )
+        
+        // Add buttons to toolbar: LEFT | SPACER | RIGHT
+        toolbar.addView(settingsButton)
+        toolbar.addView(voiceButton)
+        toolbar.addView(emojiButton)
+        toolbar.addView(spacer)
+        toolbar.addView(chatGPTButton)
+        toolbar.addView(grammarButton)
+        toolbar.addView(aiToneButton)
+        
+        Log.d(TAG, "Toolbar created: [Settings | Voice | Emoji] <spacer> [ChatGPT | Grammar | AI Tone]")
         return toolbar
     }
     
     /**
-     * Create toolbar icon button with comprehensive theme support
+     * Create toolbar icon - SIMPLIFIED: Just PNG image, no button background
      */
     private fun createToolbarIconButton(
         icon: String,
         description: String,
-        onClick: () -> Unit
-    ): LinearLayout {
-        val palette = themeManager.getCurrentPalette()
+        onClick: () -> Unit,
+        useAccentColor: Boolean = false  // Ignored - PNGs have their own colors
+    ): ImageView {
+        // Optimal icon size for clean UI (24dp - compact but clear)
+        val iconSize = dpToPx(24)
         
-        val buttonContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                0, 
-                LinearLayout.LayoutParams.MATCH_PARENT, 
-                1.0f // Equal weight distribution
-            )
-            setPadding(
-                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
-                0,
-                resources.getDimensionPixelSize(R.dimen.toolbar_button_padding),
-                0
-            )
-            gravity = Gravity.CENTER
+        // Map icon emoji to PNG filename (note: folder has trailing space)
+        val iconFileName = when (icon) {
+            "⚙️" -> "setting.png"         // Settings
+            "🎤" -> "voice_input.png"     // Voice/Microphone
+            "😊" -> "emoji.png"           // Emoji
+            "💬" -> "chatGPT.png"         // ChatGPT
+            "✍️" -> "Grammer_correct.png" // Grammar
+            "✨" -> "AI_tone.png"          // AI Tone
+            "📋" -> "clipboard.png"       // Clipboard (if needed)
+            else -> "chatGPT.png"         // Default fallback
+        }
+        
+        val iconView = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                // Better spacing: horizontal 10dp, vertical 8dp
+                setMargins(dpToPx(10), dpToPx(8), dpToPx(10), dpToPx(8))
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = description
+            tag = "toolbar_icon_$description"
+            
+            // NO BACKGROUND - completely transparent
+            setBackgroundColor(Color.TRANSPARENT)
+            elevation = 0f
+            
+            // Load PNG from assets (note: folder name has trailing space)
+            try {
+                val inputStream = assets.open("toolbar_icons /$iconFileName")
+                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                setImageBitmap(bitmap)
+                inputStream.close()
+                
+                // NO COLOR FILTER - use PNG as-is with original colors
+                clearColorFilter()
+                imageTintList = null
+                
+                Log.d(TAG, "✓ Loaded toolbar icon: $iconFileName")
+            } catch (e: Exception) {
+                Log.e(TAG, "✗ Failed to load toolbar icon: $iconFileName", e)
+                // Fallback: Create colored circle as placeholder
+                val drawable = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(Color.parseColor("#FF6B35"))
+                    setSize(iconSize / 4, iconSize / 4)
+                }
+                setImageDrawable(drawable)
+            }
+            
+            // Simple click with visual feedback (scale animation)
             isClickable = true
             isFocusable = true
-            
-            // Apply themed background with ripple effect
-            background = themeManager.createToolbarButtonDrawable()
-            
-            // Add pressed state color filter
             setOnTouchListener { view, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
-                        view.backgroundTintList = android.content.res.ColorStateList.valueOf(palette.toolbarIconPressed)
+                        animate().scaleX(0.85f).scaleY(0.85f).setDuration(100).start()
                     }
-                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_UP -> {
+                        animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                        onClick()
+                    }
                     android.view.MotionEvent.ACTION_CANCEL -> {
-                        view.backgroundTintList = null
-                        if (event.action == android.view.MotionEvent.ACTION_UP) {
-                            onClick()
-                        }
+                        animate().scaleX(1f).scaleY(1f).setDuration(100).start()
                     }
                 }
                 true
             }
         }
         
-        // Create icon text view with comprehensive theme support
-        val iconView = TextView(this).apply {
-            text = icon
-            textSize = palette.fontSize // Use theme font size for icons
-            setTextColor(palette.toolbarIcon)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target),
-                resources.getDimensionPixelSize(R.dimen.toolbar_min_touch_target)
-            )
-            contentDescription = description
-            tag = "toolbar_icon_$description" // Tag for theme updates
-        }
-        
-        buttonContainer.addView(iconView)
-        return buttonContainer
+        return iconView
     }
     
     /**
@@ -6250,5 +6491,108 @@ class AIKeyboardService : InputMethodService(),
         } catch (e: Exception) {
             Log.e(TAG, "Error switching to normal keyboard", e)
         }
+    }
+    
+    /**
+     * Load enhanced keyboard settings
+     */
+    private fun loadEnhancedSettings() {
+        try {
+            val prefs = getSharedPreferences("keyboard_enhanced_settings", Context.MODE_PRIVATE)
+            
+            // Load bilingual settings
+            bilingualModeEnabled = prefs.getBoolean("bilingual_enabled", false)
+            if (bilingualModeEnabled) {
+                val primary = prefs.getString("primary_language", "en") ?: "en"
+                val secondary = prefs.getString("secondary_language", "es") ?: "es"
+                keyboardLayoutManager?.enableBilingualMode(primary, secondary)
+                Log.d(TAG, "Bilingual mode enabled: $primary + $secondary")
+            }
+            
+            // Load floating keyboard settings
+            floatingModeEnabled = prefs.getBoolean("floating_enabled", false)
+            if (floatingModeEnabled) {
+                keyboardView?.enableFloatingMode(true)
+                Log.d(TAG, "Floating mode enabled")
+            }
+            
+            // Load adaptive sizing settings
+            adaptiveSizingEnabled = prefs.getBoolean("adaptive_sizing_enabled", true)
+            Log.d(TAG, "Adaptive sizing enabled: $adaptiveSizingEnabled")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading enhanced settings", e)
+        }
+    }
+    
+    /**
+     * Handle enhanced language switching with bilingual support
+     */
+    private fun handleEnhancedLanguageSwitch() {
+        try {
+            if (bilingualModeEnabled) {
+                // Toggle between primary and secondary language contexts
+                keyboardLayoutManager?.let { manager ->
+                    val currentText = getCurrentInputTextForLanguageDetection()
+                    val detectedLanguage = manager.detectLanguageContext(currentText)
+                    Log.d(TAG, "Detected language context: $detectedLanguage")
+                }
+            } else {
+                // Standard language switching
+                handleLanguageSwitch()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in enhanced language switch", e)
+        }
+    }
+    
+    /**
+     * Get current input text for language detection
+     */
+    private fun getCurrentInputTextForLanguageDetection(): String {
+        return try {
+            val ic = currentInputConnection
+            val beforeCursor = ic?.getTextBeforeCursor(100, 0)
+            beforeCursor?.toString() ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+    }
+    
+    /**
+     * Enable/disable bilingual typing mode
+     */
+    fun setBilingualMode(enabled: Boolean, primary: String = "en", secondary: String = "es") {
+        bilingualModeEnabled = enabled
+        if (enabled) {
+            keyboardLayoutManager?.enableBilingualMode(primary, secondary)
+        } else {
+            keyboardLayoutManager?.disableBilingualMode()
+        }
+        
+        // Save settings
+        val prefs = getSharedPreferences("keyboard_enhanced_settings", Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putBoolean("bilingual_enabled", enabled)
+            putString("primary_language", primary)
+            putString("secondary_language", secondary)
+            apply()
+        }
+        
+        Log.d(TAG, "Bilingual mode ${if (enabled) "enabled" else "disabled"}")
+    }
+    
+    /**
+     * Enable/disable floating keyboard mode
+     */
+    fun setFloatingMode(enabled: Boolean) {
+        floatingModeEnabled = enabled
+        keyboardView?.enableFloatingMode(enabled)
+        
+        // Save settings
+        val prefs = getSharedPreferences("keyboard_enhanced_settings", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("floating_enabled", enabled).apply()
+        
+        Log.d(TAG, "Floating mode ${if (enabled) "enabled" else "disabled"}")
     }
 }

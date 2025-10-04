@@ -13,7 +13,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'keyboard_feedback_system.dart';
 import 'theme_manager.dart';
-import 'theme_editor_screen.dart';
+import 'theme/theme_v2.dart';
+import 'theme/theme_editor_v2.dart';
 import 'services/firebase_auth_service.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
@@ -46,8 +47,11 @@ void main() async {
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
   
-  // Initialize theme manager
+  // Initialize theme manager V2
   await FlutterThemeManager.instance.initialize();
+  
+  // Ensure V2 theme system is ready
+  await ThemeManagerV2.loadThemeV2();
   
   runApp(const AIKeyboardApp());
 }
@@ -1397,7 +1401,7 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const ThemeEditorScreen(isCreatingNew: true),
+        builder: (context) => const ThemeGalleryScreen(),
       ),
     ).then((newTheme) {
       if (newTheme != null) {

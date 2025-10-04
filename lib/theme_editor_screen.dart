@@ -229,23 +229,7 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen>
             (color) => _updateTheme(_currentTheme.copyWith(deleteKeyColor: color)),
           ),
           
-          const SizedBox(height: 24),
-          _buildSectionHeader('Suggestion Bar'),
-          _buildColorPicker(
-            'Bar Background',
-            _currentTheme.suggestionBarColor,
-            (color) => _updateTheme(_currentTheme.copyWith(suggestionBarColor: color)),
-          ),
-          _buildColorPicker(
-            'Suggestion Text',
-            _currentTheme.suggestionTextColor,
-            (color) => _updateTheme(_currentTheme.copyWith(suggestionTextColor: color)),
-          ),
-          _buildColorPicker(
-            'Highlight Color',
-            _currentTheme.suggestionHighlightColor,
-            (color) => _updateTheme(_currentTheme.copyWith(suggestionHighlightColor: color)),
-          ),
+          // Suggestion bar now uses unified key colors - no separate controls needed
         ],
       ),
     );
@@ -304,24 +288,7 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen>
             (value) => _updateTheme(_currentTheme.copyWith(isItalic: value)),
           ),
           
-          const SizedBox(height: 24),
-          _buildSectionHeader('Suggestion Text'),
-          _buildFontSizeSlider(
-            'Suggestion Font Size',
-            _currentTheme.suggestionFontSize,
-            12.0,
-            24.0,
-            (value) => _updateTheme(_currentTheme.copyWith(suggestionFontSize: value)),
-          ),
-          
-          _buildTextStyleToggles(
-            'Bold Suggestions',
-            _currentTheme.suggestionBold,
-            (value) => _updateTheme(_currentTheme.copyWith(suggestionBold: value)),
-            'Italic Suggestions',
-            _currentTheme.suggestionItalic,
-            (value) => _updateTheme(_currentTheme.copyWith(suggestionItalic: value)),
-          ),
+          // Suggestion text now uses unified key text settings - no separate controls needed
           
           const SizedBox(height: 24),
           _buildSectionHeader('Font Preview'),

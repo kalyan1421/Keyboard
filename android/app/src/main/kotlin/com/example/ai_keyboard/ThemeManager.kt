@@ -2,688 +2,578 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.graphics.*
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
-import android.net.Uri
-import android.os.Build
+import android.graphics.drawable.*
 import android.util.Log
-import androidx.annotation.RequiresApi
-import androidx.core.content.ContextCompat
-import androidx.palette.graphics.Palette
-import android.app.WallpaperManager
-import org.json.JSONArray
+import android.util.LruCache
+import androidx.core.content.res.ResourcesCompat
+import com.example.ai_keyboard.themes.KeyboardThemeV2
+import com.example.ai_keyboard.themes.ThemePaletteV2
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
-import java.io.IOException
+import kotlin.math.*
 
 /**
- * Comprehensive Android Theme Manager
- * Handles Gboard baseline features + CleverType advanced customizations
- * Integrates with Flutter Theme Manager via SharedPreferences
+ * CleverType Theme Engine V2 - Single Source of Truth
+ * Replaces old theme system with centralized JSON-based theming
+ * All colors, drawables, and styling come from KeyboardThemeV2
  */
 class ThemeManager(private val context: Context) {
     
     companion object {
-        private const val TAG = "ThemeManager"
+        private const val TAG = "ThemeManagerV2"
         private const val PREFS_NAME = "FlutterSharedPreferences"
-        private const val THEME_DATA_KEY = "flutter.current_theme_data"
-        private const val THEME_ID_KEY = "flutter.current_theme_id"
-        private const val IMAGE_CACHE_DIR = "theme_backgrounds"
+        // CRITICAL: Flutter plugin adds "flutter." prefix automatically!
+        // So we access "flutter.theme.v2.json" which matches Flutter's 'theme.v2.json' key
+        private const val THEME_V2_KEY = "flutter.theme.v2.json"
+        private const val SETTINGS_CHANGED_KEY = "flutter.keyboard_settings.settings_changed"
         
-        // Default theme values
-        private const val DEFAULT_BACKGROUND_COLOR = 0xFFF5F5F5.toInt()
-        private const val DEFAULT_KEY_BACKGROUND = 0xFFFFFFFF.toInt()
-        private const val DEFAULT_KEY_TEXT = 0xFF212121.toInt()
-        private const val DEFAULT_ACCENT = 0xFF1A73E8.toInt()
+        // Cache sizes
+        private const val DRAWABLE_CACHE_SIZE = 50
+        private const val IMAGE_CACHE_SIZE = 10
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private var currentTheme: ThemeData? = null
-    private val imageCache = mutableMapOf<String, Drawable>()
+    private var currentTheme: KeyboardThemeV2? = null
+    private var currentPalette: ThemePaletteV2? = null
+    private var themeHash: String = ""
+    
+    // LRU Caches for performance
+    private val drawableCache = LruCache<String, Drawable>(DRAWABLE_CACHE_SIZE)
+    private val imageCache = LruCache<String, Drawable>(IMAGE_CACHE_SIZE)
     
     // Theme change listeners
     private val listeners = mutableListOf<ThemeChangeListener>()
     
     // SharedPreferences listener for automatic theme updates
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == THEME_DATA_KEY || key == THEME_ID_KEY) {
-            Log.d(TAG, "Theme data changed in SharedPreferences, reloading...")
-            loadCurrentTheme()
+        if (key == THEME_V2_KEY || key == SETTINGS_CHANGED_KEY) {
+            loadThemeFromPrefs()
             notifyThemeChanged()
         }
     }
     
     interface ThemeChangeListener {
-        fun onThemeChanged(theme: ThemeData)
+        fun onThemeChanged(theme: KeyboardThemeV2, palette: ThemePaletteV2)
+    }
+    
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+        loadThemeFromPrefs()
+    }
+    
+    fun addThemeChangeListener(listener: ThemeChangeListener) {
+        listeners.add(listener)
+    }
+    
+    fun removeThemeChangeListener(listener: ThemeChangeListener) {
+        listeners.remove(listener)
+    }
+    
+    private fun notifyThemeChanged() {
+        val theme = currentTheme
+        val palette = currentPalette
+        if (theme != null && palette != null) {
+            listeners.forEach { it.onThemeChanged(theme, palette) }
+        }
     }
     
     /**
-     * Unified theme palette for consistent theming across all UI elements
+     * Load theme from SharedPreferences
+     * Migrates old themes to V2 format automatically
      */
-    data class ThemePalette(
-        // Keyboard background
-        val keyboardBg: Int,
+    private fun loadThemeFromPrefs() {
+        val themeJson = prefs.getString(THEME_V2_KEY, null)
         
-        // Regular keys
-        val keyBg: Int,
-        val keyText: Int,
-        val keyPressedBg: Int,
-        val keyPressedText: Int,
-        
-        // Special keys (space, return, shift, backspace)
-        val specialKeyBg: Int,
-        val specialKeyText: Int,
-        val specialKeyIcon: Int,
-        val specialKeyPressedBg: Int,
-        
-        // Accent & highlights
-        val accent: Int,
-        val accentPressed: Int,
-        
-        // Toolbar
-        val toolbarBg: Int,
-        val toolbarIcon: Int,
-        val toolbarIconPressed: Int,
-        val toolbarDivider: Int,
-        
-        // Suggestion bar
-        val suggestBg: Int,
-        val suggestText: Int,
-        val suggestChipBg: Int,
-        val suggestChipText: Int,
-        val suggestChipPressed: Int,
-        val suggestChipBorder: Int,
-        
-        // Bottom navigation
-        val navBarBg: Int,
-        val navBarIcon: Int,
-        val navBarIconSelected: Int,
-        val navBarDivider: Int,
-        
-        // Emoji panel
-        val emojiPanelBg: Int,
-        val emojiPanelHeader: Int,
-        val emojiCategoryBg: Int,
-        val emojiCategorySelected: Int,
-        val emojiCategoryText: Int,
-        
-        // GIF/Sticker panels
-        val mediaPanelBg: Int,
-        val mediaPanelHeader: Int,
-        val mediaPanelSearchBg: Int,
-        
-        // Key styling
-        val cornerRadius: Float,
-        val keyBorderWidth: Float,
-        val keyBorderColor: Int,
-        val fontSize: Float,
-        val suggestionBarHeight: Float,
-        val toolbarHeight: Float
-    )
+        if (themeJson != null) {
+            // Load V2 theme
+            val theme = KeyboardThemeV2.fromJson(themeJson)
+            val newHash = themeJson.hashCode().toString()
+            
+            // Only update if theme actually changed
+            if (newHash != themeHash) {
+                currentTheme = theme
+                currentPalette = ThemePaletteV2(theme)
+                themeHash = newHash
+                
+                // Clear caches on theme change
+                drawableCache.evictAll()
+                imageCache.evictAll()
+            }
+        } else {
+            // Check for old theme format and migrate
+            migrateOldTheme()
+        }
+    }
     
     /**
-     * Comprehensive theme data class
-     * Maps to Flutter KeyboardThemeData
+     * Migrate old theme data to V2 format
      */
-    data class ThemeData(
-        val id: String,
-        val name: String,
-        val description: String,
+    private fun migrateOldTheme() {
+        // Check for old theme keys
+        val oldThemeData = prefs.getString("flutter.current_theme_data", null)
         
-        // Background Properties
-        val backgroundColor: Int,
-        val keyBackgroundColor: Int,
-        val keyPressedColor: Int,
-        val keyDisabledColor: Int,
-        
-        // Text Properties  
-        val keyTextColor: Int,
-        val keyPressedTextColor: Int,
-        val fontSize: Float,
-        val fontFamily: String,
-        val isBold: Boolean,
-        val isItalic: Boolean,
-        
-        // Accent & Special Keys
-        val accentColor: Int,
-        val specialKeyColor: Int,
-        val deleteKeyColor: Int,
-        
-        // Suggestion Bar
-        val suggestionBarColor: Int,
-        val suggestionTextColor: Int,
-        val suggestionHighlightColor: Int,
-        val suggestionFontSize: Float,
-        val suggestionBold: Boolean,
-        val suggestionItalic: Boolean,
-        
-        // Key Appearance
-        val keyCornerRadius: Float,
-        val showKeyShadows: Boolean,
-        val shadowDepth: Float,
-        val shadowColor: Int,
-        val keyBorderWidth: Float,
-        val keyBorderColor: Int,
-        
-        // Key Sizing & Spacing
-        val keyHeight: Float,
-        val keyWidth: Float,
-        val keySpacing: Float,
-        val rowSpacing: Float,
-        
-        // Advanced Background Options
-        val backgroundType: String, // 'solid', 'gradient', 'image'
-        val gradientColors: List<Int>,
-        val gradientAngle: Float,
-        val backgroundImagePath: String?,
-        val backgroundOpacity: Float,
-        val imageScaleType: String,
-        
-        // Material You Integration
-        val useMaterialYou: Boolean,
-        val followSystemTheme: Boolean,
-        
-        // Swipe Typing
-        val swipeTrailColor: Int,
-        val swipeTrailWidth: Float,
-        val swipeTrailOpacity: Float,
-        
-        // Performance Optimizations
-        val enableAnimations: Boolean,
-        val animationDuration: Int
-    ) {
-        companion object {
-            fun fromJson(json: JSONObject): ThemeData {
-                // Parse gradient colors
-                val gradientColorsArray = json.optJSONArray("gradientColors")
-                val gradientColors = mutableListOf<Int>()
-                if (gradientColorsArray != null) {
-                    for (i in 0 until gradientColorsArray.length()) {
-                        gradientColors.add(gradientColorsArray.getInt(i))
-                    }
-                }
+        if (oldThemeData != null) {
+            try {
+                val oldTheme = JSONObject(oldThemeData)
+                val migratedTheme = createMigratedTheme(oldTheme)
                 
-                return ThemeData(
-                    id = json.optString("id", "default"),
-                    name = json.optString("name", "Default Theme"),
-                    description = json.optString("description", ""),
-                    backgroundColor = json.optInt("backgroundColor", DEFAULT_BACKGROUND_COLOR),
-                    keyBackgroundColor = json.optInt("keyBackgroundColor", DEFAULT_KEY_BACKGROUND),
-                    keyPressedColor = json.optInt("keyPressedColor", 0xFFE3F2FD.toInt()),
-                    keyDisabledColor = json.optInt("keyDisabledColor", 0xFFEEEEEE.toInt()),
-                    keyTextColor = json.optInt("keyTextColor", DEFAULT_KEY_TEXT),
-                    keyPressedTextColor = json.optInt("keyPressedTextColor", 0xFF1976D2.toInt()),
-                    fontSize = json.optDouble("fontSize", 18.0).toFloat(),
-                    fontFamily = json.optString("fontFamily", "Roboto"),
-                    isBold = json.optBoolean("isBold", false),
-                    isItalic = json.optBoolean("isItalic", false),
-                    accentColor = json.optInt("accentColor", DEFAULT_ACCENT),
-                    specialKeyColor = json.optInt("specialKeyColor", 0xFFE0E0E0.toInt()),
-                    deleteKeyColor = json.optInt("deleteKeyColor", 0xFFF44336.toInt()),
-                    suggestionBarColor = json.optInt("suggestionBarColor", 0xFFFAFAFA.toInt()),
-                    suggestionTextColor = json.optInt("suggestionTextColor", 0xFF424242.toInt()),
-                    suggestionHighlightColor = json.optInt("suggestionHighlightColor", DEFAULT_ACCENT),
-                    suggestionFontSize = json.optDouble("suggestionFontSize", 16.0).toFloat(),
-                    suggestionBold = json.optBoolean("suggestionBold", false),
-                    suggestionItalic = json.optBoolean("suggestionItalic", false),
-                    keyCornerRadius = json.optDouble("keyCornerRadius", 6.0).toFloat(),
-                    showKeyShadows = json.optBoolean("showKeyShadows", true),
-                    shadowDepth = json.optDouble("shadowDepth", 2.0).toFloat(),
-                    shadowColor = json.optInt("shadowColor", 0x1A000000),
-                    keyBorderWidth = json.optDouble("keyBorderWidth", 0.5).toFloat(),
-                    keyBorderColor = json.optInt("keyBorderColor", 0xFFE0E0E0.toInt()),
-                    keyHeight = json.optDouble("keyHeight", 48.0).toFloat(),
-                    keyWidth = json.optDouble("keyWidth", 32.0).toFloat(),
-                    keySpacing = json.optDouble("keySpacing", 4.0).toFloat(),
-                    rowSpacing = json.optDouble("rowSpacing", 8.0).toFloat(),
-                    backgroundType = json.optString("backgroundType", "solid"),
-                    gradientColors = gradientColors,
-                    gradientAngle = json.optDouble("gradientAngle", 45.0).toFloat(),
-                    backgroundImagePath = json.optString("backgroundImagePath", null),
-                    backgroundOpacity = json.optDouble("backgroundOpacity", 1.0).toFloat(),
-                    imageScaleType = json.optString("imageScaleType", "cover"),
-                    useMaterialYou = json.optBoolean("useMaterialYou", false),
-                    followSystemTheme = json.optBoolean("followSystemTheme", false),
-                    swipeTrailColor = json.optInt("swipeTrailColor", json.optInt("accentColor", DEFAULT_ACCENT)),
-                    swipeTrailWidth = json.optDouble("swipeTrailWidth", 8.0).toFloat(),
-                    swipeTrailOpacity = json.optDouble("swipeTrailOpacity", 0.7).toFloat(),
-                    enableAnimations = json.optBoolean("enableAnimations", true),
-                    animationDuration = json.optInt("animationDuration", 150)
+                // Save as V2 and remove old keys
+                saveTheme(migratedTheme)
+                prefs.edit()
+                    .remove("flutter.current_theme_data")
+                    .remove("flutter.current_theme_id")
+                    .apply()
+        } catch (e: Exception) {
+                loadDefaultTheme()
+            }
+            } else {
+            loadDefaultTheme()
+        }
+    }
+    
+    private fun createMigratedTheme(oldTheme: JSONObject): KeyboardThemeV2 {
+        // Map old theme fields to new V2 structure with reasonable defaults
+        val theme = KeyboardThemeV2.createDefault().copy(
+            id = oldTheme.optString("id", "migrated_${System.currentTimeMillis()}"),
+            name = oldTheme.optString("name", "Migrated Theme"),
+            background = KeyboardThemeV2.Background(
+                type = "solid",
+                color = parseOldColor(oldTheme.optString("backgroundColor", "#1B1B1F")),
+                imagePath = null,
+                imageOpacity = 0.85f,
+                gradient = null,
+                overlayEffects = emptyList(),
+                adaptive = null
+            ),
+            keys = KeyboardThemeV2.Keys(
+                preset = "bordered",
+                bg = parseOldColor(oldTheme.optString("keyBackgroundColor", "#3A3A3F")),
+                text = parseOldColor(oldTheme.optString("keyTextColor", "#FFFFFF")),
+                pressed = parseOldColor(oldTheme.optString("keyPressedColor", "#505056")),
+                rippleAlpha = 0.12f,
+                border = KeyboardThemeV2.Keys.Border(
+                    enabled = true,
+                    color = parseOldColor(oldTheme.optString("keyBorderColor", "#636366")),
+                    widthDp = 1.0f
+                ),
+                radius = oldTheme.optDouble("keyCornerRadius", 10.0).toFloat(),
+                shadow = KeyboardThemeV2.Keys.Shadow(
+                    enabled = oldTheme.optBoolean("showKeyShadows", true),
+                    elevationDp = oldTheme.optDouble("shadowDepth", 2.0).toFloat(),
+                    glow = false
+                ),
+                font = KeyboardThemeV2.Keys.Font(
+                    family = oldTheme.optString("fontFamily", "Roboto"),
+                    sizeSp = oldTheme.optDouble("fontSize", 18.0).toFloat(),
+                    bold = oldTheme.optBoolean("isBold", false),
+                    italic = oldTheme.optBoolean("isItalic", false)
                 )
+            ),
+            specialKeys = KeyboardThemeV2.SpecialKeys(
+                accent = parseOldColor(oldTheme.optString("accentColor", "#FF9F1A")),
+                useAccentForEnter = true,
+                applyTo = listOf("enter", "globe", "emoji", "mic"),
+                spaceLabelColor = parseOldColor(oldTheme.optString("keyTextColor", "#FFFFFF"))
+            )
+        )
+        
+        return theme
+    }
+    
+    private fun parseOldColor(colorStr: String): Int {
+        return try {
+            Color.parseColor(colorStr)
+        } catch (e: Exception) {
+            Color.TRANSPARENT
+        }
+    }
+    
+    private fun loadDefaultTheme() {
+        val defaultTheme = KeyboardThemeV2.createDefault()
+        saveTheme(defaultTheme)
+    }
+    
+    /**
+     * Save theme to SharedPreferences
+     */
+    fun saveTheme(theme: KeyboardThemeV2) {
+        val json = theme.toJson()
+        prefs.edit()
+            .putString(THEME_V2_KEY, json)
+            .putBoolean(SETTINGS_CHANGED_KEY, true)
+            .apply()
+    }
+    
+    /**
+     * Get current theme (never null)
+     */
+    fun getCurrentTheme(): KeyboardThemeV2 {
+        return currentTheme ?: KeyboardThemeV2.createDefault()
+    }
+    
+    /**
+     * Get current palette (derived colors)
+     */
+    fun getCurrentPalette(): ThemePaletteV2 {
+        return currentPalette ?: ThemePaletteV2(KeyboardThemeV2.createDefault())
+    }
+    
+    /**
+     * Force reload theme from preferences
+     */
+    fun reload() {
+        loadThemeFromPrefs()
+    }
+    
+    // ===== DRAWABLE FACTORY METHODS =====
+    
+    /**
+     * Create cached key background drawable
+     */
+    fun createKeyDrawable(): Drawable {
+        val cacheKey = "key_${themeHash}"
+        return drawableCache.get(cacheKey) ?: run {
+            val drawable = buildKeyDrawable()
+            drawableCache.put(cacheKey, drawable)
+            drawable
+        }
+    }
+    
+    /**
+     * Create cached key pressed drawable
+     */
+    fun createKeyPressedDrawable(): Drawable {
+        val cacheKey = "key_pressed_${themeHash}"
+        return drawableCache.get(cacheKey) ?: run {
+            val drawable = buildKeyPressedDrawable()
+            drawableCache.put(cacheKey, drawable)
+            drawable
+        }
+    }
+    
+    /**
+     * Create cached special key drawable (with accent)
+     */
+    fun createSpecialKeyDrawable(): Drawable {
+        val cacheKey = "special_key_${themeHash}"
+        return drawableCache.get(cacheKey) ?: run {
+            val drawable = buildSpecialKeyDrawable()
+            drawableCache.put(cacheKey, drawable)
+            drawable
+        }
+    }
+    
+    /**
+     * Create cached toolbar background drawable
+     */
+    fun createToolbarBackground(): Drawable {
+        val cacheKey = "toolbar_bg_$themeHash"
+        drawableCache.get(cacheKey)?.let { return it }
+        val palette = getCurrentPalette()
+        val drawable = GradientDrawable().apply {
+            setColor(palette.toolbarBg)
+            cornerRadius = 0f // No corner radius for seamless connection
+        }
+        drawableCache.put(cacheKey, drawable)
+        return drawable
+    }
+
+    fun createSuggestionBarBackground(): Drawable {
+        val cacheKey = "suggestion_bg_$themeHash"
+        drawableCache.get(cacheKey)?.let { return it }
+        val palette = getCurrentPalette()
+        val drawable = GradientDrawable().apply {
+            setColor(palette.suggestionBg)
+            cornerRadius = 0f // No corner radius for seamless connection
+        }
+        drawableCache.put(cacheKey, drawable)
+        return drawable
+    }
+
+    /**
+     * DEPRECATED: Chips removed - suggestions are now text-only
+     * Returning transparent drawable for backward compatibility
+     */
+    @Deprecated("Suggestions are now text-only, no chip backgrounds")
+    fun createSuggestionChip(isPressed: Boolean): Drawable {
+        return ColorDrawable(Color.TRANSPARENT)
+    }
+    
+    /**
+     * DEPRECATED: Chips removed - suggestions are now text-only
+     * Returning transparent drawable for backward compatibility
+     */
+    @Deprecated("Suggestions are now text-only, no chip backgrounds")
+    fun createSuggestionChipDrawable(): Drawable {
+        return ColorDrawable(Color.TRANSPARENT)
+    }
+    
+    /**
+     * Create cached keyboard background drawable
+     */
+    fun createKeyboardBackground(): Drawable {
+        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        val cacheKey = "keyboard_bg_${theme.background.type}_${palette.isSeasonalActive}_${themeHash}"
+        
+        return drawableCache.get(cacheKey) ?: run {
+            val drawable = when (theme.background.type) {
+                "adaptive" -> buildAdaptiveBackground()
+                "gradient" -> buildGradientBackground()
+                "image" -> buildImageBackground()
+                else -> buildSolidDrawable(theme.background.color ?: Color.BLACK)
             }
             
-            fun getDefault(): ThemeData = ThemeData(
-                id = "gboard_light",
-                name = "Gboard Light",
-                description = "Clean, minimal design inspired by Google Keyboard",
-                backgroundColor = DEFAULT_BACKGROUND_COLOR,
-                keyBackgroundColor = DEFAULT_KEY_BACKGROUND,
-                keyPressedColor = 0xFFE3F2FD.toInt(),
-                keyDisabledColor = 0xFFEEEEEE.toInt(),
-                keyTextColor = DEFAULT_KEY_TEXT,
-                keyPressedTextColor = 0xFF1976D2.toInt(),
-                fontSize = 18.0f,
-                fontFamily = "Roboto",
-                isBold = false,
-                isItalic = false,
-                accentColor = DEFAULT_ACCENT,
-                specialKeyColor = 0xFFE0E0E0.toInt(),
-                deleteKeyColor = 0xFFF44336.toInt(),
-                suggestionBarColor = 0xFFFAFAFA.toInt(),
-                suggestionTextColor = 0xFF424242.toInt(),
-                suggestionHighlightColor = DEFAULT_ACCENT,
-                suggestionFontSize = 16.0f,
-                suggestionBold = false,
-                suggestionItalic = false,
-                keyCornerRadius = 6.0f,
-                showKeyShadows = true,
-                shadowDepth = 2.0f,
-                shadowColor = 0x1A000000,
-                keyBorderWidth = 0.5f,
-                keyBorderColor = 0xFFE0E0E0.toInt(),
-                keyHeight = 48.0f,
-                keyWidth = 32.0f,
-                keySpacing = 4.0f,
-                rowSpacing = 8.0f,
-                backgroundType = "solid",
-                gradientColors = listOf(0xFFF5F5F5.toInt(), 0xFFE0E0E0.toInt()),
-                gradientAngle = 45.0f,
-                backgroundImagePath = null,
-                backgroundOpacity = 1.0f,
-                imageScaleType = "cover",
-                useMaterialYou = false,
-                followSystemTheme = false,
-                swipeTrailColor = DEFAULT_ACCENT,
-                swipeTrailWidth = 8.0f,
-                swipeTrailOpacity = 0.7f,
-                enableAnimations = true,
-                animationDuration = 150
+            // Apply seasonal overlay if active
+            val finalDrawable = if (palette.isSeasonalActive) {
+                applySeasonalOverlay(drawable, palette.currentSeasonalPack)
+            } else {
+                drawable
+            }
+            
+            drawableCache.put(cacheKey, finalDrawable)
+            finalDrawable
+        }
+    }
+    
+    /**
+     * Create sticker overlay drawable
+     */
+    fun createStickerOverlay(): Drawable? {
+        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        
+        if (!palette.hasStickers) return null
+        
+        val cacheKey = "sticker_${theme.stickers.pack}_${theme.stickers.position}_${themeHash}"
+        
+        return drawableCache.get(cacheKey) ?: run {
+            val drawable = loadStickerDrawable(theme.stickers.pack)
+            drawable?.let { 
+                it.alpha = (palette.stickerOpacity * 255).toInt()
+                drawableCache.put(cacheKey, it)
+            }
+            drawable
+        }
+    }
+
+    // ===== PRIVATE DRAWABLE BUILDERS =====
+    
+    private fun buildKeyDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        val theme = getCurrentTheme()
+        
+        val drawable = GradientDrawable()
+        drawable.shape = GradientDrawable.RECTANGLE
+        drawable.setColor(palette.keyBg)
+        drawable.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        
+        // Apply border if enabled
+        if (palette.keyBorderEnabled) {
+            drawable.setStroke(
+                (palette.keyBorderWidth * context.resources.displayMetrics.density).toInt(),
+                palette.keyBorderColor
             )
         }
-    }
-    
-    /**
-     * Initialize theme manager and load current theme
-     */
-    fun initialize() {
-        Log.d(TAG, "Initializing ThemeManager")
-        loadCurrentTheme()
         
-        // Register SharedPreferences listener for automatic theme updates
-        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+        // Add shadow/elevation if enabled
+        if (palette.keyShadowEnabled) {
+            // Note: GradientDrawable doesn't support shadows directly
+            // For full shadow support, would need LayerDrawable with shadow layer
+        }
         
-        // Create cache directory for background images
-        val cacheDir = File(context.filesDir, IMAGE_CACHE_DIR)
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
+        return drawable
+    }
+    
+    private fun buildKeyPressedDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        
+        val drawable = GradientDrawable()
+        drawable.shape = GradientDrawable.RECTANGLE
+        drawable.setColor(palette.keyPressed)
+        drawable.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        
+        if (palette.keyBorderEnabled) {
+            drawable.setStroke(
+                (palette.keyBorderWidth * context.resources.displayMetrics.density).toInt(),
+                palette.keyBorderColor
+            )
         }
+        
+        return drawable
     }
     
-    /**
-     * Load current theme from SharedPreferences (set by Flutter)
-     */
-    private fun loadCurrentTheme() {
-        try {
-            // Force preferences reload to get latest data
-            val freshPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val themeDataString = freshPrefs.getString(THEME_DATA_KEY, null)
-            
-            Log.d(TAG, "Loading theme data: ${themeDataString?.take(100)}...")
-            
-            if (themeDataString != null && themeDataString.isNotBlank()) {
-                val jsonObject = JSONObject(themeDataString)
-                currentTheme = ThemeData.fromJson(jsonObject)
-                Log.d(TAG, "Successfully loaded theme: ${currentTheme?.name}")
-            } else {
-                Log.w(TAG, "No theme data found, using default")
-                currentTheme = ThemeData.getDefault()
-            }
-            
-            // Load background image if specified
-            currentTheme?.backgroundImagePath?.let { imagePath ->
-                loadBackgroundImage(imagePath)
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading theme, using default", e)
-            currentTheme = ThemeData.getDefault()
+    private fun buildSpecialKeyDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        
+        val drawable = GradientDrawable()
+        drawable.shape = GradientDrawable.RECTANGLE
+        drawable.setColor(palette.specialAccent)
+        drawable.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        
+        if (palette.keyBorderEnabled) {
+            drawable.setStroke(
+                (palette.keyBorderWidth * context.resources.displayMetrics.density).toInt(),
+                palette.keyBorderColor
+            )
         }
+        
+        return drawable
     }
     
-    /**
-     * Get current theme data
-     */
-    fun getCurrentTheme(): ThemeData {
-        return currentTheme ?: ThemeData.getDefault()
+    @Deprecated("Chips removed - suggestions are text-only")
+    private fun buildSuggestionChipDrawable(): Drawable {
+        return ColorDrawable(Color.TRANSPARENT)
     }
     
-    /**
-     * Get unified theme palette for consistent UI theming
-     */
-    fun getCurrentPalette(): ThemePalette {
+    @Deprecated("Chips removed - suggestions are text-only")
+    private fun buildSuggestionChipPressedDrawable(): Drawable {
+        return ColorDrawable(Color.TRANSPARENT)
+    }
+    
+    private fun buildSolidDrawable(color: Int): Drawable {
+        val drawable = GradientDrawable()
+        drawable.shape = GradientDrawable.RECTANGLE
+        drawable.setColor(color)
+        return drawable
+    }
+    
+    private fun buildGradientBackground(): Drawable {
         val theme = getCurrentTheme()
-        return ThemePalette(
-            // Keyboard background
-            keyboardBg = theme.backgroundColor,
-            
-            // Regular keys
-            keyBg = theme.keyBackgroundColor,
-            keyText = theme.keyTextColor,
-            keyPressedBg = theme.keyPressedColor,
-            keyPressedText = theme.keyPressedTextColor,
-            
-            // Special keys (space, return, shift, backspace)
-            // Use slightly darker version of key background for contrast
-            specialKeyBg = adjustColorBrightness(theme.keyBackgroundColor, 0.9f),
-            specialKeyText = theme.keyTextColor,
-            specialKeyIcon = theme.keyTextColor,
-            specialKeyPressedBg = adjustColorBrightness(theme.keyBackgroundColor, 0.75f),
-            
-            // Accent & highlights
-            accent = theme.accentColor,
-            accentPressed = adjustColorBrightness(theme.accentColor, 0.8f),
-            
-            // Toolbar
-            toolbarBg = theme.backgroundColor,
-            toolbarIcon = theme.keyTextColor,
-            toolbarIconPressed = theme.accentColor,
-            toolbarDivider = adjustColorBrightness(theme.backgroundColor, 0.9f),
-            
-            // Suggestion bar
-            suggestBg = theme.suggestionBarColor,
-            suggestText = theme.suggestionTextColor,
-            suggestChipBg = theme.keyBackgroundColor,
-            suggestChipText = theme.keyTextColor,
-            suggestChipPressed = theme.keyPressedColor,
-            suggestChipBorder = adjustColorBrightness(theme.keyBackgroundColor, 0.85f),
-            
-            // Bottom navigation
-            navBarBg = theme.backgroundColor,
-            navBarIcon = theme.keyTextColor,
-            navBarIconSelected = theme.accentColor,
-            navBarDivider = adjustColorBrightness(theme.backgroundColor, 0.9f),
-            
-            // Emoji panel
-            emojiPanelBg = theme.backgroundColor,
-            emojiPanelHeader = adjustColorBrightness(theme.backgroundColor, 0.97f),
-            emojiCategoryBg = theme.backgroundColor,
-            emojiCategorySelected = theme.accentColor,
-            emojiCategoryText = theme.keyTextColor,
-            
-            // GIF/Sticker panels
-            mediaPanelBg = theme.backgroundColor,
-            mediaPanelHeader = adjustColorBrightness(theme.backgroundColor, 0.97f),
-            mediaPanelSearchBg = theme.keyBackgroundColor,
-            
-            // Key styling
-            cornerRadius = theme.keyCornerRadius,
-            keyBorderWidth = theme.keyBorderWidth,
-            keyBorderColor = theme.keyBorderColor,
-            fontSize = theme.fontSize,
-            suggestionBarHeight = 56f, // Increased from 48dp for better touch targets
-            toolbarHeight = 48f
-        )
+        val gradient = theme.background.gradient ?: return buildSolidDrawable(Color.BLACK)
+        
+        val orientation = when (gradient.orientation) {
+            "TOP_BOTTOM" -> GradientDrawable.Orientation.TOP_BOTTOM
+            "TL_BR" -> GradientDrawable.Orientation.TL_BR
+            "TR_BL" -> GradientDrawable.Orientation.TR_BL
+            "LEFT_RIGHT" -> GradientDrawable.Orientation.LEFT_RIGHT
+            "BR_TL" -> GradientDrawable.Orientation.BR_TL
+            "BL_TR" -> GradientDrawable.Orientation.BL_TR
+            else -> GradientDrawable.Orientation.TOP_BOTTOM
+        }
+        
+        val drawable = GradientDrawable(orientation, gradient.colors.toIntArray())
+        drawable.shape = GradientDrawable.RECTANGLE
+        
+        return drawable
     }
     
-    /**
-     * Adjust color brightness for visual hierarchy
-     */
-    private fun adjustColorBrightness(color: Int, factor: Float): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        hsv[2] = (hsv[2] * factor).coerceIn(0f, 1f)
-        return Color.HSVToColor(hsv)
-    }
-    
-    /**
-     * Reload theme from SharedPreferences
-     * Called when Flutter app updates theme
-     */
-    fun reloadTheme(): Boolean {
-        return try {
-            Log.d(TAG, "Reloading theme from SharedPreferences...")
-            
-            val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            val themeJson = prefs.getString("flutter.current_theme_data", null)
-            
-            if (themeJson != null) {
-                currentTheme = ThemeData.fromJson(JSONObject(themeJson))
-                Log.d(TAG, "Theme reloaded: ${currentTheme?.name}")
+    private fun buildImageBackground(): Drawable {
+        val theme = getCurrentTheme()
+        val imagePath = theme.background.imagePath
+        
+        if (imagePath.isNullOrEmpty()) {
+            return buildSolidDrawable(theme.background.color ?: Color.BLACK)
+        }
+        
+        // Try to load cached image
+        val cacheKey = "bg_image_$imagePath"
+        return imageCache.get(cacheKey) ?: run {
+            try {
+                val bitmap = loadImageBitmap(imagePath)
+                val drawable = BitmapDrawable(context.resources, bitmap)
+                drawable.alpha = (theme.background.imageOpacity * 255).toInt()
                 
-                // Notify listeners immediately
-                notifyThemeChanged()
-                true
-            } else {
-                Log.w(TAG, "No theme data found in SharedPreferences")
-                false
+                imageCache.put(cacheKey, drawable)
+                drawable
+            } catch (e: Exception) {
+                buildSolidDrawable(theme.background.color ?: Color.BLACK)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error reloading theme", e)
-            false
         }
     }
     
+    private fun loadImageBitmap(path: String): Bitmap {
+        return if (path.startsWith("/")) {
+            // Absolute path
+            val file = File(path)
+            BitmapFactory.decodeStream(FileInputStream(file))
+        } else {
+            // Asset path
+            val inputStream = context.assets.open(path)
+            BitmapFactory.decodeStream(inputStream)
+        }
+    }
+    
+    // ===== RIPPLE DRAWABLE FACTORY =====
+    
     /**
-     * Create Paint for key text with current theme
+     * Create ripple drawable for key press effect
+     */
+    fun createKeyRippleDrawable(): RippleDrawable? {
+        val palette = getCurrentPalette()
+        
+        if (palette.pressAnimation != "ripple") {
+            return null
+        }
+        
+        val rippleColor = ColorStateList.valueOf(
+            Color.argb(
+                (palette.rippleAlpha * 255).toInt(),
+                Color.red(palette.keyText),
+                Color.green(palette.keyText),
+                Color.blue(palette.keyText)
+            )
+        )
+        
+        val mask = GradientDrawable()
+        mask.shape = GradientDrawable.RECTANGLE
+        mask.setColor(Color.WHITE)
+        mask.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        
+        return RippleDrawable(rippleColor, createKeyDrawable(), mask)
+    }
+    
+    // ===== PAINT FACTORY METHODS =====
+    
+    /**
+     * Create text paint for keys
      */
     fun createKeyTextPaint(): Paint {
-        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        
         return Paint().apply {
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
-            textSize = theme.fontSize * context.resources.displayMetrics.density
-            color = theme.keyTextColor
-            typeface = createTypeface(theme.fontFamily, theme.isBold, theme.isItalic)
+            textSize = palette.keyFontSize * context.resources.displayMetrics.scaledDensity
+            color = palette.keyText
+            typeface = createTypeface(palette.keyFontFamily, palette.keyFontBold, palette.keyFontItalic)
         }
     }
     
     /**
-     * Create Paint for pressed key text
-     */
-    fun createPressedKeyTextPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            textAlign = Paint.Align.CENTER
-            textSize = theme.fontSize * context.resources.displayMetrics.density
-            color = theme.keyPressedTextColor
-            typeface = createTypeface(theme.fontFamily, theme.isBold, theme.isItalic)
-        }
-    }
-    
-    /**
-     * Create Paint for key background
-     */
-    fun createKeyBackgroundPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = theme.keyBackgroundColor
-        }
-    }
-    
-    /**
-     * Create Paint for pressed key background
-     */
-    fun createPressedKeyBackgroundPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = theme.keyPressedColor
-        }
-    }
-    
-    /**
-     * Create Paint for special keys (Shift, Enter, etc.)
-     */
-    fun createSpecialKeyBackgroundPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = theme.specialKeyColor
-        }
-    }
-    
-    /**
-     * Create Paint for accent/highlighted keys
-     */
-    fun createAccentKeyBackgroundPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = theme.accentColor
-        }
-    }
-    
-    /**
-     * Create Paint for key borders
-     */
-    fun createKeyBorderPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.STROKE
-            strokeWidth = theme.keyBorderWidth
-            color = theme.keyBorderColor
-        }
-    }
-    
-    /**
-     * Create Paint for key shadows
-     */
-    fun createKeyShadowPaint(): Paint {
-        val theme = getCurrentTheme()
-        return Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.FILL
-            color = theme.shadowColor
-        }
-    }
-    
-    /**
-     * Create Paint for suggestion text
+     * Create text paint for suggestions
      */
     fun createSuggestionTextPaint(): Paint {
-        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        
         return Paint().apply {
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
-            textSize = theme.suggestionFontSize * context.resources.displayMetrics.density
-            color = theme.suggestionTextColor
-            typeface = createTypeface(theme.fontFamily, theme.suggestionBold, theme.suggestionItalic)
+            textSize = palette.suggestionFontSize * context.resources.displayMetrics.scaledDensity
+            color = palette.suggestionText
+            typeface = createTypeface(palette.suggestionFontFamily, palette.suggestionFontBold, false)
         }
     }
     
     /**
-     * Create keyboard background drawable
+     * Create text paint for space label
      */
-    fun createKeyboardBackgroundDrawable(): Drawable {
-        val theme = getCurrentTheme()
+    fun createSpaceLabelPaint(): Paint {
+        val palette = getCurrentPalette()
         
-        return when (theme.backgroundType) {
-            "gradient" -> createGradientBackground(theme)
-            "image" -> createImageBackground(theme) ?: createSolidBackground(theme)
-            else -> createSolidBackground(theme)
+        return Paint().apply {
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            textSize = (palette.keyFontSize * 0.75f) * context.resources.displayMetrics.scaledDensity
+            color = palette.spaceLabelColor
+            typeface = createTypeface(palette.keyFontFamily, false, false)
         }
     }
     
-    /**
-     * Create solid color background
-     */
-    private fun createSolidBackground(theme: ThemeData): Drawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(theme.backgroundColor)
-        }
-    }
-    
-    /**
-     * Create gradient background
-     */
-    private fun createGradientBackground(theme: ThemeData): Drawable {
-        val colors = theme.gradientColors.toIntArray()
-        val orientation = getGradientOrientation(theme.gradientAngle)
-        
-        return GradientDrawable(orientation, colors).apply {
-            shape = GradientDrawable.RECTANGLE
-        }
-    }
-    
-    /**
-     * Create image background
-     */
-    private fun createImageBackground(theme: ThemeData): Drawable? {
-        val imagePath = theme.backgroundImagePath ?: return null
-        
-        return try {
-            val drawable = imageCache[imagePath] ?: loadBackgroundImage(imagePath)
-            drawable?.let { 
-                // Apply opacity
-                it.alpha = (theme.backgroundOpacity * 255).toInt()
-                it
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error creating image background", e)
-            null
-        }
-    }
-    
-    /**
-     * Load background image from file path
-     */
-    private fun loadBackgroundImage(imagePath: String): Drawable? {
-        return try {
-            val imageFile = File(imagePath)
-            if (!imageFile.exists()) {
-                Log.w(TAG, "Background image not found: $imagePath")
-                return null
-            }
-            
-            val bitmap = BitmapFactory.decodeFile(imagePath)
-            if (bitmap != null) {
-                val drawable = BitmapDrawable(context.resources, bitmap)
-                imageCache[imagePath] = drawable
-                Log.d(TAG, "Loaded background image: $imagePath")
-                drawable
-            } else {
-                Log.e(TAG, "Failed to decode image: $imagePath")
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading background image: $imagePath", e)
-            null
-        }
-    }
-    
-    /**
-     * Convert gradient angle to GradientDrawable.Orientation
-     */
-    private fun getGradientOrientation(angle: Float): GradientDrawable.Orientation {
-        val normalizedAngle = ((angle % 360) + 360) % 360
-        
-        return when {
-            normalizedAngle < 22.5 || normalizedAngle >= 337.5 -> GradientDrawable.Orientation.LEFT_RIGHT
-            normalizedAngle < 67.5 -> GradientDrawable.Orientation.BL_TR
-            normalizedAngle < 112.5 -> GradientDrawable.Orientation.BOTTOM_TOP
-            normalizedAngle < 157.5 -> GradientDrawable.Orientation.BR_TL
-            normalizedAngle < 202.5 -> GradientDrawable.Orientation.RIGHT_LEFT
-            normalizedAngle < 247.5 -> GradientDrawable.Orientation.TR_BL
-            normalizedAngle < 292.5 -> GradientDrawable.Orientation.TOP_BOTTOM
-            else -> GradientDrawable.Orientation.TL_BR
-        }
-    }
-    
-    /**
-     * Create typeface with font family and style
-     */
-    private fun createTypeface(fontFamily: String, bold: Boolean, italic: Boolean): Typeface {
+    private fun createTypeface(family: String, bold: Boolean, italic: Boolean): Typeface {
         val style = when {
             bold && italic -> Typeface.BOLD_ITALIC
             bold -> Typeface.BOLD
@@ -691,324 +581,134 @@ class ThemeManager(private val context: Context) {
             else -> Typeface.NORMAL
         }
         
-        return when (fontFamily.lowercase()) {
-            "roboto" -> Typeface.create("sans-serif", style)
-            "roboto-mono", "monospace" -> Typeface.create("monospace", style)
-            "serif" -> Typeface.create("serif", style)
-            else -> Typeface.create(fontFamily, style)
-        }
-    }
-    
-    /**
-     * Get Material You colors (Android 12+)
-     */
-    @RequiresApi(Build.VERSION_CODES.S)
-    fun getMaterialYouColors(): Map<String, Int>? {
         return try {
-            val colors = mutableMapOf<String, Int>()
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val colorScheme = context.resources.configuration.uiMode
-                
-                // This would need proper Material You color extraction
-                // For now, return sample colors
-                colors["background"] = ContextCompat.getColor(context, android.R.color.system_accent1_100)
-                colors["surface"] = ContextCompat.getColor(context, android.R.color.system_accent1_50)
-                colors["accent"] = ContextCompat.getColor(context, android.R.color.system_accent1_600)
-                colors["onSurface"] = ContextCompat.getColor(context, android.R.color.system_neutral1_900)
-            }
-            
-            colors
+            // Try to load custom font family
+            val typeface = ResourcesCompat.getFont(context, 
+                context.resources.getIdentifier(family.lowercase(), "font", context.packageName)
+            )
+            Typeface.create(typeface ?: Typeface.DEFAULT, style)
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting Material You colors", e)
-            null
+            Typeface.create(Typeface.DEFAULT, style)
         }
     }
     
+    // ===== UTILITY METHODS =====
+    
     /**
-     * Add theme change listener
+     * Check if a key should use accent color
      */
-    fun addThemeChangeListener(listener: ThemeChangeListener) {
-        listeners.add(listener)
+    fun shouldUseAccentForKey(keyType: String): Boolean {
+        return getCurrentPalette().shouldApplyAccentTo(keyType)
     }
     
     /**
-     * Remove theme change listener
+     * Check if Enter key should use accent
      */
-    fun removeThemeChangeListener(listener: ThemeChangeListener) {
-        listeners.remove(listener)
+    fun shouldUseAccentForEnter(): Boolean {
+        return getCurrentPalette().shouldUseAccentForEnter()
     }
     
     /**
-     * Notify all listeners of theme change
+     * Get contrast ratio for accessibility
      */
-    private fun notifyThemeChanged() {
+    fun getContrastRatio(foreground: Int, background: Int): Float {
+        val fgLum = calculateLuminance(foreground)
+        val bgLum = calculateLuminance(background)
+        
+        val lighter = maxOf(fgLum, bgLum)
+        val darker = minOf(fgLum, bgLum)
+        
+        return (lighter + 0.05f) / (darker + 0.05f)
+    }
+    
+    private fun calculateLuminance(color: Int): Float {
+        val r = Color.red(color) / 255.0f
+        val g = Color.green(color) / 255.0f
+        val b = Color.blue(color) / 255.0f
+        
+        val rLum = if (r <= 0.03928f) r / 12.92f else ((r + 0.055f) / 1.055f).pow(2.4f)
+        val gLum = if (g <= 0.03928f) g / 12.92f else ((g + 0.055f) / 1.055f).pow(2.4f)
+        val bLum = if (b <= 0.03928f) b / 12.92f else ((b + 0.055f) / 1.055f).pow(2.4f)
+        
+        return 0.2126f * rLum + 0.7152f * gLum + 0.0722f * bLum
+    }
+    
+    /**
+     * Auto-adjust text color for better contrast
+     */
+    fun getContrastAdjustedTextColor(backgroundColor: Int): Int {
+        val whiteContrast = getContrastRatio(Color.WHITE, backgroundColor)
+        val blackContrast = getContrastRatio(Color.BLACK, backgroundColor)
+        
+        return if (whiteContrast > blackContrast) Color.WHITE else Color.BLACK
+    }
+    
+    // ===== NEW ADAPTIVE & SEASONAL METHODS =====
+    
+    private fun buildAdaptiveBackground(): Drawable {
         val theme = getCurrentTheme()
-        listeners.forEach { listener ->
-            try {
-                listener.onThemeChanged(theme)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error notifying theme change listener", e)
-            }
+        val adaptiveConfig = theme.background.adaptive
+        
+        return when (adaptiveConfig?.source) {
+            "wallpaper" -> extractWallpaperColors()
+            "system" -> extractSystemColors()
+            else -> buildSolidDrawable(theme.background.color ?: Color.BLACK)
         }
     }
     
-    /**
-     * Clear image cache
-     */
-    fun clearImageCache() {
-        imageCache.clear()
+    private fun extractWallpaperColors(): Drawable {
+        // For now, return a fallback. In production, this would extract dominant colors from wallpaper
+        val theme = getCurrentTheme()
+        return buildSolidDrawable(theme.background.color ?: Color.BLACK)
     }
     
-    /**
-     * Extract Material You theme from wallpaper (Android 8.1+)
-     * Uses Palette API for dominant color extraction
-     */
-    fun extractMaterialYouTheme(): ThemeData? {
+    private fun extractSystemColors(): Drawable {
+        // For now, return a fallback. In production, this would use Material You system colors
+        val theme = getCurrentTheme()
+        return buildSolidDrawable(theme.background.color ?: Color.BLACK)
+    }
+    
+    private fun applySeasonalOverlay(baseDrawable: Drawable, seasonalPack: String): Drawable {
+        // Create a layer drawable with the base and seasonal overlay
+        val layerDrawable = LayerDrawable(arrayOf(
+            baseDrawable,
+            createSeasonalOverlay(seasonalPack)
+        ))
+        return layerDrawable
+    }
+    
+    private fun createSeasonalOverlay(seasonalPack: String): Drawable {
+        // For now, create a simple tinted overlay. In production, load seasonal resources
+        val overlayColor = when (seasonalPack) {
+            "valentine" -> Color.parseColor("#33FF6B9D") // Pink tint
+            "halloween" -> Color.parseColor("#33FF8C00") // Orange tint
+            "christmas" -> Color.parseColor("#3300FF00") // Green tint
+            else -> Color.TRANSPARENT
+        }
+        
+        val drawable = GradientDrawable()
+        drawable.setColor(overlayColor)
+        return drawable
+    }
+    
+    private fun loadStickerDrawable(pack: String): Drawable? {
+        // For now, return null. In production, load sticker assets from pack
+        // This would load animated or static drawables based on pack name
         return try {
-            val wallpaperManager = WallpaperManager.getInstance(context)
-            val wallpaperDrawable = wallpaperManager.drawable ?: return null
-            
-            // Convert drawable to bitmap
-            val bitmap = when (wallpaperDrawable) {
-                is BitmapDrawable -> wallpaperDrawable.bitmap
-                else -> {
-                    val width = wallpaperDrawable.intrinsicWidth.coerceAtLeast(1)
-                    val height = wallpaperDrawable.intrinsicHeight.coerceAtLeast(1)
-                    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(bmp)
-                    wallpaperDrawable.setBounds(0, 0, canvas.width, canvas.height)
-                    wallpaperDrawable.draw(canvas)
-                    bmp
-                }
-            }
-            
-            // Extract color palette from wallpaper
-            val palette = Palette.from(bitmap).generate()
-            
-            // Determine if dark mode based on dominant color
-            val dominantColor = palette.getDominantColor(Color.BLUE)
-            val isDarkMode = isColorDark(dominantColor)
-            
-            // Extract Material You colors
-            val primaryColor = palette.getVibrantColor(dominantColor)
-            val secondaryColor = palette.getLightVibrantColor(palette.getLightMutedColor(Color.CYAN))
-            val accentColor = palette.getDarkVibrantColor(palette.getVibrantColor(Color.MAGENTA))
-            val backgroundColor = if (isDarkMode) {
-                Color.parseColor("#1C1B1F") // Dark background
-            } else {
-                Color.parseColor("#FFFBFE") // Light background
-            }
-            
-            // Create adaptive key colors with proper contrast
-            val keyBackgroundColor = if (isDarkMode) {
-                adjustColorBrightness(primaryColor, 0.3f)
-            } else {
-                adjustColorBrightness(primaryColor, 1.8f)
-            }
-            
-            val keyTextColor = if (isColorDark(keyBackgroundColor)) Color.WHITE else Color.BLACK
-            
-            val specialKeyColor = if (isDarkMode) {
-                adjustColorBrightness(secondaryColor, 0.4f)
-            } else {
-                adjustColorBrightness(secondaryColor, 1.6f)
-            }
-            
-            // Create Material You theme
-            ThemeData(
-                id = "material_you_${System.currentTimeMillis()}",
-                name = "Material You",
-                description = "Adaptive colors from your wallpaper",
-                backgroundColor = backgroundColor,
-                keyBackgroundColor = keyBackgroundColor,
-                keyPressedColor = adjustColorBrightness(keyBackgroundColor, 0.85f),
-                keyDisabledColor = adjustColorAlpha(keyBackgroundColor, 0.5f),
-                keyTextColor = keyTextColor,
-                keyPressedTextColor = keyTextColor,
-                fontSize = 18f,
-                fontFamily = "Roboto",
-                isBold = false,
-                isItalic = false,
-                accentColor = accentColor,
-                specialKeyColor = specialKeyColor,
-                deleteKeyColor = accentColor,
-                suggestionBarColor = adjustColorAlpha(backgroundColor, 0.95f),
-                suggestionTextColor = keyTextColor,
-                suggestionHighlightColor = accentColor,
-                suggestionFontSize = 16f,
-                suggestionBold = false,
-                suggestionItalic = false,
-                keyCornerRadius = 8f,
-                showKeyShadows = true,
-                shadowDepth = 2f,
-                shadowColor = if (isDarkMode) 0x40000000 else 0x1A000000,
-                keyBorderWidth = 0f,
-                keyBorderColor = Color.TRANSPARENT,
-                keyHeight = 48f,
-                keyWidth = 32f,
-                keySpacing = 4f,
-                rowSpacing = 8f,
-                backgroundType = "solid",
-                gradientColors = listOf(backgroundColor, adjustColorBrightness(backgroundColor, 0.95f)),
-                gradientAngle = 45f,
-                backgroundImagePath = null,
-                backgroundOpacity = 1f,
-                imageScaleType = "cover",
-                useMaterialYou = true,
-                followSystemTheme = true,
-                swipeTrailColor = accentColor,
-                swipeTrailWidth = 8f,
-                swipeTrailOpacity = 0.7f,
-                enableAnimations = true,
-                animationDuration = 200
-            ).also {
-                Log.d(TAG, "🎨 Material You theme extracted successfully")
-                Log.d(TAG, "Primary: ${Integer.toHexString(primaryColor)}, " +
-                          "Secondary: ${Integer.toHexString(secondaryColor)}, " +
-                          "Accent: ${Integer.toHexString(accentColor)}")
-            }
+            // Example: context.getDrawable(R.drawable.sticker_pack_name)
+            null
         } catch (e: Exception) {
-            Log.e(TAG, "Error extracting Material You theme", e)
             null
         }
     }
     
-    /**
-     * Check if a color is considered dark
-     */
-    private fun isColorDark(color: Int): Boolean {
-        val darkness = 1 - (0.299 * Color.red(color) + 
-                           0.587 * Color.green(color) + 
-                           0.114 * Color.blue(color)) / 255
-        return darkness >= 0.5
-    }
-    
-    /**
-     * Adjust color alpha channel
-     */
-    private fun adjustColorAlpha(color: Int, alpha: Float): Int {
-        val a = (255 * alpha).toInt().coerceIn(0, 255)
-        val r = Color.red(color)
-        val g = Color.green(color)
-        val b = Color.blue(color)
-        return Color.argb(a, r, g, b)
-    }
-    
-    /**
-     * Get system theme colors (Android 12+)
-     */
-    @RequiresApi(Build.VERSION_CODES.S)
-    fun getSystemDynamicColors(): Map<String, Int>? {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                mapOf(
-                    "primary" to ContextCompat.getColor(context, android.R.color.system_accent1_600),
-                    "secondary" to ContextCompat.getColor(context, android.R.color.system_accent2_600),
-                    "tertiary" to ContextCompat.getColor(context, android.R.color.system_accent3_600),
-                    "background" to ContextCompat.getColor(context, android.R.color.system_neutral1_50),
-                    "surface" to ContextCompat.getColor(context, android.R.color.system_neutral1_100),
-                    "onSurface" to ContextCompat.getColor(context, android.R.color.system_neutral1_900)
-                )
-            } else null
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting system dynamic colors", e)
-            null
-        }
-    }
-    
-    /**
-     * Cleanup theme manager resources
-     */
     fun cleanup() {
-        try {
             prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        drawableCache.evictAll()
+        imageCache.evictAll()
             listeners.clear()
-            clearImageCache()
-            Log.d(TAG, "ThemeManager cleaned up successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error during ThemeManager cleanup", e)
-        }
     }
     
-    /**
-     * Get theme properties for debugging
-     */
-    fun getThemeDebugInfo(): String {
-        val theme = getCurrentTheme()
-        return """
-            Theme: ${theme.name} (${theme.id})
-            Background: ${Integer.toHexString(theme.backgroundColor)}
-            Key Background: ${Integer.toHexString(theme.keyBackgroundColor)}
-            Text Color: ${Integer.toHexString(theme.keyTextColor)}
-            Font Size: ${theme.fontSize}
-            Background Type: ${theme.backgroundType}
-        """.trimIndent()
-    }
+    // ===== LEGACY COMPATIBILITY =====
     
-    /**
-     * Create themed drawable for toolbar buttons
-     */
-    fun createToolbarButtonDrawable(): Drawable {
-        val palette = getCurrentPalette()
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(android.graphics.Color.TRANSPARENT)
-            cornerRadius = palette.cornerRadius
-        }
-    }
-    
-    /**
-     * Create themed drawable for suggestion chips
-     */
-    fun createSuggestionChipDrawable(): Drawable {
-        val palette = getCurrentPalette()
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(palette.suggestChipBg)
-            cornerRadius = palette.cornerRadius
-            if (palette.keyBorderWidth > 0) {
-                setStroke(palette.keyBorderWidth.toInt(), palette.suggestChipBorder)
-            }
-        }
-    }
-    
-    /**
-     * Create themed drawable for special keys (space, return, etc.)
-     */
-    fun createSpecialKeyDrawable(): Drawable {
-        val palette = getCurrentPalette()
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(palette.specialKeyBg)
-            cornerRadius = palette.cornerRadius
-            if (palette.keyBorderWidth > 0) {
-                setStroke(palette.keyBorderWidth.toInt(), palette.keyBorderColor)
-            }
-        }
-    }
-    
-    /**
-     * Create themed paint for toolbar icons
-     */
-    fun createToolbarIconPaint(): Paint {
-        val palette = getCurrentPalette()
-        return Paint().apply {
-            isAntiAlias = true
-            color = palette.toolbarIcon
-            style = Paint.Style.FILL
-        }
-    }
-    
-    /**
-     * Create themed paint for special key icons
-     */
-    fun createSpecialKeyIconPaint(): Paint {
-        val palette = getCurrentPalette()
-        return Paint().apply {
-            isAntiAlias = true
-            color = palette.specialKeyIcon
-            style = Paint.Style.FILL
-        }
-    }
 }

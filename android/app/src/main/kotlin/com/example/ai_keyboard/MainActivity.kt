@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.InputMethodInfo
 import androidx.annotation.NonNull
@@ -64,6 +65,24 @@ class MainActivity : FlutterActivity() {
                             "notifyThemeChange" -> {
                                 withContext(Dispatchers.IO) {
                                     notifyKeyboardServiceThemeChanged()
+                                }
+                                result.success(true)
+                            }
+                            "themeChanged" -> {
+                                val themeId = call.argument<String>("themeId") ?: "default_theme"
+                                val themeName = call.argument<String>("themeName") ?: "Unknown Theme"
+                                val hasThemeData = call.argument<Boolean>("hasThemeData") ?: false
+                                
+                                Log.d("MainActivity", "🎨 Theme V2 changed: $themeName ($themeId)")
+                                withContext(Dispatchers.IO) {
+                                    notifyKeyboardServiceThemeChangedV2(themeId, themeName, hasThemeData)
+                                }
+                                result.success(true)
+                            }
+                            "settingsChanged" -> {
+                                Log.d("MainActivity", "Settings changed broadcast requested")
+                                withContext(Dispatchers.IO) {
+                                    sendSettingsChangedBroadcast()
                                 }
                                 result.success(true)
                             }
@@ -206,6 +225,46 @@ class MainActivity : FlutterActivity() {
             
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Failed to send theme change broadcast", e)
+        }
+    }
+    
+    private fun notifyKeyboardServiceThemeChangedV2(themeId: String, themeName: String, hasThemeData: Boolean) {
+        try {
+            android.util.Log.d("MainActivity", "Starting Theme V2 change notification: $themeName")
+            
+            // Log V2 SharedPreferences state for debugging
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val themeV2Data = prefs.getString("flutter.theme.v2.json", null)
+            val settingsChanged = prefs.getBoolean("flutter.keyboard_settings.settings_changed", false)
+            android.util.Log.d("MainActivity", "Theme V2 data - ID: $themeId, Data length: ${themeV2Data?.length ?: 0}, Settings changed: $settingsChanged")
+            
+            // Send immediate broadcast for theme change
+            Handler(Looper.getMainLooper()).postDelayed({
+                val intent = Intent("com.example.ai_keyboard.THEME_CHANGED").apply {
+                    setPackage(packageName)
+                    putExtra("theme_id", themeId)
+                    putExtra("theme_name", themeName)
+                    putExtra("has_theme_data", hasThemeData)
+                    putExtra("is_v2_theme", true)
+                }
+                sendBroadcast(intent)
+                android.util.Log.d("MainActivity", "🎨 Theme V2 broadcast sent: $themeName")
+            }, 10) // Minimal delay for V2
+            
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to send Theme V2 broadcast", e)
+        }
+    }
+    
+    private fun sendSettingsChangedBroadcast() {
+        try {
+            val intent = Intent("com.example.ai_keyboard.SETTINGS_CHANGED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+            android.util.Log.d("MainActivity", "Settings changed broadcast sent")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to send settings broadcast", e)
         }
     }
     

@@ -47,7 +47,7 @@ class ClipboardPanel(
                 // Set other properties  
                 isOutsideTouchable = true
                 isFocusable = false  // Don't steal focus from keyboard
-                setBackgroundDrawable(android.graphics.drawable.ColorDrawable(themeManager.getCurrentTheme().backgroundColor))
+                setBackgroundDrawable(themeManager.createKeyboardBackground())
                 elevation = 8f
                 
                 // Show above the anchor view
@@ -94,11 +94,11 @@ class ClipboardPanel(
     }
     
     private fun createContentView(items: List<ClipboardItem>): View {
-        val theme = themeManager.getCurrentTheme()
+        val palette = themeManager.getCurrentPalette()
         
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(theme.backgroundColor)
+            setBackgroundColor(palette.keyboardBg)
             setPadding(16, 16, 16, 16)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -110,7 +110,7 @@ class ClipboardPanel(
         val header = TextView(context).apply {
             text = "Clipboard History"
             textSize = 18f
-            setTextColor(theme.keyTextColor)
+            setTextColor(palette.keyText)
             setPadding(0, 0, 0, 16)
             gravity = android.view.Gravity.CENTER
         }
@@ -121,7 +121,7 @@ class ClipboardPanel(
             val emptyText = TextView(context).apply {
                 text = "No clipboard history yet.\nCopy some text to get started!"
                 textSize = 14f
-                setTextColor(theme.keyTextColor)
+                setTextColor(palette.keyText)
                 gravity = android.view.Gravity.CENTER
                 setPadding(32, 32, 32, 32)
             }
@@ -141,7 +141,7 @@ class ClipboardPanel(
             
             // Add items (limit to first 8 for performance)
             items.take(8).forEachIndexed { index, item ->
-                val itemView = createItemView(item, theme)
+                val itemView = createItemView(item, palette)
                 itemsContainer.addView(itemView)
                 
                 // Add divider between items
@@ -163,7 +163,7 @@ class ClipboardPanel(
         return container
     }
     
-    private fun createItemView(item: ClipboardItem, theme: ThemeManager.ThemeData): View {
+    private fun createItemView(item: ClipboardItem, palette: com.example.ai_keyboard.themes.ThemePaletteV2): View {
         val itemLayout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(12, 12, 12, 12)
@@ -185,7 +185,7 @@ class ClipboardPanel(
             val prefix = if (item.isOTP()) "🔢 OTP: " else "📋 "
             text = "$prefix${item.getPreview(40)}"
             textSize = 14f
-            setTextColor(theme.keyTextColor)
+            setTextColor(palette.keyText)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(

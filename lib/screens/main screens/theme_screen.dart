@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:ai_keyboard/utils/appassets.dart';
-import 'package:ai_keyboard/utils/apptextstyle.dart';
-import 'package:ai_keyboard/screens/main screens/view_all_themes_screen.dart';
-import 'package:ai_keyboard/screens/main screens/customize_theme_screen.dart';
+import '../../theme/theme_v2.dart';
+import '../../theme/theme_editor_v2.dart';
 
 class ThemeScreen extends StatefulWidget {
   const ThemeScreen({super.key});
@@ -12,453 +10,339 @@ class ThemeScreen extends StatefulWidget {
 }
 
 class _ThemeScreenState extends State<ThemeScreen> {
-  String selectedTheme = 'White';
+  KeyboardThemeV2? currentTheme;
+  List<KeyboardThemeV2> availableThemes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentTheme();
+    _loadAvailableThemes();
+  }
+
+  Future<void> _loadCurrentTheme() async {
+    final theme = await ThemeManagerV2.loadThemeV2();
+    if (mounted) {
+      setState(() {
+        currentTheme = theme;
+      });
+    }
+  }
+
+  Future<void> _loadAvailableThemes() async {
+    // Load some preset themes
+    final themes = [
+      KeyboardThemeV2.createDefault(),
+      ThemeManagerV2.createLightTheme(),
+      // Add more preset themes as needed
+    ];
+    
+    if (mounted) {
+      setState(() {
+        availableThemes = themes;
+      });
+    }
+  }
+
+  Future<void> _openThemeEditor({KeyboardThemeV2? theme}) async {
+    final result = await Navigator.push<KeyboardThemeV2>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ThemeEditorScreenV2(
+          initialTheme: theme,
+          isCreatingNew: theme == null,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      await ThemeManagerV2.saveThemeV2(result);
+      _loadCurrentTheme();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Theme applied successfully!')),
+      );
+    }
+  }
+
+  Future<void> _applyTheme(KeyboardThemeV2 theme) async {
+    await ThemeManagerV2.saveThemeV2(theme);
+    _loadCurrentTheme();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${theme.name} applied!')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.white,
-      body: Column(
-        children: [
-          // Main content
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Customize Theme Card
-                  _buildCustomizeThemeCard(),
-
-                  const SizedBox(height: 24),
-
-                  // Popular Section
-                  _buildSectionHeader('Popular', 'See All'),
-                  const SizedBox(height: 12),
-                  _buildPopularSection(),
-
-                  const SizedBox(height: 24),
-
-                  // Colour Section
-                  _buildSectionHeader('Colour', 'See All'),
-                  const SizedBox(height: 12),
-                  _buildColourSection(),
-
-                  const SizedBox(height: 24),
-
-                  // Gradients Section
-                  _buildSectionHeader('Gradients', 'See All'),
-                  const SizedBox(height: 12),
-                  _buildGradientsSection(),
-
-                  const SizedBox(height: 24),
-
-                  // Picture Section
-                  _buildSectionHeader('Picture', 'See All'),
-                  const SizedBox(height: 12),
-                  _buildPictureSection(),
-
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCustomizeThemeCard() {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const CustomizeThemeScreen()),
-        );
-      },
-      child: Container(
-        width: double.infinity,
+      backgroundColor: Colors.white,
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.lightGrey,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Customization Icon
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: AppColors.white,
-                borderRadius: BorderRadius.circular(8),
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Keyboard Themes',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _openThemeEditor(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create Theme'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Current Theme Section
+            if (currentTheme != null) ...[
+              const Text(
+                'Current Theme',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              child: Image.asset(
-                'assets/icons/custom_theme_icon.png',
-                width: 20,
-                height: 20,
+              const SizedBox(height: 12),
+              _buildThemeCard(
+                currentTheme!,
+                isActive: true,
+                onEdit: () => _openThemeEditor(theme: currentTheme),
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            // Available Themes Section
+            const Text(
+              'Available Themes',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(width: 16),
-
-            // Text Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Customize Theme',
-                    style: AppTextStyle.titleLarge.copyWith(
-                      color: AppColors.black,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Create your own themes',
-                    style: AppTextStyle.bodySmall.copyWith(
-                      color: AppColors.grey,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 12),
+            
+            ...availableThemes.map((theme) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildThemeCard(
+                theme,
+                isActive: currentTheme?.id == theme.id,
+                onApply: () => _applyTheme(theme),
+                onEdit: () => _openThemeEditor(theme: theme),
               ),
-            ),
+            )),
 
-            // Theme Creation Illustration
-            Container(
-              width: 60,
-              height: 40,
-              decoration: BoxDecoration(
-                // color: AppColors.black,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Image.asset(
-                'assets/icons/custom_theme_illustration.png',
-                width: 20,
-                height: 20,
+            const SizedBox(height: 16),
+            
+            // Advanced Options
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.file_upload),
+                title: const Text('Import Theme'),
+                subtitle: const Text('Import theme from JSON file'),
+                onTap: () {
+                  // TODO: Implement import functionality
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Import feature coming soon!')),
+                  );
+                },
               ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title, String seeAll) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: AppTextStyle.titleMedium.copyWith(
-            color: AppColors.secondary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ViewAllThemesScreen(category: title),
-              ),
-            );
-          },
-          child: Text(
-            seeAll,
-            style: AppTextStyle.bodyMedium.copyWith(
-              color: AppColors.secondary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPopularSection() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildThemeCard(
-            'White',
-            'Owned',
-            _buildWhiteKeyboard(),
-            isSelected: selectedTheme == 'White',
-            onTap: () => setState(() => selectedTheme = 'White'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildThemeCard(
-            'Dark',
-            'Owned',
-            _buildDarkKeyboard(),
-            isSelected: selectedTheme == 'Dark',
-            onTap: () => setState(() => selectedTheme = 'Dark'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildColourSection() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildThemeCard(
-            'Yellow',
-            'Free',
-            _buildYellowKeyboard(),
-            isSelected: selectedTheme == 'Yellow',
-            onTap: () => setState(() => selectedTheme = 'Yellow'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildThemeCard(
-            'Red',
-            'Free',
-            _buildRedKeyboard(),
-            isSelected: selectedTheme == 'Red',
-            onTap: () => setState(() => selectedTheme = 'Red'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGradientsSection() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildThemeCard(
-            'White',
-            'Free',
-            _buildPurpleOrangeGradient(),
-            isSelected: selectedTheme == 'PurpleOrange',
-            onTap: () => setState(() => selectedTheme = 'PurpleOrange'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildThemeCard(
-            'White',
-            'Free',
-            _buildBlueGradient(),
-            isSelected: selectedTheme == 'BlueGradient',
-            onTap: () => setState(() => selectedTheme = 'BlueGradient'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPictureSection() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildThemeCard(
-            'White',
-            'Free',
-            _buildHeartsTheme(),
-            isSelected: selectedTheme == 'Hearts',
-            onTap: () => setState(() => selectedTheme = 'Hearts'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildThemeCard(
-            'White',
-            'Free',
-            _buildMossyTheme(),
-            isSelected: selectedTheme == 'Mossy',
-            onTap: () => setState(() => selectedTheme = 'Mossy'),
-          ),
-        ),
-      ],
     );
   }
 
   Widget _buildThemeCard(
-    String title,
-    String status,
-    Widget preview, {
-    bool isSelected = false,
-    VoidCallback? onTap,
+    KeyboardThemeV2 theme, {
+    bool isActive = false,
+    VoidCallback? onApply,
+    VoidCallback? onEdit,
   }) {
-    return GestureDetector(
-      onTap: onTap,
+    return Card(
+      elevation: isActive ? 4 : 1,
       child: Container(
-        height: 180,
-        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: AppColors.lightGrey,
-          borderRadius: BorderRadius.circular(12),
-          border: isSelected
-              ? Border.all(color: AppColors.secondary, width: 2)
-              : null,
+          borderRadius: BorderRadius.circular(8),
+          border: isActive ? Border.all(color: Colors.blue, width: 2) : null,
         ),
         child: Column(
           children: [
-            // Preview
-            SizedBox(height: 120, child: preview),
-            const SizedBox(height: 8),
+            // Theme Preview
+            Container(
+              height: 120,
+              decoration: BoxDecoration(
+                color: theme.background.color ?? Colors.grey[900],
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+              ),
+              child: _buildMiniKeyboardPreview(theme),
+            ),
+            
+            // Theme Info
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          theme.name,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          'Mode: ${theme.mode}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isActive)
+                    const Chip(
+                      label: Text('Active', style: TextStyle(fontSize: 10)),
+                      backgroundColor: Colors.blue,
+                      labelStyle: TextStyle(color: Colors.white),
+                    ),
+                  const SizedBox(width: 8),
+                  PopupMenuButton(
+                    itemBuilder: (context) => [
+                      if (!isActive && onApply != null)
+                        PopupMenuItem(
+                          onTap: onApply,
+                          child: const Row(
+                            children: [
+                              Icon(Icons.check),
+                              SizedBox(width: 8),
+                              Text('Apply'),
+                            ],
+                          ),
+                        ),
+                      if (onEdit != null)
+                        PopupMenuItem(
+                          onTap: onEdit,
+                          child: const Row(
+                            children: [
+                              Icon(Icons.edit),
+                              SizedBox(width: 8),
+                              Text('Edit'),
+                            ],
+                          ),
+                        ),
+                      PopupMenuItem(
+                        onTap: () {
+                          final exported = ThemeManagerV2.exportTheme(theme);
+                          // TODO: Share exported theme
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Theme exported to clipboard!')),
+                          );
+                        },
+                        child: const Row(
+                          children: [
+                            Icon(Icons.share),
+                            SizedBox(width: 8),
+                            Text('Export'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-            // Title and Status
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildMiniKeyboardPreview(KeyboardThemeV2 theme) {
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Toolbar preview
+          Container(
+            height: 20,
+            decoration: BoxDecoration(
+              color: theme.toolbar.inheritFromKeys ? theme.keys.bg : theme.toolbar.bg,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  title,
-                  style: AppTextStyle.bodyMedium.copyWith(
-                    color: AppColors.black,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  status,
-                  style: AppTextStyle.bodySmall.copyWith(
-                    color: AppColors.secondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                Icon(Icons.mic, size: 12, color: theme.toolbar.inheritFromKeys ? theme.keys.text : theme.toolbar.icon),
+                const SizedBox(width: 8),
+                Icon(Icons.emoji_emotions, size: 12, color: theme.toolbar.activeAccent),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWhiteKeyboard() {
-    return Container(
-      height: 100,
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(6)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.asset(
-          Appkeyboards.keyboard_white,
-          fit: BoxFit.contain,
-          width: double.infinity,
-          height: double.infinity,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDarkKeyboard() {
-    return Container(
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(6)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.asset(
-          Appkeyboards.keyboard_black,
-          fit: BoxFit.contain,
-          width: double.infinity,
-          height: double.infinity,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildYellowKeyboard() {
-    return Container(
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(6)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.asset(
-          Appkeyboards.keyboard_yellow,
-          fit: BoxFit.contain,
-          width: double.infinity,
-          height: double.infinity,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRedKeyboard() {
-    return Container(
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(6)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.asset(
-          Appkeyboards.keyboard_red,
-          fit: BoxFit.contain,
-          width: double.infinity,
-          height: double.infinity,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPurpleOrangeGradient() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple[800]!, Colors.orange[400]!],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(6),
-      ),
-    );
-  }
-
-  Widget _buildBlueGradient() {
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.blue[200]!, Colors.blue[800]!],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: BorderRadius.circular(6),
           ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Icon(Icons.keyboard, color: AppColors.secondary, size: 16),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHeartsTheme() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.pink[100],
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.favorite, color: Colors.pink[300], size: 20),
-            Icon(Icons.park, color: Colors.green[400], size: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMossyTheme() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.green[200]!,
-            Colors.green[600]!,
-            Colors.red[300]!,
-            Colors.orange[300]!,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(6),
+          const SizedBox(height: 4),
+          
+          // Keys preview
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: 'QWERTY'.split('').map((letter) {
+              return Container(
+                width: 24,
+                height: 24,
+                margin: const EdgeInsets.all(1),
+                decoration: BoxDecoration(
+                  color: theme.keys.bg,
+                  borderRadius: BorderRadius.circular(theme.keys.radius / 3),
+                  border: theme.keys.border.enabled 
+                      ? Border.all(color: theme.keys.border.color, width: 0.5)
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    letter,
+                    style: TextStyle(
+                      color: theme.keys.text,
+                      fontSize: 8,
+                      fontWeight: theme.keys.font.bold ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 2),
+          
+          // Special key (Enter) preview
+          Container(
+            width: 60,
+            height: 20,
+            decoration: BoxDecoration(
+              color: theme.specialKeys.useAccentForEnter ? theme.specialKeys.accent : theme.keys.bg,
+              borderRadius: BorderRadius.circular(theme.keys.radius / 3),
+            ),
+            child: Center(
+              child: Text(
+                'Enter',
+                style: TextStyle(
+                  color: theme.specialKeys.useAccentForEnter ? Colors.white : theme.keys.text,
+                  fontSize: 8,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

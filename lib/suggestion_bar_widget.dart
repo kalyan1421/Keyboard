@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'predictive_engine.dart';
-import 'theme_manager.dart';
 
 /// Animated suggestion bar widget for displaying autocorrect and predictive text
 class SuggestionBarWidget extends StatefulWidget {
@@ -36,7 +35,6 @@ class _SuggestionBarWidgetState extends State<SuggestionBarWidget>
 
   List<PredictionResult> _currentSuggestions = [];
   List<PredictionResult> _previousSuggestions = [];
-  final FlutterThemeManager _themeManager = FlutterThemeManager.instance;
 
   @override
   void initState() {
