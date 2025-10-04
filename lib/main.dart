@@ -1,4 +1,8 @@
 // main.dart
+import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
+import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
+import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
+import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,7 +65,7 @@ class AIKeyboardApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'noto_sans',
       ),
-      home: const AuthWrapper(),
+      home: AnimatedOnboardingScreen(),
     );
   }
 }

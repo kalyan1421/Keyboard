@@ -1,6 +1,6 @@
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
-import 'package:ai_keyboard/main.dart';
+import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
 import 'package:flutter/material.dart';
 
 class SuccessScreen extends StatelessWidget {
@@ -8,10 +8,10 @@ class SuccessScreen extends StatelessWidget {
 
   // Template onTap handlers for this page
   void onTapGoHome(BuildContext context) {
-    // Navigate to KeyboardConfigScreen (main app screen)
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const KeyboardConfigScreen()),
-      (route) => false, // Remove all previous routes
+    // Navigate to keyboard setup screen
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const KeyboardSetupScreen()),
     );
   }
 
