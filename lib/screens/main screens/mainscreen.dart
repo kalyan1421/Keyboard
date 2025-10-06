@@ -2,6 +2,7 @@ import 'package:ai_keyboard/screens/main%20screens/chat_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/home_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/profile_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
+import 'package:ai_keyboard/theme/theme_editor_v2.dart';
 import 'package:ai_keyboard/screens/main%20screens/theme_screen.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
@@ -11,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'package:ai_keyboard/services/firebase_auth_service.dart';
 
 class mainscreen extends StatefulWidget {
   const mainscreen({super.key});
@@ -27,18 +29,22 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   bool _isExtended = false;
   bool _hasShownRateModal = false;
   bool hasNotification = true;
-  final String userName = 'John Doe';
+  final FirebaseAuthService _authService = FirebaseAuthService();
+  String _userName = 'User';
 
   final List<Widget> _pages = [
     const HomeScreen(),
-    const ThemeScreen(),
-    const SettingScreen(),
+    // const ThemeScreen(),
+    ThemeGalleryScreen(),
+    // const SettingScreen(),
+    SettingScreen(),
     const ProfileScreen(),
   ];
 
   @override
   void initState() {
     super.initState();
+    _loadUserInfo();
     _fabAnimationController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
@@ -52,6 +58,15 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
 
     _startAnimationTimer();
     _checkAndShowRateModal();
+  }
+
+  void _loadUserInfo() {
+    final user = _authService.currentUser;
+    if (user != null) {
+      setState(() {
+        _userName = user.displayName ?? user.email?.split('@').first ?? 'User';
+      });
+    }
   }
 
   @override
@@ -126,7 +141,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
           child: Image.asset(AppAssets.userIcon),
         ),
         title: Text(
-          userName,
+          _userName,
           style: AppTextStyle.headlineLarge.copyWith(
             color: selectedIndex == 0 ? AppColors.black : AppColors.white,
           ),
@@ -260,8 +275,12 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
               },
               child: const Icon(Icons.keyboard, size: 32),
             ),
-      bottomNavigationBar: Container(
-        height: MediaQuery.of(context).size.height * 0.1,
+      bottomNavigationBar: 
+      Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.13,
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.only(
@@ -333,6 +352,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
           ],
         ),
       ),
+      )
     );
   }
 }

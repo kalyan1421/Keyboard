@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class ClipboardScreen extends StatefulWidget {
   const ClipboardScreen({super.key});
@@ -21,6 +24,123 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
   bool internalClipboard = true;
   bool syncFromSystem = true;
   bool syncToFivive = true;
+  
+  // Clipboard items loaded from SharedPreferences
+  List<ClipboardItem> clipboardItems = [];
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+    _loadClipboardItems();
+    
+    // Listen for clipboard changes to refresh UI in real-time
+    _setupClipboardRefresh();
+  }
+  
+  void _setupClipboardRefresh() {
+    // Reload clipboard items periodically to catch system clipboard changes
+    // This ensures UI stays in sync with the keyboard service
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _loadClipboardItems();
+        // Keep checking while screen is visible
+        _setupClipboardRefresh();
+      }
+    });
+  }
+  
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      clipboardHistory = prefs.getBool('clipboard_history') ?? true;
+      cleanOldHistoryMinutes = prefs.getDouble('clean_old_history_minutes') ?? 0.0;
+      historySize = prefs.getDouble('history_size') ?? 20.0;
+      clearPrimaryClipAffects = prefs.getBool('clear_primary_clip_affects') ?? true;
+      internalClipboard = prefs.getBool('internal_clipboard') ?? true;
+      syncFromSystem = prefs.getBool('sync_from_system') ?? true;
+      syncToFivive = prefs.getBool('sync_to_fivive') ?? true;
+    });
+  }
+  
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('clipboard_history', clipboardHistory);
+    await prefs.setDouble('clean_old_history_minutes', cleanOldHistoryMinutes);
+    await prefs.setDouble('history_size', historySize);
+    await prefs.setBool('clear_primary_clip_affects', clearPrimaryClipAffects);
+    await prefs.setBool('internal_clipboard', internalClipboard);
+    await prefs.setBool('sync_from_system', syncFromSystem);
+    await prefs.setBool('sync_to_fivive', syncToFivive);
+    _sendBroadcast();
+  }
+  
+  void _sendBroadcast() {
+    try {
+      const platform = MethodChannel('ai_keyboard/config');
+      platform.invokeMethod('sendBroadcast', {
+        'action': 'com.example.ai_keyboard.CLIPBOARD_CHANGED'
+      });
+      debugPrint('Clipboard settings broadcast sent');
+    } catch (e) {
+      debugPrint('Error sending broadcast: $e');
+    }
+  }
+  
+  Future<void> _loadClipboardItems() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final itemsJson = prefs.getString('clipboard_items');
+      if (itemsJson != null) {
+        final List<dynamic> itemsList = json.decode(itemsJson);
+        setState(() {
+          clipboardItems = itemsList
+              .map((item) => ClipboardItem.fromJson(item))
+              .toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading clipboard items: $e');
+    }
+  }
+  
+  Future<void> _togglePin(ClipboardItem item) async {
+    try {
+      final index = clipboardItems.indexWhere((i) => i.id == item.id);
+      if (index != -1) {
+        setState(() {
+          clipboardItems[index] = item.copyWith(isPinned: !item.isPinned);
+        });
+        await _saveClipboardItems();
+      }
+    } catch (e) {
+      debugPrint('Error toggling pin: $e');
+    }
+  }
+  
+  Future<void> _deleteItem(ClipboardItem item) async {
+    try {
+      setState(() {
+        clipboardItems.removeWhere((i) => i.id == item.id);
+      });
+      await _saveClipboardItems();
+    } catch (e) {
+      debugPrint('Error deleting item: $e');
+    }
+  }
+  
+  Future<void> _saveClipboardItems() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final itemsJson = json.encode(
+        clipboardItems.map((item) => item.toJson()).toList()
+      );
+      await prefs.setString('clipboard_items', itemsJson);
+      _sendBroadcast();
+    } catch (e) {
+      debugPrint('Error saving clipboard items: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +195,10 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
               title: 'Clipboard History',
               description: 'Enabled',
               value: clipboardHistory,
-              onChanged: (value) => setState(() => clipboardHistory = value),
+              onChanged: (value) {
+                setState(() => clipboardHistory = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -84,8 +207,10 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
             _buildSliderSetting(
               title: 'Clean Old History Items',
               portraitValue: cleanOldHistoryMinutes,
-              onPortraitChanged: (value) =>
-                  setState(() => cleanOldHistoryMinutes = value),
+              onPortraitChanged: (value) {
+                setState(() => cleanOldHistoryMinutes = value);
+                _saveSettings();
+              },
               min: 0.0,
               max: 60.0,
               unit: ' min',
@@ -99,7 +224,10 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
             _buildSliderSetting(
               title: 'History Size',
               portraitValue: historySize,
-              onPortraitChanged: (value) => setState(() => historySize = value),
+              onPortraitChanged: (value) {
+                setState(() => historySize = value);
+                _saveSettings();
+              },
               min: 5.0,
               max: 100.0,
               unit: ' ',
@@ -114,8 +242,10 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
               title: 'Clear primary clip affects ...',
               description: 'Enabled',
               value: clearPrimaryClipAffects,
-              onChanged: (value) =>
-                  setState(() => clearPrimaryClipAffects = value),
+              onChanged: (value) {
+                setState(() => clearPrimaryClipAffects = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 32),
@@ -129,7 +259,10 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
               title: 'Internal Clipboard',
               description: 'Enabled',
               value: internalClipboard,
-              onChanged: (value) => setState(() => internalClipboard = value),
+              onChanged: (value) {
+                setState(() => internalClipboard = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -139,7 +272,10 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
               title: 'Sync from system',
               description: 'Sync from system clipboard',
               value: syncFromSystem,
-              onChanged: (value) => setState(() => syncFromSystem = value),
+              onChanged: (value) {
+                setState(() => syncFromSystem = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -149,12 +285,159 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
               title: 'Sync to fivive',
               description: 'Sync to fivive clipboard',
               value: syncToFivive,
-              onChanged: (value) => setState(() => syncToFivive = value),
+              onChanged: (value) {
+                setState(() => syncToFivive = value);
+                _saveSettings();
+              },
             ),
+
+            const SizedBox(height: 32),
+
+            // Clipboard History Section
+            _buildSectionTitle('Clipboard History'),
+            const SizedBox(height: 16),
+            
+            if (clipboardItems.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.lightGrey,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    'No clipboard items yet',
+                    style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                  ),
+                ),
+              )
+            else
+              ...clipboardItems.map((item) => _buildClipboardItemCard(item)).toList(),
 
             const SizedBox(height: 24),
           ],
         ),
+      ),
+    );
+  }
+  
+  Widget _buildClipboardItemCard(ClipboardItem item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: item.isPinned ? AppColors.secondary.withOpacity(0.1) : AppColors.lightGrey,
+        borderRadius: BorderRadius.circular(12),
+        border: item.isPinned 
+            ? Border.all(color: AppColors.secondary, width: 2)
+            : null,
+      ),
+      child: Row(
+        children: [
+          // Pin icon
+          if (item.isPinned)
+            Icon(Icons.push_pin, color: AppColors.secondary, size: 20),
+          if (item.isPinned) const SizedBox(width: 8),
+          
+          // Content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.text.length > 60 ? '${item.text.substring(0, 60)}...' : item.text,
+                  style: AppTextStyle.titleMedium.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.getFormattedTime(),
+                  style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                ),
+              ],
+            ),
+          ),
+          
+          // Actions
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert, color: AppColors.grey, size: 20),
+            onSelected: (value) => _handleClipboardItemAction(value, item),
+            itemBuilder: (BuildContext context) => [
+              PopupMenuItem<String>(
+                value: 'pin',
+                child: Row(
+                  children: [
+                    Icon(
+                      item.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                      color: AppColors.primary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      item.isPinned ? 'Unpin' : 'Pin',
+                      style: AppTextStyle.bodyMedium.copyWith(
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete, color: AppColors.secondary, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Delete',
+                      style: AppTextStyle.bodyMedium.copyWith(
+                        color: AppColors.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _handleClipboardItemAction(String action, ClipboardItem item) {
+    switch (action) {
+      case 'pin':
+        _togglePin(item);
+        break;
+      case 'delete':
+        _showDeleteConfirmation(item);
+        break;
+    }
+  }
+  
+  void _showDeleteConfirmation(ClipboardItem item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete Item'),
+        content: Text('Are you sure you want to delete this clipboard item?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              _deleteItem(item);
+              Navigator.of(context).pop();
+            },
+            child: Text('Delete', style: TextStyle(color: AppColors.secondary)),
+          ),
+        ],
       ),
     );
   }
@@ -324,5 +607,65 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
         ],
       ),
     );
+  }
+}
+
+// ClipboardItem model class
+class ClipboardItem {
+  final String id;
+  final String text;
+  final int timestamp;
+  final bool isPinned;
+  
+  ClipboardItem({
+    required this.id,
+    required this.text,
+    required this.timestamp,
+    this.isPinned = false,
+  });
+  
+  factory ClipboardItem.fromJson(Map<String, dynamic> json) {
+    return ClipboardItem(
+      id: json['id'] as String,
+      text: json['text'] as String,
+      timestamp: json['timestamp'] as int,
+      isPinned: json['isPinned'] as bool? ?? false,
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'text': text,
+      'timestamp': timestamp,
+      'isPinned': isPinned,
+    };
+  }
+  
+  ClipboardItem copyWith({
+    String? id,
+    String? text,
+    int? timestamp,
+    bool? isPinned,
+  }) {
+    return ClipboardItem(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      timestamp: timestamp ?? this.timestamp,
+      isPinned: isPinned ?? this.isPinned,
+    );
+  }
+  
+  String getFormattedTime() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final diff = now - timestamp;
+    final minutes = diff ~/ 60000;
+    final hours = diff ~/ 3600000;
+    final days = diff ~/ 86400000;
+    
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return '${minutes}m ago';
+    if (hours < 24) return '${hours}h ago';
+    return '${days}d ago';
   }
 }

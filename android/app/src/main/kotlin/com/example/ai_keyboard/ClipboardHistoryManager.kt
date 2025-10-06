@@ -267,6 +267,9 @@ class ClipboardHistoryManager(private val context: Context) {
         
         saveSettings()
         
+        // Reload items from Flutter prefs in case they were changed there
+        loadFromFlutterPrefs()
+        
         // Cleanup with new settings
         cleanupExpiredItems()
         
@@ -363,8 +366,90 @@ class ClipboardHistoryManager(private val context: Context) {
             prefs.edit()
                 .putString(KEY_HISTORY, jsonArray.toString())
                 .commit() // Use commit() for immediate persistence
+            
+            // Also save to Flutter SharedPreferences for UI display
+            syncToFlutterPrefs()
         } catch (e: Exception) {
             Log.e(TAG, "Error saving history to preferences", e)
+        }
+    }
+    
+    /**
+     * Sync clipboard items to Flutter SharedPreferences
+     * So the Flutter UI can display them
+     */
+    private fun syncToFlutterPrefs() {
+        try {
+            val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val jsonArray = JSONArray()
+            historyItems.forEach { item ->
+                jsonArray.put(item.toJson())
+            }
+            flutterPrefs.edit()
+                .putString("flutter.clipboard_items", jsonArray.toString())
+                .commit()
+            Log.d(TAG, "Synced ${historyItems.size} items to Flutter SharedPreferences")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing to Flutter SharedPreferences", e)
+        }
+    }
+    
+    /**
+     * Load clipboard items from Flutter SharedPreferences
+     * This allows Flutter UI changes to be reflected in the keyboard
+     */
+    private fun loadFromFlutterPrefs() {
+        try {
+            val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val itemsJson = flutterPrefs.getString("flutter.clipboard_items", null)
+            if (itemsJson.isNullOrEmpty()) {
+                Log.d(TAG, "No clipboard items in Flutter prefs")
+                return
+            }
+            
+            val jsonArray = JSONArray(itemsJson)
+            // Merge with existing items, preserving items not in Flutter prefs
+            val flutterItems = mutableListOf<ClipboardItem>()
+            var skippedCount = 0
+            
+            for (i in 0 until jsonArray.length()) {
+                try {
+                    val jsonObj = jsonArray.getJSONObject(i)
+                    val item = ClipboardItem.fromJson(jsonObj)
+                    
+                    // Skip items with empty text
+                    if (item.text.isNotEmpty()) {
+                        flutterItems.add(item)
+                    } else {
+                        skippedCount++
+                        Log.w(TAG, "Skipped clipboard item with empty text at index $i")
+                    }
+                } catch (e: Exception) {
+                    skippedCount++
+                    Log.w(TAG, "Failed to parse clipboard item at index $i: ${e.message}")
+                }
+            }
+            
+            // Update existing items or add new ones
+            flutterItems.forEach { flutterItem ->
+                val existingIndex = historyItems.indexOfFirst { it.id == flutterItem.id }
+                if (existingIndex >= 0) {
+                    historyItems[existingIndex] = flutterItem
+                } else {
+                    historyItems.add(flutterItem)
+                }
+            }
+            
+            Log.d(TAG, "Loaded ${flutterItems.size} items from Flutter SharedPreferences (skipped: $skippedCount)")
+            
+            // Save cleaned list back to prefs
+            if (flutterItems.isNotEmpty()) {
+                saveHistoryToPrefs()
+            }
+            
+            notifyHistoryUpdated()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading from Flutter SharedPreferences", e)
         }
     }
     

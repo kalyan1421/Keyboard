@@ -1,575 +1,290 @@
 package com.example.ai_keyboard
 
-import android.content.ContentValues
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
-import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.FileNotFoundException
-import java.io.File
-import java.io.FileInputStream
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.*
 
 /**
- * Multilingual dictionary database for word suggestions and corrections
+ * MultilingualDictionary - Lazy-loading dictionary manager for multiple languages
+ * 
+ * Features:
+ * - Lazy load word lists and bigrams per language
+ * - Frequency-based word ranking
+ * - Bigram context prediction
+ * - Memory-efficient (loads on demand)
+ * 
+ * Phase 2 Integration
  */
-class MultilingualDictionary(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+class MultilingualDictionary(private val context: Context) {
     
     companion object {
-        private const val TAG = "MultilingualDictionary"
-        private const val DATABASE_NAME = "multilingual_dictionaries.db"
-        private const val DATABASE_VERSION = 1
-        
-        // Tables
-        private const val TABLE_WORDS = "words"
-        private const val TABLE_CORRECTIONS = "corrections"
-        private const val TABLE_BIGRAMS = "bigrams"
-        private const val TABLE_USER_WORDS = "user_words"
-        
-        // Words table columns
-        private const val COL_WORD_ID = "id"
-        private const val COL_WORD_LANGUAGE = "language"
-        private const val COL_WORD_TEXT = "word"
-        private const val COL_WORD_FREQUENCY = "frequency"
-        private const val COL_WORD_CATEGORY = "category"
-        private const val COL_WORD_LENGTH = "length"
-        
-        // Corrections table columns
-        private const val COL_CORR_ID = "id"
-        private const val COL_CORR_LANGUAGE = "language"
-        private const val COL_CORR_ERROR = "error_word"
-        private const val COL_CORR_CORRECT = "correct_word"
-        private const val COL_CORR_CONFIDENCE = "confidence"
-        
-        // Bigrams table columns
-        private const val COL_BIGRAM_ID = "id"
-        private const val COL_BIGRAM_LANGUAGE = "language"
-        private const val COL_BIGRAM_WORD1 = "word1"
-        private const val COL_BIGRAM_WORD2 = "word2"
-        private const val COL_BIGRAM_FREQUENCY = "frequency"
-        
-        // User words table columns
-        private const val COL_USER_ID = "id"
-        private const val COL_USER_LANGUAGE = "language"
-        private const val COL_USER_WORD = "word"
-        private const val COL_USER_FREQUENCY = "frequency"
-        private const val COL_USER_ADDED_TIME = "added_time"
+        private const val TAG = "MultilingualDict"
+        private const val MAX_WORDS_PER_LANGUAGE = 50000
+        private const val MAX_BIGRAMS_PER_LANGUAGE = 100000
     }
     
-    private val context: Context = context.applicationContext
-    private val loadedLanguages = ConcurrentHashMap<String, Boolean>()
-    private val dictionaryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // Language-specific word maps: word → frequency rank
+    private val wordMaps = mutableMapOf<String, MutableMap<String, Int>>()
     
-    override fun onCreate(db: SQLiteDatabase) {
-        // Create words table
-        db.execSQL("""
-            CREATE TABLE $TABLE_WORDS (
-                $COL_WORD_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                $COL_WORD_LANGUAGE TEXT NOT NULL,
-                $COL_WORD_TEXT TEXT NOT NULL,
-                $COL_WORD_FREQUENCY INTEGER DEFAULT 1,
-                $COL_WORD_CATEGORY TEXT,
-                $COL_WORD_LENGTH INTEGER,
-                UNIQUE($COL_WORD_LANGUAGE, $COL_WORD_TEXT)
-            )
-        """)
-        
-        // Create corrections table
-        db.execSQL("""
-            CREATE TABLE $TABLE_CORRECTIONS (
-                $COL_CORR_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                $COL_CORR_LANGUAGE TEXT NOT NULL,
-                $COL_CORR_ERROR TEXT NOT NULL,
-                $COL_CORR_CORRECT TEXT NOT NULL,
-                $COL_CORR_CONFIDENCE REAL DEFAULT 1.0,
-                UNIQUE($COL_CORR_LANGUAGE, $COL_CORR_ERROR, $COL_CORR_CORRECT)
-            )
-        """)
-        
-        // Create bigrams table
-        db.execSQL("""
-            CREATE TABLE $TABLE_BIGRAMS (
-                $COL_BIGRAM_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                $COL_BIGRAM_LANGUAGE TEXT NOT NULL,
-                $COL_BIGRAM_WORD1 TEXT NOT NULL,
-                $COL_BIGRAM_WORD2 TEXT NOT NULL,
-                $COL_BIGRAM_FREQUENCY INTEGER DEFAULT 1,
-                UNIQUE($COL_BIGRAM_LANGUAGE, $COL_BIGRAM_WORD1, $COL_BIGRAM_WORD2)
-            )
-        """)
-        
-        // Create user words table
-        db.execSQL("""
-            CREATE TABLE $TABLE_USER_WORDS (
-                $COL_USER_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                $COL_USER_LANGUAGE TEXT NOT NULL,
-                $COL_USER_WORD TEXT NOT NULL,
-                $COL_USER_FREQUENCY INTEGER DEFAULT 1,
-                $COL_USER_ADDED_TIME INTEGER DEFAULT 0,
-                UNIQUE($COL_USER_LANGUAGE, $COL_USER_WORD)
-            )
-        """)
-        
-        // Create indexes for better performance
-        createIndexes(db)
-        
-        Log.d(TAG, "Created multilingual dictionary database")
-    }
+    // Language-specific bigram maps: "word1 word2" → frequency
+    private val bigramMaps = mutableMapOf<String, MutableMap<String, Int>>()
     
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Drop existing tables
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_WORDS")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_CORRECTIONS")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_BIGRAMS")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_USER_WORDS")
-        
-        // Recreate tables
-        onCreate(db)
-    }
+    // Track which languages are loaded
+    private val loadedLanguages = mutableSetOf<String>()
     
-    private fun createIndexes(db: SQLiteDatabase) {
-        // Words table indexes
-        db.execSQL("CREATE INDEX idx_words_language_word ON $TABLE_WORDS($COL_WORD_LANGUAGE, $COL_WORD_TEXT)")
-        db.execSQL("CREATE INDEX idx_words_language_prefix ON $TABLE_WORDS($COL_WORD_LANGUAGE, $COL_WORD_TEXT)")
-        db.execSQL("CREATE INDEX idx_words_frequency ON $TABLE_WORDS($COL_WORD_FREQUENCY DESC)")
-        db.execSQL("CREATE INDEX idx_words_length ON $TABLE_WORDS($COL_WORD_LENGTH)")
-        
-        // Corrections table indexes
-        db.execSQL("CREATE INDEX idx_corrections_language_error ON $TABLE_CORRECTIONS($COL_CORR_LANGUAGE, $COL_CORR_ERROR)")
-        
-        // Bigrams table indexes
-        db.execSQL("CREATE INDEX idx_bigrams_language_word1 ON $TABLE_BIGRAMS($COL_BIGRAM_LANGUAGE, $COL_BIGRAM_WORD1)")
-        db.execSQL("CREATE INDEX idx_bigrams_frequency ON $TABLE_BIGRAMS($COL_BIGRAM_FREQUENCY DESC)")
-        
-        // User words table indexes
-        db.execSQL("CREATE INDEX idx_user_words_language ON $TABLE_USER_WORDS($COL_USER_LANGUAGE)")
-        db.execSQL("CREATE INDEX idx_user_words_frequency ON $TABLE_USER_WORDS($COL_USER_FREQUENCY DESC)")
+    // Loading jobs for async operations
+    private val loadingJobs = mutableMapOf<String, Job>()
+    
+    /**
+     * Check if a language is loaded
+     */
+    fun isLoaded(language: String): Boolean {
+        return loadedLanguages.contains(language)
     }
     
     /**
-     * Load dictionary for a specific language from assets
+     * Load dictionary and bigrams for a language (async)
+     * Returns immediately; use isLoaded() to check completion
      */
-    suspend fun loadLanguageDictionary(language: String): Boolean = withContext(Dispatchers.IO) {
-        if (loadedLanguages[language] == true) {
-            Log.d(TAG, "Dictionary for $language already loaded")
-            return@withContext true
+    fun loadLanguage(language: String, scope: CoroutineScope) {
+        if (isLoaded(language) || loadingJobs.containsKey(language)) {
+            Log.d(TAG, "Language $language already loaded or loading")
+            return
         }
         
-        try {
-            // Load words from assets
-            loadWordsFromAssets(language)
-            
-            // Load corrections from assets
-            loadCorrectionsFromAssets(language)
-            
-            // Load bigrams from assets
-            loadBigramsFromAssets(language)
-            
-            loadedLanguages[language] = true
-            Log.d(TAG, "Successfully loaded dictionary for language: $language")
-            return@withContext true
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading dictionary for language: $language", e)
-            return@withContext false
-        }
-    }
-    
-    private suspend fun loadWordsFromAssets(language: String) = withContext(Dispatchers.IO) {
-        try {
-            val inputStream = context.assets.open("dictionaries/${language}_words.txt")
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            val db = writableDatabase
-            
-            db.beginTransaction()
+        Log.d(TAG, "📚 Starting lazy load for language: $language")
+        
+        val job = scope.launch(Dispatchers.IO) {
             try {
-                reader.useLines { lines ->
-                    lines.forEach { line ->
-                        val parts = line.trim().split("\t")
-                        if (parts.size >= 2) {
-                            val word = parts[0].trim()
-                            val frequency = parts[1].toIntOrNull() ?: 1
-                            val category = if (parts.size > 2) parts[2] else null
-                            
-                            addWordToDatabase(db, language, word, frequency, category)
-                        }
-                    }
-                }
-                db.setTransactionSuccessful()
+                val startTime = System.currentTimeMillis()
                 
-                // Count loaded words for logging
-                val cursor = db.rawQuery("SELECT COUNT(*) FROM $TABLE_WORDS WHERE $COL_WORD_LANGUAGE = ?", arrayOf(language))
-                var wordCount = 0
-                cursor.use {
-                    if (it.moveToFirst()) {
-                        wordCount = it.getInt(0)
-                    }
+                // Load words
+                val wordCount = loadWordsFromAsset(language)
+                
+                // Load bigrams
+                val bigramCount = loadBigramsFromAsset(language)
+                
+                val duration = System.currentTimeMillis() - startTime
+                
+                withContext(Dispatchers.Main) {
+                    loadedLanguages.add(language)
+                    loadingJobs.remove(language)
+                    Log.d(TAG, "✅ Loaded $language: $wordCount words, $bigramCount bigrams (${duration}ms)")
                 }
-                Log.i(TAG, "✅ Loaded $language with ${wordCount}k words")
-            } finally {
-                db.endTransaction()
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error loading language $language", e)
+                loadingJobs.remove(language)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not load words for language: $language", e)
         }
+        
+        loadingJobs[language] = job
     }
     
-    private suspend fun loadCorrectionsFromAssets(language: String) = withContext(Dispatchers.IO) {
+    /**
+     * Load words from assets/dictionaries/{lang}_words.txt
+     * Format: word frequency_rank
+     * Example: नमस्ते 42
+     */
+    private fun loadWordsFromAsset(language: String): Int {
+        val wordFile = "dictionaries/${language}_words.txt"
+        val wordMap = mutableMapOf<String, Int>()
+        var count = 0
+        
         try {
-            val inputStream = context.assets.open("dictionaries/${language}_corrections.txt")
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            val db = writableDatabase
-            
-            db.beginTransaction()
-            try {
-                reader.useLines { lines ->
-                    lines.forEach { line ->
-                        val parts = line.trim().split("\t")
-                        if (parts.size >= 2) {
-                            val errorWord = parts[0].trim()
-                            val correctWord = parts[1].trim()
-                            val confidence = if (parts.size > 2) parts[2].toDoubleOrNull() ?: 1.0 else 1.0
-                            
-                            addCorrectionToDatabase(db, language, errorWord, correctWord, confidence)
+            context.assets.open(wordFile).use { inputStream ->
+                BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { reader ->
+                    reader.lineSequence().forEach { line ->
+                        if (count >= MAX_WORDS_PER_LANGUAGE) return@forEach
+                        
+                        val parts = line.trim().split(Regex("\\s+"), 2)
+                        if (parts.isNotEmpty()) {
+                            val word = parts[0]
+                            val freq = if (parts.size > 1) {
+                                parts[1].toIntOrNull() ?: (1000 + count)
+                            } else {
+                                1000 + count
+                            }
+                            wordMap[word] = freq
+                            count++
                         }
                     }
                 }
-                db.setTransactionSuccessful()
-                Log.d(TAG, "Loaded corrections for language: $language")
-            } finally {
-                db.endTransaction()
             }
+            
+            wordMaps[language] = wordMap
+            Log.d(TAG, "📖 Loaded $count words for $language")
         } catch (e: Exception) {
-            Log.w(TAG, "Could not load corrections for language: $language", e)
+            Log.w(TAG, "⚠️ Could not load words for $language: ${e.message}")
         }
+        
+        return count
     }
     
-    private suspend fun loadBigramsFromAssets(language: String) = withContext(Dispatchers.IO) {
-        try {
-            val inputStream = context.assets.open("dictionaries/${language}_bigrams.txt")
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            val db = writableDatabase
-            
-            db.beginTransaction()
+    /**
+     * Load bigrams from assets/dictionaries/{lang}_bigrams.txt
+     * Format: word1 word2 frequency
+     * Example: नमस्ते आप 150
+     */
+    private fun loadBigramsFromAsset(language: String): Int {
+        // Try both native and regular bigram files
+        val bigramFiles = listOf(
+            "dictionaries/${language}_bigrams_native.txt",
+            "dictionaries/${language}_bigrams.txt"
+        )
+        
+        val bigramMap = mutableMapOf<String, Int>()
+        var count = 0
+        
+        for (bigramFile in bigramFiles) {
             try {
-                reader.useLines { lines ->
-                    lines.forEach { line ->
-                        val parts = line.trim().split("\t")
-                        if (parts.size >= 3) {
-                            val word1 = parts[0].trim()
-                            val word2 = parts[1].trim()
-                            val frequency = parts[2].toIntOrNull() ?: 1
+                context.assets.open(bigramFile).use { inputStream ->
+                    BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { reader ->
+                        reader.lineSequence().forEach { line ->
+                            if (count >= MAX_BIGRAMS_PER_LANGUAGE) return@forEach
                             
-                            addBigramToDatabase(db, language, word1, word2, frequency)
+                            val parts = line.trim().split(Regex("\\s+"))
+                            if (parts.size >= 2) {
+                                val w1 = parts[0]
+                                val w2 = parts[1]
+                                val freq = if (parts.size > 2) {
+                                    parts[2].toIntOrNull() ?: 10
+                                } else {
+                                    10
+                                }
+                                val key = "$w1 $w2"
+                                bigramMap[key] = freq
+                                count++
+                            }
                         }
                     }
                 }
-                db.setTransactionSuccessful()
-                Log.i(TAG, "✅ [Dictionary] Loaded ${language}_bigrams from assets")
-            } finally {
-                db.endTransaction()
+                
+                // If we successfully loaded from this file, break
+                break
+            } catch (e: Exception) {
+                // Try next file
+                continue
             }
-        } catch (e: FileNotFoundException) {
-            Log.w(TAG, "⚠️ [Dictionary] Missing bigrams for $language, trying Firebase fallback...")
-            loadBigramsFromFirebase(language)
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ [Dictionary] Using fallback (basic mode) for $language", e)
-        }
-    }
-    
-    private suspend fun loadBigramsFromFirebase(language: String) = withContext(Dispatchers.IO) {
-        try {
-            // Check if we have cached Firebase bigrams
-            val cacheDir = File(context.cacheDir, "dictionaries")
-            if (!cacheDir.exists()) {
-                cacheDir.mkdirs()
-            }
-            
-            val cachedFile = File(cacheDir, "${language}_bigrams.txt")
-            
-            if (cachedFile.exists()) {
-                // Load from cached file
-                loadBigramsFromCachedFile(language, cachedFile)
-                Log.i(TAG, "✅ [Dictionary] Loaded ${language}_bigrams from cache")
-            } else {
-                // TODO: Implement Firebase Storage download
-                // For now, log that we're using fallback mode
-                Log.w(TAG, "⚠️ [Dictionary] No cached bigrams for $language, using fallback (basic mode)")
-                // downloadBigramsFromFirebaseStorage(language, cachedFile)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ [Dictionary] Firebase bigrams fallback failed for $language, using basic mode", e)
-        }
-    }
-    
-    private suspend fun loadBigramsFromCachedFile(language: String, file: File) = withContext(Dispatchers.IO) {
-        try {
-            val reader = BufferedReader(InputStreamReader(FileInputStream(file)))
-            val db = writableDatabase
-            
-            db.beginTransaction()
-            try {
-                reader.useLines { lines ->
-                    lines.forEach { line ->
-                        val parts = line.trim().split("\t")
-                        if (parts.size >= 3) {
-                            val word1 = parts[0].trim()
-                            val word2 = parts[1].trim()
-                            val frequency = parts[2].toIntOrNull() ?: 1
-                            
-                            addBigramToDatabase(db, language, word1, word2, frequency)
-                        }
-                    }
-                }
-                db.setTransactionSuccessful()
-                Log.i(TAG, "✅ [Dictionary] Loaded ${language}_bigrams from Firebase cache")
-            } finally {
-                db.endTransaction()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ [Dictionary] Error loading cached bigrams for $language", e)
-        }
-    }
-    
-    private fun addWordToDatabase(db: SQLiteDatabase, language: String, word: String, frequency: Int, category: String?) {
-        val values = ContentValues().apply {
-            put(COL_WORD_LANGUAGE, language)
-            put(COL_WORD_TEXT, word)
-            put(COL_WORD_FREQUENCY, frequency)
-            put(COL_WORD_CATEGORY, category)
-            put(COL_WORD_LENGTH, word.length)
         }
         
-        db.insertWithOnConflict(TABLE_WORDS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
-    }
-    
-    private fun addCorrectionToDatabase(db: SQLiteDatabase, language: String, errorWord: String, correctWord: String, confidence: Double) {
-        val values = ContentValues().apply {
-            put(COL_CORR_LANGUAGE, language)
-            put(COL_CORR_ERROR, errorWord)
-            put(COL_CORR_CORRECT, correctWord)
-            put(COL_CORR_CONFIDENCE, confidence)
+        if (count > 0) {
+            bigramMaps[language] = bigramMap
+            Log.d(TAG, "📊 Loaded $count bigrams for $language")
+        } else {
+            Log.w(TAG, "⚠️ Could not load bigrams for $language")
         }
         
-        db.insertWithOnConflict(TABLE_CORRECTIONS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
-    }
-    
-    private fun addBigramToDatabase(db: SQLiteDatabase, language: String, word1: String, word2: String, frequency: Int) {
-        val values = ContentValues().apply {
-            put(COL_BIGRAM_LANGUAGE, language)
-            put(COL_BIGRAM_WORD1, word1)
-            put(COL_BIGRAM_WORD2, word2)
-            put(COL_BIGRAM_FREQUENCY, frequency)
-        }
-        
-        db.insertWithOnConflict(TABLE_BIGRAMS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+        return count
     }
     
     /**
-     * Get word suggestions for a given prefix
+     * Get word candidates that start with prefix
+     * Returns words sorted by frequency (most frequent first)
      */
-    fun getWordSuggestions(language: String, prefix: String, limit: Int = 10): List<String> {
-        if (prefix.isEmpty()) return emptyList()
-        
-        val cursor = readableDatabase.query(
-            TABLE_WORDS,
-            arrayOf(COL_WORD_TEXT),
-            "$COL_WORD_LANGUAGE = ? AND $COL_WORD_TEXT LIKE ? COLLATE NOCASE",
-            arrayOf(language, "$prefix%"),
-            null, null,
-            "$COL_WORD_FREQUENCY DESC, $COL_WORD_LENGTH ASC",
-            limit.toString()
-        )
-        
-        val suggestions = mutableListOf<String>()
-        cursor.use {
-            while (it.moveToNext()) {
-                suggestions.add(it.getString(0))
-            }
+    fun getCandidates(prefix: String, language: String, limit: Int = 64): List<String> {
+        if (!isLoaded(language)) {
+            Log.w(TAG, "Language $language not loaded yet")
+            return emptyList()
         }
         
-        return suggestions
+        val wordMap = wordMaps[language] ?: return emptyList()
+        val prefixLower = prefix.lowercase()
+        
+        return wordMap.entries
+            .filter { it.key.lowercase().startsWith(prefixLower) }
+            .sortedBy { it.value } // Lower frequency rank = more common
+            .take(limit)
+            .map { it.key }
     }
     
     /**
-     * Get corrections for a misspelled word
+     * Get all words for a language (for edit distance matching)
      */
-    fun getCorrections(language: String, word: String): List<Correction> {
-        val cursor = readableDatabase.query(
-            TABLE_CORRECTIONS,
-            arrayOf(COL_CORR_CORRECT, COL_CORR_CONFIDENCE),
-            "$COL_CORR_LANGUAGE = ? AND $COL_CORR_ERROR = ? COLLATE NOCASE",
-            arrayOf(language, word),
-            null, null,
-            "$COL_CORR_CONFIDENCE DESC"
-        )
-        
-        val corrections = mutableListOf<Correction>()
-        cursor.use {
-            while (it.moveToNext()) {
-                corrections.add(Correction(
-                    originalWord = word,
-                    correctedWord = it.getString(0),
-                    confidence = it.getDouble(1),
-                    language = language
-                ))
-            }
-        }
-        
-        return corrections
+    fun getAllWords(language: String): List<String> {
+        if (!isLoaded(language)) return emptyList()
+        return wordMaps[language]?.keys?.toList() ?: emptyList()
     }
     
     /**
-     * Get next word predictions based on previous word
+     * Get frequency rank for a word (lower = more common)
+     * Returns Int.MAX_VALUE if word not found
      */
-    fun getNextWordPredictions(language: String, previousWord: String, limit: Int = 5): List<String> {
-        val cursor = readableDatabase.query(
-            TABLE_BIGRAMS,
-            arrayOf(COL_BIGRAM_WORD2),
-            "$COL_BIGRAM_LANGUAGE = ? AND $COL_BIGRAM_WORD1 = ? COLLATE NOCASE",
-            arrayOf(language, previousWord),
-            null, null,
-            "$COL_BIGRAM_FREQUENCY DESC",
-            limit.toString()
-        )
-        
-        val predictions = mutableListOf<String>()
-        cursor.use {
-            while (it.moveToNext()) {
-                predictions.add(it.getString(0))
-            }
-        }
-        
-        return predictions
+    fun getFrequency(language: String, word: String): Int {
+        if (!isLoaded(language)) return Int.MAX_VALUE
+        return wordMaps[language]?.get(word) ?: Int.MAX_VALUE
     }
     
     /**
-     * Add user word to dictionary
+     * Get bigram frequency
+     * Returns 0 if bigram not found
      */
-    fun addUserWord(language: String, word: String) {
-        val currentTime = System.currentTimeMillis()
-        val values = ContentValues().apply {
-            put(COL_USER_LANGUAGE, language)
-            put(COL_USER_WORD, word)
-            put(COL_USER_FREQUENCY, 1)
-            put(COL_USER_ADDED_TIME, currentTime)
-        }
+    fun getBigramFrequency(language: String, w1: String, w2: String): Int {
+        if (!isLoaded(language)) return 0
+        val key = "$w1 $w2"
+        return bigramMaps[language]?.get(key) ?: 0
+    }
+    
+    /**
+     * Check if a word exists in the dictionary
+     */
+    fun contains(language: String, word: String): Boolean {
+        if (!isLoaded(language)) return false
+        return wordMaps[language]?.containsKey(word) ?: false
+    }
+    
+    /**
+     * Get list of currently loaded languages
+     */
+    fun getLoadedLanguages(): List<String> {
+        return loadedLanguages.toList()
+    }
+    
+    /**
+     * Get total word count across all loaded languages
+     */
+    fun getLoadedWordCount(): Int {
+        return wordMaps.values.sumOf { it.size }
+    }
+    
+    /**
+     * Get statistics for loaded languages
+     */
+    fun getStats(): Map<String, Map<String, Int>> {
+        val stats = mutableMapOf<String, Map<String, Int>>()
         
-        val db = writableDatabase
-        val rowsAffected = db.insertWithOnConflict(TABLE_USER_WORDS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
-        
-        if (rowsAffected == -1L) {
-            // Word already exists, increment frequency
-            db.execSQL(
-                "UPDATE $TABLE_USER_WORDS SET $COL_USER_FREQUENCY = $COL_USER_FREQUENCY + 1 WHERE $COL_USER_LANGUAGE = ? AND $COL_USER_WORD = ?",
-                arrayOf(language, word)
+        loadedLanguages.forEach { lang ->
+            stats[lang] = mapOf(
+                "words" to (wordMaps[lang]?.size ?: 0),
+                "bigrams" to (bigramMaps[lang]?.size ?: 0)
             )
-        }
-        
-        Log.d(TAG, "Added user word: $word for language: $language")
-    }
-    
-    /**
-     * Get user words for suggestions
-     */
-    fun getUserWordSuggestions(language: String, prefix: String, limit: Int = 5): List<String> {
-        if (prefix.isEmpty()) return emptyList()
-        
-        val cursor = readableDatabase.query(
-            TABLE_USER_WORDS,
-            arrayOf(COL_USER_WORD),
-            "$COL_USER_LANGUAGE = ? AND $COL_USER_WORD LIKE ? COLLATE NOCASE",
-            arrayOf(language, "$prefix%"),
-            null, null,
-            "$COL_USER_FREQUENCY DESC, $COL_USER_ADDED_TIME DESC",
-            limit.toString()
-        )
-        
-        val suggestions = mutableListOf<String>()
-        cursor.use {
-            while (it.moveToNext()) {
-                suggestions.add(it.getString(0))
-            }
-        }
-        
-        return suggestions
-    }
-    
-    /**
-     * Get combined suggestions (dictionary + user words)
-     */
-    fun getCombinedSuggestions(language: String, prefix: String, limit: Int = 10): List<String> {
-        val dictionarySuggestions = getWordSuggestions(language, prefix, limit)
-        val userSuggestions = getUserWordSuggestions(language, prefix, limit / 2)
-        
-        // Combine and deduplicate
-        val combined = (userSuggestions + dictionarySuggestions).distinct()
-        return combined.take(limit)
-    }
-    
-    /**
-     * Check if language dictionary is loaded
-     */
-    fun isLanguageLoaded(language: String): Boolean {
-        return loadedLanguages[language] == true
-    }
-    
-    /**
-     * Preload multiple languages asynchronously
-     */
-    fun preloadLanguages(languages: Set<String>) {
-        languages.forEach { language ->
-            dictionaryScope.launch {
-                loadLanguageDictionary(language)
-            }
-        }
-    }
-    
-    /**
-     * Clear all data for a specific language
-     */
-    fun clearLanguageData(language: String) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete(TABLE_WORDS, "$COL_WORD_LANGUAGE = ?", arrayOf(language))
-            db.delete(TABLE_CORRECTIONS, "$COL_CORR_LANGUAGE = ?", arrayOf(language))
-            db.delete(TABLE_BIGRAMS, "$COL_BIGRAM_LANGUAGE = ?", arrayOf(language))
-            db.delete(TABLE_USER_WORDS, "$COL_USER_LANGUAGE = ?", arrayOf(language))
-            db.setTransactionSuccessful()
-            
-            loadedLanguages.remove(language)
-            Log.d(TAG, "Cleared data for language: $language")
-        } finally {
-            db.endTransaction()
-        }
-    }
-    
-    /**
-     * Get database statistics
-     */
-    fun getDatabaseStats(): Map<String, Int> {
-        val stats = mutableMapOf<String, Int>()
-        
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM $TABLE_WORDS", null).use {
-            if (it.moveToFirst()) stats["total_words"] = it.getInt(0)
-        }
-        
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM $TABLE_CORRECTIONS", null).use {
-            if (it.moveToFirst()) stats["total_corrections"] = it.getInt(0)
-        }
-        
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM $TABLE_BIGRAMS", null).use {
-            if (it.moveToFirst()) stats["total_bigrams"] = it.getInt(0)
-        }
-        
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM $TABLE_USER_WORDS", null).use {
-            if (it.moveToFirst()) stats["total_user_words"] = it.getInt(0)
         }
         
         return stats
+    }
+    
+    /**
+     * Unload a language to free memory
+     */
+    fun unloadLanguage(language: String) {
+        wordMaps.remove(language)
+        bigramMaps.remove(language)
+            loadedLanguages.remove(language)
+        loadingJobs[language]?.cancel()
+        loadingJobs.remove(language)
+        Log.d(TAG, "🗑️ Unloaded language: $language")
+    }
+    
+    /**
+     * Clear all dictionaries
+     */
+    fun clear() {
+        wordMaps.clear()
+        bigramMaps.clear()
+        loadedLanguages.clear()
+        loadingJobs.values.forEach { it.cancel() }
+        loadingJobs.clear()
+        Log.d(TAG, "🗑️ Cleared all dictionaries")
     }
 }

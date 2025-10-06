@@ -6,6 +6,9 @@ import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/screens/main%20screens/upgrade_pro_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:ai_keyboard/theme/theme_v2.dart';
+import 'package:ai_keyboard/theme/theme_editor_v2.dart';
+import 'package:ai_keyboard/screens/main%20screens/chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,6 +18,39 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+
+  Future<void> _applyTheme(KeyboardThemeV2 theme) async {
+    try {
+      await ThemeManagerV2.saveThemeV2(theme);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Applied ${theme.name} theme'),
+            backgroundColor: theme.specialKeys.accent,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to apply theme: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _navigateToThemeGallery() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ThemeGalleryScreen(),
+      ),
+    );
+  }
   
 
   void _showUpgradeProBottomSheet() {
@@ -59,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Our Features', style: TextStyle(fontSize: 16)),
+                  
                   _buildtileOption(
                     title: 'AI Suggestions',
                     subtitle: 'Get smart text predictions and corrections',
@@ -140,9 +177,12 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Themes', style: TextStyle(fontSize: 16)),
-              Text(
-                'view All',
-                style: TextStyle(color: AppColors.secondary, fontSize: 16),
+              GestureDetector(
+                onTap: _navigateToThemeGallery,
+                child: Text(
+                  'view All',
+                  style: TextStyle(color: AppColors.secondary, fontSize: 16),
+                ),
               ),
             ],
           ),
@@ -151,72 +191,78 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               Expanded(
-                child: Container(
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: AppColors.grey.withOpacity(0.2),
-                  ),
-                  height: MediaQuery.of(context).size.height * 0.18,
-                  child: Column(
-                    children: [
-                      Image.asset(Appkeyboards.keyboard_white),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Light',
-                            style: AppTextStyle.buttonSecondary.copyWith(
-                              fontSize: 16,
+                child: GestureDetector(
+                  onTap: () => _applyTheme(KeyboardThemeV2.createWhiteTheme()),
+                  child: Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.grey.withOpacity(0.2),
+                    ),
+                    height: MediaQuery.of(context).size.height * 0.18,
+                    child: Column(
+                      children: [
+                        Image.asset(Appkeyboards.keyboard_white),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Light',
+                              style: AppTextStyle.buttonSecondary.copyWith(
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                          SizedBox(height: 4),
+                            SizedBox(height: 4),
 
-                          Text(
-                            'Free',
-                            style: AppTextStyle.buttonSecondary.copyWith(
-                              fontSize: 16,
-                              color: AppColors.secondary,
+                            Text(
+                              'Free',
+                              style: AppTextStyle.buttonSecondary.copyWith(
+                                fontSize: 16,
+                                color: AppColors.secondary,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
               SizedBox(width: 16),
               Expanded(
-                child: Container(
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.grey,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  height: MediaQuery.of(context).size.height * 0.18,
-                  child: Column(
-                    children: [
-                      Image.asset(Appkeyboards.keyboard_black),
-                      SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Dark',
-                            style: AppTextStyle.buttonPrimary.copyWith(
-                              fontSize: 20,
+                child: GestureDetector(
+                  onTap: () => _applyTheme(KeyboardThemeV2.createDarkTheme()),
+                  child: Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.grey,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    height: MediaQuery.of(context).size.height * 0.18,
+                    child: Column(
+                      children: [
+                        Image.asset(Appkeyboards.keyboard_black),
+                        SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Dark',
+                              style: AppTextStyle.buttonPrimary.copyWith(
+                                fontSize: 20,
+                              ),
                             ),
-                          ),
-                          Text(
-                            'Free',
-                            style: AppTextStyle.buttonSecondary.copyWith(
-                              fontSize: 20,
-                              color: AppColors.secondary,
+                            Text(
+                              'Free',
+                              style: AppTextStyle.buttonSecondary.copyWith(
+                                fontSize: 20,
+                                color: AppColors.secondary,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

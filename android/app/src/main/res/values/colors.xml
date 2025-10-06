@@ -16,6 +16,15 @@
     <color name="menu_text_color">#212121</color>
     <color name="menu_icon_color">#757575</color>
     
+    <!-- Keyboard panel colors (themeable - defaults for dark mode) -->
+    <color name="kb_panel_bg">#22252B</color>
+    <color name="kb_toolbar_bg">#1B1E23</color>
+    <color name="kb_key_bg">#2B2F36</color>
+    <color name="kb_key_bg_pressed">#3A3F47</color>
+    <color name="kb_text_primary">#FFFFFF</color>
+    <color name="kb_text_secondary">#B0B0B0</color>
+    <color name="kb_icon_tint">#E0E0E0</color>
+    
     <!-- Note: All keyboard colors are now managed by ThemeManager V2 -->
     <!-- Remove hardcoded theme colors to prevent conflicts -->
 </resources>

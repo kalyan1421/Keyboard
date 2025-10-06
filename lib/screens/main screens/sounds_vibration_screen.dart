@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
+import 'package:ai_keyboard/services/keyboard_cloud_sync.dart';
 
 class SoundsVibrationScreen extends StatefulWidget {
   const SoundsVibrationScreen({super.key});
@@ -11,20 +15,201 @@ class SoundsVibrationScreen extends StatefulWidget {
 }
 
 class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
+  // MethodChannel for communication with native Kotlin keyboard
+  static const _channel = MethodChannel('ai_keyboard/config');
+  
+  // Debounce timers
+  Timer? _saveDebounceTimer;
+  Timer? _notifyDebounceTimer;
+  
   // Sounds Settings
-  bool audioFeedback = true;
-  double soundVolume = 50.0;
+  bool audioFeedback = true; // Default to true
+  double soundVolume = 50.0; // Default 50%
   bool keyPressSounds = true;
   bool longPressKeySounds = true;
   bool repeatedActionKeySounds = true;
 
   // Haptic feedback & Vibration Settings
-  bool hapticFeedback = true;
-  String vibrationMode = 'Select display mode';
-  double vibrationDuration = 50.0;
+  bool hapticFeedback = true; // Default to true
+  String vibrationMode = 'Use haptic feedback interface'; // Default mode
+  double vibrationDuration = 50.0; // Default 50ms
   bool keyPressVibration = true;
   bool longPressKeyVibration = true;
   bool repeatedActionKeyVibration = true;
+
+  @override
+  void dispose() {
+    _saveDebounceTimer?.cancel();
+    _notifyDebounceTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  /// Load settings from SharedPreferences
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      // Sound Settings
+      audioFeedback = prefs.getBool('audio_feedback') ?? true;
+      soundVolume = prefs.getDouble('sound_volume') ?? 50.0;
+      keyPressSounds = prefs.getBool('key_press_sounds') ?? true;
+      longPressKeySounds = prefs.getBool('long_press_key_sounds') ?? true;
+      repeatedActionKeySounds = prefs.getBool('repeated_action_key_sounds') ?? true;
+      
+      // Vibration Settings
+      hapticFeedback = prefs.getBool('haptic_feedback') ?? true;
+      vibrationMode = prefs.getString('vibration_mode') ?? 'Use haptic feedback interface';
+      vibrationDuration = prefs.getDouble('vibration_duration') ?? 50.0;
+      keyPressVibration = prefs.getBool('key_press_vibration') ?? true;
+      longPressKeyVibration = prefs.getBool('long_press_key_vibration') ?? true;
+      repeatedActionKeyVibration = prefs.getBool('repeated_action_key_vibration') ?? true;
+    });
+  }
+
+  /// Save settings with debouncing
+  Future<void> _saveSettings({bool immediate = false}) async {
+    // Cancel existing timer
+    _saveDebounceTimer?.cancel();
+    
+    if (immediate) {
+      await _performSave();
+    } else {
+      // Debounce for 500ms
+      _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+        _performSave();
+      });
+    }
+  }
+  
+  /// Actually perform the save operation
+  Future<void> _performSave() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Save Sound Settings
+    await prefs.setBool('audio_feedback', audioFeedback);
+    await prefs.setDouble('sound_volume', soundVolume);
+    await prefs.setBool('key_press_sounds', keyPressSounds);
+    await prefs.setBool('long_press_key_sounds', longPressKeySounds);
+    await prefs.setBool('repeated_action_key_sounds', repeatedActionKeySounds);
+    
+    // Save Vibration Settings
+    await prefs.setBool('haptic_feedback', hapticFeedback);
+    await prefs.setString('vibration_mode', vibrationMode);
+    await prefs.setDouble('vibration_duration', vibrationDuration);
+    await prefs.setBool('key_press_vibration', keyPressVibration);
+    await prefs.setBool('long_press_key_vibration', longPressKeyVibration);
+    await prefs.setBool('repeated_action_key_vibration', repeatedActionKeyVibration);
+    
+    debugPrint('✅ Sound & Vibration settings saved');
+    
+    // Send to native keyboard
+    await _sendSettingsToKeyboard();
+    
+    // Sync to Firebase for cross-device sync
+    await _syncToFirebase();
+    
+    // Notify keyboard (debounced)
+    _debouncedNotifyKeyboard();
+  }
+  
+  /// Sync settings to Firebase for cross-device sync
+  Future<void> _syncToFirebase() async {
+    try {
+      await KeyboardCloudSync.upsert({
+        'soundEnabled': audioFeedback,
+        'soundVolume': soundVolume / 100.0,
+        'vibrationEnabled': hapticFeedback,
+        'vibrationMs': vibrationDuration.toInt(),
+      });
+      debugPrint('✅ Sound & Vibration settings synced to Firebase');
+    } catch (e) {
+      debugPrint('⚠ Failed to sync to Firebase: $e');
+      // Don't block user if Firebase fails
+    }
+  }
+  
+  /// Send settings to native keyboard
+  Future<void> _sendSettingsToKeyboard() async {
+    try {
+      await _channel.invokeMethod('updateSettings', {
+        'soundEnabled': audioFeedback && keyPressSounds,
+        'soundVolume': soundVolume / 100.0,
+        'keyPressSounds': keyPressSounds,
+        'longPressSounds': longPressKeySounds,
+        'repeatedActionSounds': repeatedActionKeySounds,
+        'vibrationEnabled': hapticFeedback && keyPressVibration,
+        'vibrationMs': vibrationDuration.toInt(),
+        'useHapticInterface': vibrationMode == 'Use haptic feedback interface',
+        'keyPressVibration': keyPressVibration,
+        'longPressVibration': longPressKeyVibration,
+        'repeatedActionVibration': repeatedActionKeyVibration,
+      });
+      debugPrint('📤 Settings sent to native keyboard');
+    } catch (e) {
+      debugPrint('⚠ Error sending settings: $e');
+    }
+  }
+  
+  /// Notify keyboard with debounce
+  void _debouncedNotifyKeyboard() {
+    _notifyDebounceTimer?.cancel();
+    _notifyDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _notifyKeyboard();
+    });
+  }
+  
+  /// Notify keyboard via MethodChannel
+  Future<void> _notifyKeyboard() async {
+    try {
+      await _channel.invokeMethod('notifyConfigChange');
+      await _channel.invokeMethod('broadcastSettingsChanged');
+      debugPrint('✅ Keyboard notified - settings updated immediately');
+      _showSuccessSnackBar();
+    } catch (e) {
+      debugPrint('⚠ Failed to notify: $e');
+      _showErrorSnackBar(e.toString());
+    }
+  }
+  
+  /// Show success snackbar
+  void _showSuccessSnackBar() {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white, size: 20),
+            SizedBox(width: 8),
+            Expanded(child: Text('Settings saved! Keyboard updated immediately.')),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+  
+  /// Show error snackbar
+  void _showErrorSnackBar(String error) {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error updating keyboard: $error'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,9 +262,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Audio feedback
             _buildToggleSetting(
               title: 'Audio feedback',
-              description: 'Enabled',
+              description: audioFeedback ? 'Enabled' : 'Disabled',
               value: audioFeedback,
-              onChanged: (value) => setState(() => audioFeedback = value),
+              onChanged: (value) {
+                setState(() => audioFeedback = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -88,7 +276,10 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             _buildSliderSetting(
               title: 'Sound volume for input events',
               portraitValue: soundVolume,
-              onPortraitChanged: (value) => setState(() => soundVolume = value),
+              onPortraitChanged: (value) {
+                setState(() => soundVolume = value);
+                _saveSettings();
+              },
               min: 0.0,
               max: 100.0,
               unit: '%',
@@ -101,9 +292,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Key press sounds
             _buildToggleSetting(
               title: 'Key press sounds',
-              description: 'Enabled',
+              description: keyPressSounds ? 'Enabled' : 'Disabled',
               value: keyPressSounds,
-              onChanged: (value) => setState(() => keyPressSounds = value),
+              onChanged: (value) {
+                setState(() => keyPressSounds = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -111,9 +305,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Long press key sounds
             _buildToggleSetting(
               title: 'Long press key sounds',
-              description: 'Enabled',
+              description: longPressKeySounds ? 'Enabled' : 'Disabled',
               value: longPressKeySounds,
-              onChanged: (value) => setState(() => longPressKeySounds = value),
+              onChanged: (value) {
+                setState(() => longPressKeySounds = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -121,10 +318,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Repeated action key sounds
             _buildToggleSetting(
               title: 'Repeated action key sounds',
-              description: 'Enabled',
+              description: repeatedActionKeySounds ? 'Enabled' : 'Disabled',
               value: repeatedActionKeySounds,
-              onChanged: (value) =>
-                  setState(() => repeatedActionKeySounds = value),
+              onChanged: (value) {
+                setState(() => repeatedActionKeySounds = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 32),
@@ -136,9 +335,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Haptic feedback
             _buildToggleSetting(
               title: 'Haptic feedback',
-              description: 'Enabled',
+              description: hapticFeedback ? 'Enabled' : 'Disabled',
               value: hapticFeedback,
-              onChanged: (value) => setState(() => hapticFeedback = value),
+              onChanged: (value) {
+                setState(() => hapticFeedback = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -156,8 +358,10 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             _buildSliderSetting(
               title: 'Vibration duration',
               portraitValue: vibrationDuration,
-              onPortraitChanged: (value) =>
-                  setState(() => vibrationDuration = value),
+              onPortraitChanged: (value) {
+                setState(() => vibrationDuration = value);
+                _saveSettings();
+              },
               min: 10.0,
               max: 200.0,
               unit: 'ms',
@@ -179,9 +383,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Key press vibration
             _buildToggleSetting(
               title: 'Key press vibration',
-              description: 'Enabled',
+              description: keyPressVibration ? 'Enabled' : 'Disabled',
               value: keyPressVibration,
-              onChanged: (value) => setState(() => keyPressVibration = value),
+              onChanged: (value) {
+                setState(() => keyPressVibration = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -189,10 +396,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Long press key vibration
             _buildToggleSetting(
               title: 'Long press key vibration',
-              description: 'Enabled',
+              description: longPressKeyVibration ? 'Enabled' : 'Disabled',
               value: longPressKeyVibration,
-              onChanged: (value) =>
-                  setState(() => longPressKeyVibration = value),
+              onChanged: (value) {
+                setState(() => longPressKeyVibration = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -200,10 +409,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             // Repeated action key vibration
             _buildToggleSetting(
               title: 'Repeated action key vibration',
-              description: 'Enabled',
+              description: repeatedActionKeyVibration ? 'Enabled' : 'Disabled',
               value: repeatedActionKeyVibration,
-              onChanged: (value) =>
-                  setState(() => repeatedActionKeyVibration = value),
+              onChanged: (value) {
+                setState(() => repeatedActionKeyVibration = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 24),
@@ -461,141 +672,179 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   }
 
   void _showVibrationModeDialog() {
+    String tempVibrationMode = vibrationMode; // Temporary selection
+    
     showDialog(
       context: context,
       barrierDismissible: true,
       builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Text(
-                  'Vibration Mode',
-                  style: AppTextStyle.titleLarge.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                Divider(color: AppColors.lightGrey, thickness: 1),
-
-                // Vibration Mode Options
-                _buildVibrationModeOption('Use vibrator directly'),
-                const SizedBox(height: 12),
-                _buildVibrationModeOption('Use haptic feedback interface'),
-
-                const SizedBox(height: 20),
-
-                // Apply Button
-                Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: AppColors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Cancel',
-                          style: AppTextStyle.buttonSecondary.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                    // Header
+                    Text(
+                      'Vibration Mode',
+                      style: AppTextStyle.titleLarge.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    TextButton(
-                      onPressed: () {},
-                      child: Text(
-                        'default',
-                        style: AppTextStyle.buttonSecondary.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Select how vibration feedback is triggered',
+                      style: AppTextStyle.bodySmall.copyWith(
+                        color: AppColors.grey,
                       ),
                     ),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: AppColors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(32),
+                    Divider(color: AppColors.lightGrey, thickness: 1),
+
+                    // Vibration Mode Options
+                    _buildVibrationModeOptionInDialog(
+                      'Use vibrator directly',
+                      tempVibrationMode,
+                      (value) {
+                        setDialogState(() {
+                          tempVibrationMode = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildVibrationModeOptionInDialog(
+                      'Use haptic feedback interface',
+                      tempVibrationMode,
+                      (value) {
+                        setDialogState(() {
+                          tempVibrationMode = value;
+                        });
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Apply Button
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.lightGrey,
+                              foregroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(32),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: Text(
+                              'Cancel',
+                              style: AppTextStyle.buttonSecondary.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
-                          elevation: 0,
                         ),
-                        child: Text(
-                          'OK',
-                          style: AppTextStyle.buttonSecondary.copyWith(
-                            fontWeight: FontWeight.w600,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                vibrationMode = tempVibrationMode;
+                              });
+                              _saveSettings();
+                              Navigator.of(context).pop();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.secondary,
+                              foregroundColor: AppColors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(32),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: Text(
+                              'Apply',
+                              style: AppTextStyle.buttonSecondary.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildVibrationModeOption(String mode) {
+  Widget _buildVibrationModeOptionInDialog(
+    String mode,
+    String currentMode,
+    Function(String) onChanged,
+  ) {
+    bool isSelected = currentMode == mode;
+    
     return GestureDetector(
       onTap: () {
-        setState(() {
-          vibrationMode = mode;
-        });
-        Navigator.of(context).pop();
+        onChanged(mode);
       },
-      child: Row(
-        children: [
-          // Radio Button
-          Radio<String>(
-            value: mode,
-            groupValue: vibrationMode,
-            onChanged: (String? value) {
-              if (value != null) {
-                setState(() {
-                  vibrationMode = value;
-                });
-                Navigator.of(context).pop();
-              }
-            },
-            activeColor: AppColors.secondary,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.secondary.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? AppColors.secondary : AppColors.lightGrey,
+            width: isSelected ? 2 : 1,
           ),
-          const SizedBox(width: 8),
+        ),
+        child: Row(
+          children: [
+            // Radio Button
+            Radio<String>(
+              value: mode,
+              groupValue: currentMode,
+              onChanged: (String? value) {
+                if (value != null) {
+                  onChanged(value);
+                }
+              },
+              activeColor: AppColors.secondary,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            const SizedBox(width: 8),
 
-          // Content
-          Expanded(
-            child: Text(
-              mode,
-              style: AppTextStyle.titleMedium.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w600,
+            // Content
+            Expanded(
+              child: Text(
+                mode,
+                style: AppTextStyle.titleMedium.copyWith(
+                  color: isSelected ? AppColors.secondary : AppColors.primary,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

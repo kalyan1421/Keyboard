@@ -47,18 +47,56 @@ class MainActivity : FlutterActivity() {
                                 result.success(true)
                             }
                             "updateSettings" -> {
+                                // Enhanced settings with Gboard + CleverType features
                                 val theme = call.argument<String>("theme") ?: "default"
+                                val popupEnabled = call.argument<Boolean>("popupEnabled") ?: false
                                 val aiSuggestions = call.argument<Boolean>("aiSuggestions") ?: true
+                                val autocorrect = call.argument<Boolean>("autoCorrect") ?: true  // ✅ Fixed: Match Flutter camelCase
+                                val emojiSuggestions = call.argument<Boolean>("emojiSuggestions") ?: true
+                                val nextWordPrediction = call.argument<Boolean>("nextWordPrediction") ?: true
+                                val clipboardEnabled = call.argument<Boolean>("clipboardEnabled") ?: true
+                                val clipboardWindowSec = call.argument<Int>("clipboardWindowSec") ?: 60
+                                val clipboardHistoryItems = call.argument<Int>("clipboardHistoryItems") ?: 20
+                                val dictionaryEnabled = call.argument<Boolean>("dictionaryEnabled") ?: true
+                                val autoCapitalization = call.argument<Boolean>("autoCapitalization") ?: true
+                                val doubleSpacePeriod = call.argument<Boolean>("doubleSpacePeriod") ?: true
+                                val soundEnabled = call.argument<Boolean>("soundEnabled") ?: true
+                                val soundVolume = call.argument<Double>("soundVolume") ?: 0.5
+                                val vibrationEnabled = call.argument<Boolean>("vibrationEnabled") ?: true
+                                val vibrationMs = call.argument<Int>("vibrationMs") ?: 50
+                                
+                                // Legacy settings (backwards compat)
                                 val swipeTyping = call.argument<Boolean>("swipeTyping") ?: true
                                 val voiceInput = call.argument<Boolean>("voiceInput") ?: true
-                                val vibration = call.argument<Boolean>("vibration") ?: true
-                                val keyPreview = call.argument<Boolean>("keyPreview") ?: false
                                 val shiftFeedback = call.argument<Boolean>("shiftFeedback") ?: false
                                 val showNumberRow = call.argument<Boolean>("showNumberRow") ?: false
-                                val soundEnabled = call.argument<Boolean>("soundEnabled") ?: true
                                 
                                 withContext(Dispatchers.IO) {
-                                    updateKeyboardSettings(theme, aiSuggestions, swipeTyping, voiceInput, vibration, keyPreview, shiftFeedback, showNumberRow, soundEnabled)
+                                    updateKeyboardSettingsV2(
+                                        theme, popupEnabled, aiSuggestions, autocorrect, 
+                                        emojiSuggestions, nextWordPrediction, clipboardEnabled,
+                                        clipboardWindowSec, clipboardHistoryItems, dictionaryEnabled,
+                                        autoCapitalization, doubleSpacePeriod, soundEnabled,
+                                        soundVolume, vibrationEnabled, vibrationMs,
+                                        swipeTyping, voiceInput, shiftFeedback, showNumberRow
+                                    )
+                                }
+                                android.util.Log.d("MainActivity", "✓ Settings updated via MethodChannel")
+                                result.success(true)
+                            }
+                            "notifyConfigChange" -> {
+                                // Unified method for all config changes (settings + themes)
+                                Log.d("MainActivity", "✓ notifyConfigChange received")
+                                withContext(Dispatchers.IO) {
+                                    sendSettingsChangedBroadcast()
+                                }
+                                result.success(true)
+                            }
+                            "broadcastSettingsChanged" -> {
+                                // Force immediate broadcast to keyboard service
+                                Log.d("MainActivity", "✓ broadcastSettingsChanged received - forcing immediate update")
+                                withContext(Dispatchers.IO) {
+                                    sendSettingsChangedBroadcast()
                                 }
                                 result.success(true)
                             }
@@ -95,6 +133,95 @@ class MainActivity : FlutterActivity() {
                                 
                                 withContext(Dispatchers.IO) {
                                     updateClipboardSettings(enabled, maxHistorySize, autoExpiryEnabled, expiryDurationMinutes, templates)
+                                }
+                                result.success(true)
+                            }
+                            "getEmojiSettings" -> {
+                                val settings = withContext(Dispatchers.IO) { getEmojiSettings() }
+                                result.success(settings)
+                            }
+                            "updateEmojiSettings" -> {
+                                val skinTone = call.argument<String>("skinTone") ?: ""
+                                val historyMaxSize = call.argument<Int>("historyMaxSize") ?: 90
+                                
+                                withContext(Dispatchers.IO) {
+                                    updateEmojiSettings(skinTone, historyMaxSize)
+                                }
+                                result.success(true)
+                            }
+                            "getEmojiConfig" -> {
+                                val config = withContext(Dispatchers.IO) { getEmojiConfig() }
+                                result.success(config)
+                            }
+                            "updateEmojiConfig" -> {
+                                val skinTone = call.argument<String>("skinTone") ?: ""
+                                val recent = call.argument<List<String>>("recent") ?: emptyList()
+                                
+                                withContext(Dispatchers.IO) {
+                                    updateEmojiConfig(skinTone, recent)
+                                }
+                                result.success(true)
+                            }
+                            "sendBroadcast" -> {
+                                val action = call.argument<String>("action") ?: ""
+                                Log.d("MainActivity", "sendBroadcast called with action: $action")
+                                withContext(Dispatchers.IO) {
+                                    sendBroadcast(action)
+                                }
+                                result.success(true)
+                            }
+                            "updateCustomPrompts" -> {
+                                Log.d("MainActivity", "Custom prompts updated, notifying keyboard service")
+                                withContext(Dispatchers.IO) {
+                                    sendSettingsChangedBroadcast()
+                                }
+                                result.success(true)
+                            }
+                            "clearLearnedWords" -> {
+                                Log.d("MainActivity", "Clearing learned words")
+                                withContext(Dispatchers.IO) {
+                                    clearUserLearnedWords()
+                                }
+                                result.success(true)
+                            }
+                            "setEnabledLanguages" -> {
+                                val enabled = call.argument<List<String>>("enabled") ?: emptyList()
+                                val current = call.argument<String>("current") ?: "en"
+                                Log.d("MainActivity", "Setting enabled languages: $enabled, current: $current")
+                                withContext(Dispatchers.IO) {
+                                    setEnabledLanguages(enabled, current)
+                                }
+                                result.success(true)
+                            }
+                            "setCurrentLanguage" -> {
+                                val language = call.argument<String>("language") ?: "en"
+                                Log.d("MainActivity", "Setting current language: $language")
+                                withContext(Dispatchers.IO) {
+                                    setCurrentLanguage(language)
+                                }
+                                result.success(true)
+                            }
+                            "setMultilingual" -> {
+                                val enabled = call.argument<Boolean>("enabled") ?: false
+                                Log.d("MainActivity", "Setting multilingual mode: $enabled")
+                                withContext(Dispatchers.IO) {
+                                    setMultilingualMode(enabled)
+                                }
+                                result.success(true)
+                            }
+                            "setTransliterationEnabled" -> {
+                                val enabled = call.argument<Boolean>("enabled") ?: true
+                                Log.d("MainActivity", "Setting transliteration: $enabled")
+                                withContext(Dispatchers.IO) {
+                                    setTransliterationEnabled(enabled)
+                                }
+                                result.success(true)
+                            }
+                            "setReverseTransliterationEnabled" -> {
+                                val enabled = call.argument<Boolean>("enabled") ?: false
+                                Log.d("MainActivity", "Setting reverse transliteration: $enabled")
+                                withContext(Dispatchers.IO) {
+                                    setReverseTransliterationEnabled(enabled)
                                 }
                                 result.success(true)
                             }
@@ -185,6 +312,61 @@ class MainActivity : FlutterActivity() {
         notifyKeyboardServiceSettingsChanged()
     }
     
+    private suspend fun updateKeyboardSettingsV2(
+        theme: String,
+        popupEnabled: Boolean,
+        aiSuggestions: Boolean,
+        autocorrect: Boolean,
+        emojiSuggestions: Boolean,
+        nextWordPrediction: Boolean,
+        clipboardEnabled: Boolean,
+        clipboardWindowSec: Int,
+        clipboardHistoryItems: Int,
+        dictionaryEnabled: Boolean,
+        autoCapitalization: Boolean,
+        doubleSpacePeriod: Boolean,
+        soundEnabled: Boolean,
+        soundVolume: Double,
+        vibrationEnabled: Boolean,
+        vibrationMs: Int,
+        swipeTyping: Boolean,
+        voiceInput: Boolean,
+        shiftFeedback: Boolean,
+        showNumberRow: Boolean
+    ) = withContext(Dispatchers.IO) {
+        // Store enhanced settings in SharedPreferences
+        val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("keyboard_theme", theme)
+            .putBoolean("popup_enabled", popupEnabled)
+            .putBoolean("ai_suggestions", aiSuggestions)
+            .putBoolean("auto_correct", autocorrect)  // ✅ Fixed: Match AIKeyboardService key
+            .putBoolean("emoji_suggestions", emojiSuggestions)
+            .putBoolean("next_word_prediction", nextWordPrediction)
+            .putBoolean("clipboard_suggestions_enabled", clipboardEnabled)
+            .putInt("clipboard_window_sec", clipboardWindowSec)
+            .putInt("clipboard_history_items", clipboardHistoryItems)
+            .putBoolean("dictionary_enabled", dictionaryEnabled)
+            .putBoolean("auto_capitalization", autoCapitalization)
+            .putBoolean("double_space_period", doubleSpacePeriod)
+            .putBoolean("sound_enabled", soundEnabled)
+            .putFloat("sound_volume", soundVolume.toFloat())
+            .putBoolean("vibration_enabled", vibrationEnabled)
+            .putInt("vibration_ms", vibrationMs)
+            // Legacy settings
+            .putBoolean("swipe_typing", swipeTyping)
+            .putBoolean("voice_input", voiceInput)
+            .putBoolean("show_shift_feedback", shiftFeedback)
+            .putBoolean("show_number_row", showNumberRow)
+            .apply()
+            
+        android.util.Log.d("MainActivity", "✓ Settings V2 persisted to SharedPreferences")
+        android.util.Log.d("TypingSync", "Settings applied: popup=$popupEnabled, autocorrect=$autocorrect, emoji=$emojiSuggestions, nextWord=$nextWordPrediction, clipboard=$clipboardEnabled")
+        
+        // Notify keyboard service to reload settings immediately
+        notifyKeyboardServiceSettingsChanged()
+    }
+    
     private fun notifyKeyboardServiceSettingsChanged() {
         try {
             // Send broadcast to keyboard service to reload settings
@@ -268,6 +450,18 @@ class MainActivity : FlutterActivity() {
         }
     }
     
+    private fun sendBroadcast(action: String) {
+        try {
+            val intent = Intent(action).apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+            android.util.Log.d("MainActivity", "Broadcast sent: $action")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to send broadcast: $action", e)
+        }
+    }
+    
     private suspend fun updateClipboardSettings(
         enabled: Boolean,
         maxHistorySize: Int,
@@ -321,6 +515,231 @@ class MainActivity : FlutterActivity() {
             android.util.Log.d("MainActivity", "Clipboard settings broadcast sent")
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Failed to send clipboard settings broadcast", e)
+        }
+    }
+    
+    private fun getEmojiSettings(): Map<String, Any> {
+        val prefs = getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val skinTone = prefs.getString("preferred_skin_tone", "🏽") ?: "🏽"
+        val historyMaxSize = prefs.getInt("emoji_history_max_size", 90)
+        val historyJson = prefs.getString("emoji_history", "[]") ?: "[]"
+        
+        // Parse history list
+        val history = mutableListOf<String>()
+        try {
+            val cleanJson = historyJson.trim('[', ']')
+            if (cleanJson.isNotEmpty()) {
+                cleanJson.split(",").forEach { emoji ->
+                    val cleanEmoji = emoji.trim().trim('"')
+                    if (cleanEmoji.isNotEmpty()) {
+                        history.add(cleanEmoji)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error parsing emoji history", e)
+        }
+        
+        return mapOf(
+            "skinTone" to skinTone,
+            "historyMaxSize" to historyMaxSize,
+            "history" to history
+        )
+    }
+    
+    private fun updateEmojiSettings(skinTone: String, historyMaxSize: Int) {
+        val prefs = getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("preferred_skin_tone", skinTone)
+            .putInt("emoji_history_max_size", historyMaxSize)
+            .apply()
+        
+        android.util.Log.d("MainActivity", "Emoji settings updated: skinTone=$skinTone, historyMaxSize=$historyMaxSize")
+        
+        // Notify keyboard service to reload emoji settings
+        notifyKeyboardServiceEmojiChanged()
+    }
+    
+    private fun notifyKeyboardServiceEmojiChanged() {
+        try {
+            val intent = Intent("com.example.ai_keyboard.EMOJI_SETTINGS_CHANGED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+            android.util.Log.d("MainActivity", "Emoji settings broadcast sent")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to send emoji settings broadcast", e)
+        }
+    }
+    
+    private fun getEmojiConfig(): Map<String, Any> {
+        val prefs = getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val skinTone = prefs.getString("preferred_skin_tone", "🏽") ?: "🏽"
+        val historyJson = prefs.getString("emoji_history", "[]") ?: "[]"
+        
+        val recent = mutableListOf<String>()
+        try {
+            val cleanJson = historyJson.trim('[', ']')
+            if (cleanJson.isNotEmpty()) {
+                cleanJson.split(",").take(40).forEach { emoji ->
+                    val cleanEmoji = emoji.trim().trim('"')
+                    if (cleanEmoji.isNotEmpty()) {
+                        recent.add(cleanEmoji)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error parsing emoji history", e)
+        }
+        
+        return mapOf(
+            "skinTone" to skinTone,
+            "recent" to recent
+        )
+    }
+    
+    private fun updateEmojiConfig(skinTone: String, recent: List<String>) {
+        val prefs = getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val historyJson = recent.joinToString(",") { "\"$it\"" }
+        
+        prefs.edit()
+            .putString("preferred_skin_tone", skinTone)
+            .putString("emoji_history", "[$historyJson]")
+            .apply()
+        
+        android.util.Log.d("MainActivity", "Emoji config updated: skinTone=$skinTone, recent=${recent.size}")
+        notifyKeyboardServiceEmojiChanged()
+    }
+
+    private fun clearUserLearnedWords() {
+        try {
+            // Clear the local file
+            val userWordsFile = java.io.File(filesDir, "user_words.json")
+            if (userWordsFile.exists()) {
+                userWordsFile.delete()
+                android.util.Log.d("MainActivity", "Local user words file deleted")
+            }
+            
+            // Send broadcast to keyboard service to clear words
+            val intent = Intent("com.example.ai_keyboard.CLEAR_USER_WORDS").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+            
+            android.util.Log.d("MainActivity", "✅ Clear learned words request sent to keyboard service")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "❌ Error clearing learned words", e)
+            throw e
+        }
+    }
+
+    private fun setEnabledLanguages(languages: List<String>, current: String) {
+        try {
+            // Store in FlutterSharedPreferences format
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            
+            // Store enabled languages as comma-separated string
+            prefs.edit()
+                .putString("flutter.enabled_languages", languages.joinToString(","))
+                .putString("flutter.current_language", current)
+                .apply()
+            
+            Log.d("MainActivity", "✅ Enabled languages saved: $languages")
+            
+            // Send broadcast to keyboard service
+            sendLanguageChangeBroadcast(current)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Error setting enabled languages", e)
+        }
+    }
+    
+    private fun setCurrentLanguage(language: String) {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("flutter.current_language", language)
+                .apply()
+            
+            Log.d("MainActivity", "✅ Current language set to: $language")
+            
+            // Send broadcast to keyboard service
+            sendLanguageChangeBroadcast(language)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Error setting current language", e)
+        }
+    }
+    
+    private fun setMultilingualMode(enabled: Boolean) {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("flutter.multilingual_enabled", enabled)
+                .apply()
+            
+            Log.d("MainActivity", "✅ Multilingual mode set to: $enabled")
+            
+            // Send broadcast to keyboard service
+            val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
+                setPackage(packageName)
+                putExtra("multilingual_enabled", enabled)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Error setting multilingual mode", e)
+        }
+    }
+    
+    private fun sendLanguageChangeBroadcast(language: String) {
+        try {
+            val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
+                setPackage(packageName)
+                putExtra("language", language)
+            }
+            sendBroadcast(intent)
+            Log.d("MainActivity", "✅ Language change broadcast sent: $language")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Failed to send language change broadcast", e)
+        }
+    }
+    
+    // Phase 2: Transliteration toggles
+    private fun setTransliterationEnabled(enabled: Boolean) {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("flutter.transliteration_enabled", enabled)
+                .apply()
+            
+            Log.d("MainActivity", "✅ Transliteration enabled set to: $enabled")
+            
+            // Send broadcast to keyboard service
+            val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
+                setPackage(packageName)
+                putExtra("transliteration_enabled", enabled)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Error setting transliteration enabled", e)
+        }
+    }
+    
+    private fun setReverseTransliterationEnabled(enabled: Boolean) {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("flutter.reverse_transliteration_enabled", enabled)
+                .apply()
+            
+            Log.d("MainActivity", "✅ Reverse transliteration enabled set to: $enabled")
+            
+            // Send broadcast to keyboard service
+            val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
+                setPackage(packageName)
+                putExtra("reverse_transliteration_enabled", enabled)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Error setting reverse transliteration enabled", e)
         }
     }
 

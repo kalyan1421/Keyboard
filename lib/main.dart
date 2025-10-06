@@ -1,5 +1,9 @@
 // main.dart
+import 'package:ai_keyboard/screens/main%20screens/home_screen.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
+import 'package:ai_keyboard/screens/main%20screens/clipboard_screen.dart';
+import 'package:ai_keyboard/screens/main%20screens/language_screen.dart';
+import 'package:ai_keyboard/screens/main%20screens/dictionary_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
 import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
 import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
@@ -13,11 +17,16 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'keyboard_feedback_system.dart';
 import 'theme_manager.dart';
-import 'theme_editor_screen.dart';
+import 'theme/theme_editor_v2.dart';
 import 'services/firebase_auth_service.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/main%20screens/mainscreen.dart';
+import 'screens/main screens/keyboard_settings_screen.dart';
+import 'theme/theme_editor_v2.dart';
+import 'screens/main screens/emoji_settings_screen.dart';
+import 'screens/main screens/dictionary_screen.dart';
+import 'screens/main screens/clipboard_screen.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
 void main() async {
@@ -67,6 +76,66 @@ class AIKeyboardApp extends StatelessWidget {
       ),
       home: const AuthWrapper(),
       // home: AnimatedOnboardingScreen(),
+    );
+  }
+}
+
+/// Utility function to check keyboard status and navigate to config screen
+/// Usage: await openKeyboardConfigIfReady(context);
+Future<void> openKeyboardConfigIfReady(BuildContext context) async {
+  const platform = MethodChannel('ai_keyboard/config');
+  try {
+    final enabled = await platform.invokeMethod<bool>('isKeyboardEnabled') ?? false;
+    final active = await platform.invokeMethod<bool>('isKeyboardActive') ?? false;
+    
+    if (!context.mounted) return;
+    
+    if (enabled && active) {
+      // Keyboard is ready - open config screen
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const HomeScreen())
+      );
+    } else {
+      // Guide user to enable/select keyboard
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Setup Required'),
+          content: Text(
+            enabled 
+              ? 'Please select AI Keyboard as your active keyboard.'
+              : 'Please enable AI Keyboard in system settings first.'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  if (enabled) {
+                    await platform.invokeMethod('openInputMethodPicker');
+                  } else {
+                    await platform.invokeMethod('openKeyboardSettings');
+                  }
+                } catch (e) {
+                  debugPrint('Error opening settings: $e');
+                }
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('Error checking keyboard status: $e');
+    // Fallback: just open config screen
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const HomeScreen())
     );
   }
 }
@@ -625,9 +694,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
             ],
             // Theme selection removed - using single default keyboard
             const SizedBox(height: 20),
-            _buildFeaturesCard(),
+            // _buildFeaturesCard(),
             const SizedBox(height: 20),
-            _buildThemeSection(),
+            // _buildThemeSection(),
             const SizedBox(height: 20),
             _buildTestKeyboardCard(),
           ],
@@ -1252,7 +1321,9 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _openThemeEditor,
+                    onPressed: () {
+                    },
+                    // onPressed: _openThemeEditor,
                     icon: const Icon(Icons.edit),
                     label: const Text('Customize Theme'),
                     style: ElevatedButton.styleFrom(
@@ -1394,20 +1465,20 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
     );
   }
   
-  void _openThemeEditor() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ThemeEditorScreen(isCreatingNew: true),
-      ),
-    ).then((newTheme) {
-      if (newTheme != null) {
-        setState(() {
-          // Theme has been updated, UI will rebuild automatically
-        });
-      }
-    });
-  }
+  // void _openThemeEditor() {
+  //   Navigator.push(
+  //     context,
+  //     MaterialPageRoute(
+  //       builder: (context) => const ThemeEditorScreen(isCreatingNew: true),
+  //     ),
+  //   ).then((newTheme) {
+  //     if (newTheme != null) {
+  //       setState(() {
+  //         // Theme has been updated, UI will rebuild automatically
+  //       });
+  //     }
+  //   });
+  // }
   
   void _showThemeGallery() {
     showModalBottomSheet(
@@ -1521,18 +1592,59 @@ class _KeyboardConfigScreenState extends State<KeyboardConfigScreen> {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showSystemKeyboardInstructions,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+            IconButton(
+              onPressed: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (context) => const KeyboardSettingsScreen()));
+              },
+              icon: const Icon(Icons.settings),
+            ),
+            IconButton(
+              onPressed: () {
+                  Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ThemeGalleryScreen()));
+              },
+              icon: const Icon(Icons.color_lens),
+            ),
+            IconButton(
+              onPressed: () {
+                if (Platform.isIOS) {
+                  Text('Emoji settings are not available on iOS');
+                  // showToast('Emoji settings are not available on iOS');
+                } else {
+                  Navigator.of(context).push(MaterialPageRoute(builder: (context) =>  EmojiSettingsScreen()));
+                }
+              },
+              icon: const Icon(Icons.emoji_emotions),
+            ),
+            IconButton(
+              onPressed: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (context) => const DictionaryScreen()));
+              },
+              icon: const Icon(Icons.book),
+            ),
+            Row(
+              children: [
+                IconButton(
+              onPressed: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ClipboardScreen()));
+              },
+              icon: const Icon(Icons.person),
+            ),
+                Text('Clipboard'),
+
+              ],
+            ),
+            
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LanguageScreen()));
+                  },
+                  icon: const Icon(Icons.book),
                 ),
-                icon: const Icon(Icons.keyboard),
-                label: const Text('Setup & Test System Keyboard'),
-              ),
+                Text('Language'),
+                
+              ],
             ),
             const SizedBox(height: 16),
             const TextField(

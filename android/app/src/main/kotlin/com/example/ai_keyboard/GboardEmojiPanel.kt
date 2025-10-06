@@ -57,6 +57,10 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     // Per-emoji default skin tone storage (like Gboard/CleverType)
     private val defaultEmojiTones = mutableMapOf<String, String>() // Base emoji -> chosen tone variant
     
+    // Emoji history (LRU list) - like Gboard
+    private val emojiHistory = mutableListOf<String>() // Recently used emojis
+    private var emojiHistoryMaxSize = 90 // Configurable max history size
+    
     init {
         orientation = VERTICAL
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
@@ -65,6 +69,8 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         // Load user preferences
         loadPreferredSkinTone()
         loadDefaultEmojiTones()
+        loadEmojiHistory()
+        loadEmojiHistoryMaxSize()
         
         setupCategories()
         setupSearchBar()
@@ -306,7 +312,12 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         Thread {
             try {
                 val emojis = when (category) {
-                    EmojiCategory.RECENTLY_USED -> emojiDatabase.getRecentlyUsedEmojis()
+                    EmojiCategory.RECENTLY_USED -> {
+                        // Use our emoji history instead of database
+                        emojiHistory.map { emoji ->
+                            EmojiData(unicode = emoji, description = "Recent emoji", category = category, keywords = listOf("recent"))
+                        }
+                    }
                     EmojiCategory.FREQUENTLY_USED -> EmojiCollection.popularEmojis.map { 
                         EmojiData(unicode = applyPreferredSkinTone(it), description = "Popular emoji", category = category, keywords = listOf("popular"))
                     }
@@ -448,6 +459,9 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                 onEmojiSelected?.invoke(emojiToInsert)
                 emojiDatabase.recordEmojiUsage(emojiToInsert)
                 
+                // Add to emoji history (LRU)
+                addToEmojiHistory(emojiToInsert)
+                
                 // Update recent category if currently viewing it
                 if (currentCategory == EmojiCategory.RECENTLY_USED) {
                     loadCategory(EmojiCategory.RECENTLY_USED)
@@ -484,6 +498,14 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             showForEmoji(emoji, anchorView) { selectedEmoji ->
                 onEmojiSelected?.invoke(selectedEmoji)
                 emojiDatabase.recordEmojiUsage(selectedEmoji)
+                
+                // Add to emoji history (LRU)
+                addToEmojiHistory(selectedEmoji)
+                
+                // Update recent category if currently viewing it
+                if (currentCategory == EmojiCategory.RECENTLY_USED) {
+                    loadCategory(EmojiCategory.RECENTLY_USED)
+                }
             }
         }
     }
@@ -557,6 +579,96 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     }
     
     /**
+     * Load emoji history from preferences (LRU list)
+     */
+    private fun loadEmojiHistory() {
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val historyJson = prefs.getString("emoji_history", "[]") ?: "[]"
+        
+        try {
+            emojiHistory.clear()
+            // Simple JSON array parsing
+            val cleanJson = historyJson.trim('[', ']')
+            if (cleanJson.isNotEmpty()) {
+                cleanJson.split(",").forEach { emoji ->
+                    val cleanEmoji = emoji.trim().trim('"')
+                    if (cleanEmoji.isNotEmpty()) {
+                        emojiHistory.add(cleanEmoji)
+                    }
+                }
+            }
+            Log.d(TAG, "Loaded ${emojiHistory.size} emojis from history")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error loading emoji history: ${e.message}")
+            emojiHistory.clear()
+        }
+    }
+    
+    /**
+     * Save emoji history to preferences
+     */
+    private fun saveEmojiHistory() {
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        val jsonString = emojiHistory.joinToString(",") { "\"$it\"" }
+        prefs.edit().putString("emoji_history", "[$jsonString]").apply()
+        Log.d(TAG, "Saved ${emojiHistory.size} emojis to history")
+    }
+    
+    /**
+     * Load emoji history max size from preferences
+     */
+    private fun loadEmojiHistoryMaxSize() {
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        emojiHistoryMaxSize = prefs.getInt("emoji_history_max_size", 90)
+        Log.d(TAG, "Loaded emoji history max size: $emojiHistoryMaxSize")
+    }
+    
+    /**
+     * Set emoji history max size
+     */
+    fun setEmojiHistoryMaxSize(maxSize: Int) {
+        emojiHistoryMaxSize = maxSize
+        val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+        prefs.edit().putInt("emoji_history_max_size", maxSize).apply()
+        
+        // Trim history if needed
+        while (emojiHistory.size > emojiHistoryMaxSize) {
+            emojiHistory.removeAt(emojiHistory.size - 1)
+        }
+        saveEmojiHistory()
+        
+        Log.d(TAG, "Set emoji history max size to: $maxSize")
+    }
+    
+    /**
+     * Add emoji to history (LRU - most recent first)
+     */
+    private fun addToEmojiHistory(emoji: String) {
+        // Remove if already exists (to move to front)
+        emojiHistory.remove(emoji)
+        
+        // Add to front
+        emojiHistory.add(0, emoji)
+        
+        // Trim to max size
+        while (emojiHistory.size > emojiHistoryMaxSize) {
+            emojiHistory.removeAt(emojiHistory.size - 1)
+        }
+        
+        // Save to preferences
+        saveEmojiHistory()
+        
+        Log.d(TAG, "Added '$emoji' to history (total: ${emojiHistory.size})")
+    }
+    
+    /**
+     * Get emoji history
+     */
+    fun getEmojiHistory(): List<String> {
+        return emojiHistory.toList()
+    }
+    
+    /**
      * Load per-emoji default skin tone preferences (like Gboard/CleverType)
      */
     private fun loadDefaultEmojiTones() {
@@ -621,6 +733,22 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
      */
     fun saveEmojiDefaultTone(baseEmoji: String, toneVariant: String) {
         saveDefaultEmojiTone(baseEmoji, toneVariant)
+    }
+    
+    /**
+     * Reload emoji settings from SharedPreferences (called when settings change)
+     */
+    fun reloadEmojiSettings() {
+        loadPreferredSkinTone()
+        loadDefaultEmojiTones()
+        loadEmojiHistory()
+        loadEmojiHistoryMaxSize()
+        
+        // Reload current category to apply new settings
+        loadCategory(currentCategory)
+        updateSkinToneButton()
+        
+        Log.d(TAG, "Emoji settings reloaded from preferences")
     }
     
     /**

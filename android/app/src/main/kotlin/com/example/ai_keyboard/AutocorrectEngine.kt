@@ -7,6 +7,7 @@ import kotlin.math.min
 import kotlin.math.log
 import kotlin.math.abs
 import kotlinx.coroutines.*
+import com.google.firebase.firestore.FirebaseFirestore
 
 /**
  * Enhanced Autocorrect Engine with Fast Offline Pipeline
@@ -89,6 +90,12 @@ class AutocorrectEngine private constructor(private val context: Context) {
     
     val wordDatabase = WordDatabase.getInstance(context) // Make public for swipe access
     private val keyboardProximity = createKeyboardProximityMap()
+    
+    // User dictionary manager for personalized learning
+    private var userDictionaryManager: UserDictionaryManager? = null
+    
+    // Firestore-synced word frequency maps (language -> word -> frequency)
+    private val wordFrequency = mutableMapOf<String, MutableMap<String, Int>>()
     
     // LRU cache for candidate results
     private val candidateCache = object : LinkedHashMap<String, List<AutocorrectCandidate>>(CACHE_SIZE, 0.75f, true) {
@@ -315,6 +322,7 @@ class AutocorrectEngine private constructor(private val context: Context) {
     
     /**
      * Unified scoring function combining frequency, edit distance, keyboard proximity, and context
+     * Enhanced with Firestore frequency weighting and contextual bigram scoring
      */
     private suspend fun calculateScore(
         candidate: String, 
@@ -325,9 +333,13 @@ class AutocorrectEngine private constructor(private val context: Context) {
         prev2: String
     ): Double = withContext(Dispatchers.Default) {
         
-        // Get word frequency (log scale)
-        val frequency = if (wordDatabase.wordExists(candidate)) {
-            // Get actual frequency from database
+        // Get word frequency (log scale) - prioritize Firestore data
+        val frequency = if (wordFrequency[currentLocale]?.containsKey(candidate) == true) {
+            // Use Firestore frequency with higher weight
+            val firestoreFreq = wordFrequency[currentLocale]!![candidate]!!
+            kotlin.math.ln((firestoreFreq + 1).toDouble()) * 1.2 // 20% boost for Firestore data
+        } else if (wordDatabase.wordExists(candidate)) {
+            // Fallback to local database frequency
             val freq = wordDatabase.getWordFrequency(candidate)
             kotlin.math.ln((freq + 1).toDouble())
         } else {
@@ -346,13 +358,19 @@ class AutocorrectEngine private constructor(private val context: Context) {
             calculateTrigramScore(prev2, prev1, candidate)
         } else 0.0
         
-        // Unified scoring formula
+        // Levenshtein distance penalty (optional, complementary to Damerau-Levenshtein)
+        val levenshteinPenalty = if (editDist > 0) {
+            levenshtein(original, candidate) * 0.1 // Light penalty
+        } else 0.0
+        
+        // Unified scoring formula with enhanced context weighting
         val score = WEIGHT_FREQUENCY * frequency -
                    WEIGHT_EDIT_DISTANCE * editDist -
                    WEIGHT_KEYBOARD_PENALTY * keyPenalty -
                    WEIGHT_LENGTH_DIFF * lenDiff +
                    WEIGHT_BIGRAM * bigramScore +
-                   WEIGHT_TRIGRAM * trigramScore
+                   WEIGHT_TRIGRAM * trigramScore -
+                   levenshteinPenalty
         
         return@withContext score
     }
@@ -443,9 +461,13 @@ class AutocorrectEngine private constructor(private val context: Context) {
         if (chosen != original) {
             // User accepted a correction
             wordDatabase.updateWordFrequency(chosen)
+            // Also learn the corrected word in user dictionary
+            userDictionaryManager?.learnWord(chosen)
         } else {
             // User rejected corrections - boost original word
             wordDatabase.addWord(original, 10, true)
+            // Also learn the original word in user dictionary
+            userDictionaryManager?.learnWord(original)
         }
     }
     
@@ -454,6 +476,46 @@ class AutocorrectEngine private constructor(private val context: Context) {
      */
     fun setLocale(locale: String) {
         currentLocale = locale
+    }
+    
+    /**
+     * Load word frequencies from Firestore with fallback to local
+     */
+    fun loadWordFrequency(lang: String) {
+        FirebaseFirestore.getInstance()
+            .collection("dictionary_frequency")
+            .document(lang)
+            .get()
+            .addOnSuccessListener { doc ->
+                val map = mutableMapOf<String, Int>()
+                doc.data?.forEach { (word, value) ->
+                    map[word] = (value as? Long)?.toInt() ?: (value as? Int) ?: 1
+                }
+                
+                // Merge with existing frequencies (local takes precedence if conflict)
+                if (wordFrequency[lang] == null) {
+                    wordFrequency[lang] = map
+                } else {
+                    wordFrequency[lang]?.putAll(map)
+                }
+                
+                Log.i(TAG, "📊 Loaded ${map.size} frequency entries for $lang from Firestore")
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "⚠️ Frequency sync failed for $lang: ${e.message}, using local fallback")
+                // Fallback: use empty map, will rely on WordDatabase queries at runtime
+                if (wordFrequency[lang] == null) {
+                    wordFrequency[lang] = mutableMapOf()
+                }
+                Log.i(TAG, "📊 Using runtime WordDatabase queries for $lang (Firestore unavailable)")
+            }
+    }
+
+    /**
+     * Set user dictionary manager for personalized learning
+     */
+    fun setUserDictionaryManager(manager: UserDictionaryManager) {
+        userDictionaryManager = manager
     }
     
     /**
@@ -544,6 +606,60 @@ class AutocorrectEngine private constructor(private val context: Context) {
         }
         
         return@withContext results
+    }
+    
+    // ========== PUBLIC API METHODS (Gboard + CleverType Integration) ==========
+    
+    /**
+     * Simple autocorrect wrapper for keyboard service
+     */
+    suspend fun autocorrect(word: String, context: String = ""): String {
+        val parts = context.trim().split(" ")
+        val prev1 = parts.lastOrNull() ?: ""
+        val prev2 = if (parts.size >= 2) parts[parts.size - 2] else ""
+        
+        val result = processBoundary(word, prev1, prev2)
+        return result.topCorrection ?: word
+    }
+    
+    /**
+     * Check if word should be autocorrected
+     */
+    suspend fun shouldAutocorrectWord(word: String, context: String = ""): Boolean {
+        val parts = context.trim().split(" ")
+        val result = processBoundary(word, parts.lastOrNull() ?: "", 
+                                      if (parts.size >= 2) parts[parts.size - 2] else "")
+        return result.shouldAutoCorrect
+    }
+    
+    /**
+     * Simple Levenshtein distance (without transpositions)
+     * Used as complementary metric to Damerau-Levenshtein
+     */
+    private fun levenshtein(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+        
+        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+        
+        // Initialize base cases
+        for (i in 0..a.length) dp[i][0] = i
+        for (j in 0..b.length) dp[0][j] = j
+        
+        // Fill matrix
+        for (i in 1..a.length) {
+            for (j in 1..b.length) {
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1,      // deletion
+                    dp[i][j - 1] + 1,      // insertion
+                    dp[i - 1][j - 1] + cost // substitution
+                )
+            }
+        }
+        
+        return dp[a.length][b.length]
     }
 }
 

@@ -82,12 +82,12 @@ class SettingScreen extends StatelessWidget {
                     title: 'AI Rewrite',
                     subtitle: 'Rewrite Prompt and Add Custom Tone',
                     onTap: () {
-                      // Navigator.push(
-                      //   context,
-                      //   MaterialPageRoute(
-                      //     builder: (context) => const AiRewritingScreen(),
-                      //   ),
-                      // );
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AiRewritingScreen(),
+                        ),
+                      );
                     },
                   ),
                   const SizedBox(height: 12),

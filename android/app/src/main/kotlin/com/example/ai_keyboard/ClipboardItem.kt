@@ -77,11 +77,11 @@ data class ClipboardItem(
         fun fromJson(json: JSONObject): ClipboardItem {
             return ClipboardItem(
                 id = json.optString("id", UUID.randomUUID().toString()),
-                text = json.getString("text"),
+                text = json.optString("text", ""), // Use optString to prevent NPE
                 timestamp = json.optLong("timestamp", System.currentTimeMillis()),
                 isPinned = json.optBoolean("isPinned", false),
                 isTemplate = json.optBoolean("isTemplate", false),
-                category = json.optString("category", null).takeIf { it.isNotEmpty() }
+                category = json.optString("category", null).takeIf { !it.isNullOrEmpty() }
             )
         }
         

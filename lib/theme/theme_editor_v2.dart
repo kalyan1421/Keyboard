@@ -5,6 +5,9 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'theme_v2.dart';
+// import '/Users/kalyan/AI-keyboard/lib/screens/main screens/theme_screen.dart';
+import 'package:ai_keyboard/screens/main screens/theme_screen.dart';
+import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 
 /// Theme Gallery Screen - CleverType style theme selection
 class ThemeGalleryScreen extends StatefulWidget {
@@ -24,6 +27,18 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
       appBar: AppBar(
         title: const Text('Theme Gallery'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_circle),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ThemeScreen(),
+                ),
+              );
+            },
+            tooltip: 'Create Custom Theme',
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
@@ -186,14 +201,22 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
           SnackBar(
             content: Text('Applied theme: ${theme.name}'),
             backgroundColor: theme.specialKeys.accent,
+            duration: const Duration(seconds: 2),
           ),
         );
-        Navigator.pop(context);
+        // Navigate back to home screen instead of just popping
+        // This prevents black screen issues
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const mainscreen()),
+          (route) => false,
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to apply theme: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to apply theme: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 }

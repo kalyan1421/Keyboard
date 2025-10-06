@@ -518,15 +518,12 @@ class FlutterThemeManager extends ChangeNotifier {
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const platform = MethodChannel('ai_keyboard/config');
-        await platform.invokeMethod('notifyThemeChange');
-        debugPrint('Successfully notified Android of theme change (attempt $attempt)');
+        await platform.invokeMethod('notifyConfigChange'); // Use unified method
+        debugPrint('✓ Successfully notified Android of theme change (attempt $attempt)');
         return; // Success, exit retry loop
       } catch (e) {
-        debugPrint('Failed to notify theme change (attempt $attempt): $e');
-        if (attempt == maxRetries) {
-          debugPrint('All attempts failed, triggering fallback');
-          await _triggerSettingsBroadcast();
-        } else {
+        debugPrint('⚠ Failed to notify theme change (attempt $attempt): $e');
+        if (attempt < maxRetries) {
           // Wait before retry with exponential backoff
           await Future.delayed(Duration(milliseconds: 100 * attempt));
         }
@@ -538,36 +535,12 @@ class FlutterThemeManager extends ChangeNotifier {
   Future<bool> testAndroidConnection() async {
     try {
       const platform = MethodChannel('ai_keyboard/config');
-      await platform.invokeMethod('notifyThemeChange');
-      debugPrint('Android connection test successful');
+      await platform.invokeMethod('notifyConfigChange');
+      debugPrint('✓ Android connection test successful');
       return true;
     } catch (e) {
-      debugPrint('Android connection test failed: $e');
+      debugPrint('⚠ Android connection test failed: $e');
       return false;
-    }
-  }
-
-  /// Fallback method to trigger settings broadcast
-  Future<void> _triggerSettingsBroadcast() async {
-    try {
-      const platform = MethodChannel('ai_keyboard/config');
-      // Get current settings and trigger update
-      final prefs = await SharedPreferences.getInstance();
-      final currentThemeId = prefs.getString('current_theme_id') ?? 'gboard_light';
-      
-      await platform.invokeMethod('updateSettings', {
-        'theme': currentThemeId,
-        'aiSuggestions': prefs.getBool('ai_suggestions') ?? true,
-        'swipeTyping': prefs.getBool('swipe_typing') ?? true,
-        'voiceInput': prefs.getBool('voice_input') ?? true,
-        'vibration': prefs.getBool('vibration_enabled') ?? true,
-        'keyPreview': prefs.getBool('key_preview_enabled') ?? false,
-        'shiftFeedback': prefs.getBool('show_shift_feedback') ?? false,
-        'showNumberRow': prefs.getBool('show_number_row') ?? false,
-        'soundEnabled': prefs.getBool('sound_enabled') ?? true,
-      });
-    } catch (e) {
-      debugPrint('Failed to trigger settings broadcast: $e');
     }
   }
 

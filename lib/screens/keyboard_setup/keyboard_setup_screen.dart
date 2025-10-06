@@ -1,6 +1,7 @@
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
+import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -13,7 +14,8 @@ class KeyboardSetupScreen extends StatefulWidget {
 }
 
 class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  static const platform = MethodChannel('ai_keyboard/config');
   bool _isStep1Completed = false;
   bool _isStep2Completed = false;
   late AnimationController _sparkleController;
@@ -24,7 +26,26 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeAnimations();
+    _checkInitialKeyboardStatus();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // App came back to foreground (user returned from settings)
+      debugPrint('App resumed - checking keyboard status...');
+      _checkKeyboardStatus().then((_) {
+        _checkKeyboardStatusAndNavigate();
+      });
+    }
+  }
+
+  Future<void> _checkInitialKeyboardStatus() async {
+    // Check keyboard status on initial load
+    await _checkKeyboardStatus();
   }
 
   void _initializeAnimations() {
@@ -51,35 +72,20 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sparkleController.dispose();
     _keyboardController.dispose();
     super.dispose();
   }
 
-  void _onStep1Tap() {
-    setState(() {
-      _isStep1Completed = !_isStep1Completed;
-    });
-
-    if (_isStep1Completed) {
-      HapticFeedback.lightImpact();
-      _showStep1Success();
-    }
+  void _onStep1Tap() async {
+    HapticFeedback.lightImpact();
+    await _openKeyboardSettings();
   }
 
-  void _onStep2Tap() {
-    if (_isStep1Completed) {
-      setState(() {
-        _isStep2Completed = !_isStep2Completed;
-      });
-
-      if (_isStep2Completed) {
-        HapticFeedback.mediumImpact();
-        _showStep2Success();
-      }
-    } else {
-      _showStep1RequiredDialog();
-    }
+  void _onStep2Tap() async {
+    HapticFeedback.mediumImpact();
+    await _openInputMethodPicker();
   }
 
   void _showStep1Success() {
@@ -153,6 +159,81 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
     }
   }
 
+  /// Verify keyboard status and open settings/config screen
+  Future<void> _verifyAndOpenConfig(BuildContext context) async {
+    const platform = MethodChannel('ai_keyboard/config');
+    try {
+      final bool enabled = await platform.invokeMethod('isKeyboardEnabled');
+      final bool active = await platform.invokeMethod('isKeyboardActive');
+
+      if (!mounted) return;
+
+      if (enabled && active) {
+        // AI Keyboard is enabled + active → open config/settings screen
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const SettingScreen()),
+        );
+      } else {
+        // Not enabled → guide user
+        _showKeyboardNotEnabledDialog(context, platform);
+      }
+    } catch (e) {
+      debugPrint("Error verifying keyboard: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Could not verify keyboard status"),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showKeyboardNotEnabledDialog(BuildContext context, MethodChannel platform) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.orange, size: 28),
+            SizedBox(width: 12),
+            Text("Enable AI Keyboard"),
+          ],
+        ),
+        content: const Text(
+          "AI Keyboard is not enabled as the system input method.\n\n"
+          "Please enable it in:\n"
+          "Settings → System → Languages & input → Virtual keyboard → Manage keyboards",
+          style: TextStyle(fontSize: 15, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Later"),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await platform.invokeMethod('openInputMethodPicker');
+              } catch (e) {
+                debugPrint("Error opening input method picker: $e");
+              }
+            },
+            icon: const Icon(Icons.settings, size: 18),
+            label: const Text("Open Settings"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showIncompleteSetupDialog() {
     showDialog(
       context: context,
@@ -177,6 +258,125 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
         );
       },
     );
+  }
+
+  Future<void> _openKeyboardSettings() async {
+    try {
+      await platform.invokeMethod('openKeyboardSettings');
+      // Start periodic status checking when user returns
+      _startStatusPolling();
+    } catch (e) {
+      debugPrint('Error opening keyboard settings: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to open keyboard settings'),
+            backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _openInputMethodPicker() async {
+    try {
+      await platform.invokeMethod('openInputMethodPicker');
+      // Start periodic status checking when user returns
+      _startStatusPolling();
+    } catch (e) {
+      debugPrint('Error opening input method picker: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to open input method picker'),
+            backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  void _startStatusPolling() {
+    // Poll keyboard status when app comes back to foreground
+    Future.delayed(const Duration(seconds: 1), () async {
+      if (mounted) {
+        await _checkKeyboardStatus();
+        await _checkKeyboardStatusAndNavigate();
+      }
+    });
+  }
+
+  Future<void> _checkKeyboardStatus() async {
+    try {
+      final enabled = await platform.invokeMethod<bool>('isKeyboardEnabled') ?? false;
+      final active = await platform.invokeMethod<bool>('isKeyboardActive') ?? false;
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _isStep1Completed = enabled;
+        _isStep2Completed = active;
+      });
+      
+      if (enabled) {
+        _showStep1Success();
+      }
+      if (active) {
+        _showStep2Success();
+      }
+    } catch (e) {
+      debugPrint('Error checking keyboard status: $e');
+    }
+  }
+
+  Future<void> _checkKeyboardStatusAndNavigate() async {
+    try {
+      final enabled = await platform.invokeMethod<bool>('isKeyboardEnabled') ?? false;
+      final active = await platform.invokeMethod<bool>('isKeyboardActive') ?? false;
+      
+      debugPrint('Keyboard Status Check - Enabled: $enabled, Active: $active');
+      
+      if (!mounted) return;
+      
+      // Check if openKeyboardConfigIfReady is true (keyboard is enabled and active)
+      if (enabled && active) {
+        debugPrint('Keyboard is fully setup! Navigating to home...');
+        
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Keyboard setup complete! Redirecting...'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        
+        // Wait a moment for the snackbar to show
+        await Future.delayed(const Duration(milliseconds: 1500));
+        
+        if (!mounted) return;
+        
+        // Keyboard is ready - redirect to home screen (mainscreen)
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const mainscreen()),
+          (route) => false,
+        );
+      } else {
+        debugPrint('Keyboard not ready yet - Enabled: $enabled, Active: $active');
+      }
+    } catch (e) {
+      debugPrint('Error checking keyboard status and navigating: $e');
+    }
   }
 
   @override
@@ -213,66 +413,91 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
                 child: Column(
                   children: [
                     SizedBox(height: 80),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      height: 50,
-                      width: MediaQuery.of(context).size.width * 0.7,
-                      decoration: BoxDecoration(
-                        color: AppColors.grey.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(50),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: AppColors.white,
-                            child: Icon(Icons.check, color: AppColors.grey),
-                          ),
-                          SizedBox(width: 16),
-                          Text(
-                            'Enable Emoji Keyboard',
-                            style: AppTextStyle.bodyMedium.copyWith(
-                              color: AppColors.grey,
+                    GestureDetector(
+                      onTap: _onStep1Tap,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        height: 50,
+                        width: MediaQuery.of(context).size.width * 0.7,
+                        decoration: BoxDecoration(
+                          color: _isStep1Completed 
+                              ? AppColors.secondary.withOpacity(0.3)
+                              : AppColors.grey.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: _isStep1Completed 
+                                  ? AppColors.secondary 
+                                  : AppColors.white,
+                              child: Icon(
+                                _isStep1Completed ? Icons.check : Icons.circle_outlined,
+                                color: _isStep1Completed ? AppColors.white : AppColors.grey,
+                              ),
                             ),
-                          ),
-                        ],
+                            SizedBox(width: 16),
+                            Text(
+                              'Enable Emoji Keyboard',
+                              style: AppTextStyle.bodyMedium.copyWith(
+                                color: _isStep1Completed 
+                                    ? AppColors.secondary 
+                                    : AppColors.grey,
+                                fontWeight: _isStep1Completed 
+                                    ? FontWeight.w600 
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     SizedBox(height: 16),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      height: 50,
-                      width: MediaQuery.of(context).size.width * 0.7,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(50),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            spreadRadius: 2,
-                            blurRadius: 8,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: AppColors.secondary,
-                            child: Text(
-                              '2',
+                    GestureDetector(
+                      onTap: _onStep2Tap,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        height: 50,
+                        width: MediaQuery.of(context).size.width * 0.7,
+                        decoration: BoxDecoration(
+                          color: _isStep2Completed 
+                              ? AppColors.secondary 
+                              : AppColors.primary,
+                          borderRadius: BorderRadius.circular(50),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              spreadRadius: 2,
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: AppColors.secondary,
+                              child: _isStep2Completed
+                                  ? Icon(Icons.check, color: AppColors.white)
+                                  : Text(
+                                      '2',
+                                      style: AppTextStyle.bodyMedium.copyWith(
+                                        color: AppColors.white,
+                                      ),
+                                    ),
+                            ),
+                            SizedBox(width: 16),
+                            Text(
+                              'Switch to Emoji Keyboard',
                               style: AppTextStyle.bodyMedium.copyWith(
                                 color: AppColors.white,
+                                fontWeight: _isStep2Completed 
+                                    ? FontWeight.w600 
+                                    : FontWeight.normal,
                               ),
                             ),
-                          ),
-                          SizedBox(width: 16),
-                          Text(
-                            'Switch to Emoji Keyboard',
-                            style: AppTextStyle.bodyMedium.copyWith(
-                              color: AppColors.white,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                     Spacer(),
@@ -310,7 +535,7 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
                         ],
                       ),
                     ),
-                    SizedBox(height: 24),
+                    SizedBox(height: 60),
                   ],
                 ),
               ),
@@ -707,6 +932,32 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
             ],
           ),
           const SizedBox(height: 24),
+          // Keyboard Settings Button (Bridge to Config)
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: () => _verifyAndOpenConfig(context),
+              icon: const Icon(Icons.settings_outlined, size: 20),
+              label: Text(
+                'Open Keyboard Settings',
+                style: AppTextStyle.buttonPrimary.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1976D2), // Blue
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: 2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Continue to App Button
           SizedBox(
             width: double.infinity,
             height: 50,

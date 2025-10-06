@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class EmojiSkinToneScreen extends StatefulWidget {
   const EmojiSkinToneScreen({super.key});
@@ -10,8 +12,14 @@ class EmojiSkinToneScreen extends StatefulWidget {
 }
 
 class _EmojiSkinToneScreenState extends State<EmojiSkinToneScreen> {
+  static const platform = MethodChannel('ai_keyboard/config');
+  
   int selectedSkinTone = 0; // 0 = Default, 1-5 = Light to Dark
+  bool _isLoading = true;
 
+  // Skin tone modifiers matching Kotlin side
+  final List<String> skinToneModifiers = ['', '🏻', '🏼', '🏽', '🏾', '🏿'];
+  
   final List<Map<String, dynamic>> skinToneOptions = [
     {
       'name': 'Default',
@@ -113,7 +121,103 @@ class _EmojiSkinToneScreenState extends State<EmojiSkinToneScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadSkinToneSettings();
+  }
+
+  Future<void> _loadSkinToneSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTone = prefs.getString('emoji_skin_tone') ?? '';
+      
+      // Map saved tone modifier to index
+      setState(() {
+        selectedSkinTone = skinToneModifiers.indexOf(savedTone);
+        if (selectedSkinTone == -1) selectedSkinTone = 0;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading skin tone settings: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveSkinToneSettings(int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final skinTone = skinToneModifiers[index];
+      await prefs.setString('emoji_skin_tone', skinTone);
+      
+      // Get history max size
+      final historyMaxSize = prefs.getDouble('emoji_history_max_size')?.toInt() ?? 90;
+      
+      // Notify keyboard service via MethodChannel
+      try {
+        await platform.invokeMethod('updateEmojiSettings', {
+          'skinTone': skinTone,
+          'historyMaxSize': historyMaxSize,
+        });
+        print('✓ Skin tone sent to keyboard: $skinTone (index $index)');
+      } catch (e) {
+        print('⚠️ Error calling updateEmojiSettings MethodChannel: $e');
+      }
+      
+      if (mounted) {
+        final toneName = _getSkinToneName(index);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Skin tone set to: $toneName'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving skin tone settings: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving settings: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _getSkinToneName(int index) {
+    switch (index) {
+      case 0: return 'Default';
+      case 1: return 'Light Skin';
+      case 2: return 'Medium Light Skin';
+      case 3: return 'Medium Skin';
+      case 4: return 'Medium Dark Skin';
+      case 5: return 'Dark Skin';
+      default: return 'Default';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppColors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(
+            'Emojis Skin Tone',
+            style: AppTextStyle.headlineMedium.copyWith(color: AppColors.white),
+          ),
+          centerTitle: false,
+          backgroundColor: AppColors.primary,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -167,7 +271,10 @@ class _EmojiSkinToneScreenState extends State<EmojiSkinToneScreen> {
                   name: option['name'],
                   emojis: List<String>.from(option['emojis']),
                   isSelected: isSelected,
-                  onTap: () => setState(() => selectedSkinTone = index),
+                  onTap: () {
+                    setState(() => selectedSkinTone = index);
+                    _saveSkinToneSettings(index);
+                  },
                 ),
               );
             }),

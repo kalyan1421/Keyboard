@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'emoji_skin_tone_screen.dart';
 
 class EmojiSettingsScreen extends StatefulWidget {
@@ -11,10 +13,101 @@ class EmojiSettingsScreen extends StatefulWidget {
 }
 
 class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
+  static const platform = MethodChannel('ai_keyboard/config');
+  
   double emojiHistoryMaxSize = 90.0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEmojiSettings();
+  }
+
+  Future<void> _loadEmojiSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        emojiHistoryMaxSize = prefs.getDouble('emoji_history_max_size') ?? 90.0;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading emoji settings: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveEmojiSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('emoji_history_max_size', emojiHistoryMaxSize);
+      
+      // Get current skin tone to send to keyboard
+      final skinTone = prefs.getString('emoji_skin_tone') ?? '';
+      
+      // Notify keyboard service via MethodChannel
+      try {
+        await platform.invokeMethod('updateEmojiSettings', {
+          'skinTone': skinTone,
+          'historyMaxSize': emojiHistoryMaxSize.toInt(),
+        });
+        print('✓ Emoji settings sent to keyboard: skinTone=$skinTone, historyMaxSize=${emojiHistoryMaxSize.toInt()}');
+      } catch (e) {
+        print('⚠️ Error calling updateEmojiSettings MethodChannel: $e');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Emoji settings saved'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving emoji settings: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving settings: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppColors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(
+            'Emojis',
+            style: AppTextStyle.headlineMedium.copyWith(color: AppColors.white),
+          ),
+          centerTitle: false,
+          backgroundColor: AppColors.primary,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return WillPopScope(
+      onWillPop: () async {
+        await _saveEmojiSettings();
+        return true;
+      },
+      child: _buildContent(),
+    );
+  }
+
+  Widget _buildContent() {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -76,7 +169,11 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
             _buildSliderSetting(
               title: 'Emoji history max size',
               value: emojiHistoryMaxSize,
-              onChanged: (value) => setState(() => emojiHistoryMaxSize = value),
+              onChanged: (value) {
+                setState(() => emojiHistoryMaxSize = value);
+                // Auto-save on change
+                _saveEmojiSettings();
+              },
               min: 10.0,
               max: 100.0,
               unit: 'items',
@@ -85,6 +182,12 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
         ),
       ),
     );
+  }
+  
+  @override
+  void dispose() {
+    _saveEmojiSettings();
+    super.dispose();
   }
 
   Widget _buildSectionHeader(String title) {

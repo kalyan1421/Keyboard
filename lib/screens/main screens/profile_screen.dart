@@ -3,9 +3,36 @@ import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'info_app_screen.dart';
+import 'package:ai_keyboard/services/firebase_auth_service.dart';
+import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final FirebaseAuthService _authService = FirebaseAuthService();
+  String _displayName = 'User';
+  String _userEmail = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+  }
+
+  void _loadUserInfo() {
+    final user = _authService.currentUser;
+    if (user != null) {
+      setState(() {
+        _displayName = user.displayName ?? user.email?.split('@').first ?? 'User';
+        _userEmail = user.email ?? '';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +103,7 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 12),
               _TileOption(
                 title: 'Log out',
-                subtitle: 'fivive001@gmail.com',
+                subtitle: _userEmail,
                 icon: AppIcons.logout_icon,
                 onTap: () => _showLogoutDialog(context),
               ),
@@ -276,6 +303,28 @@ class _SvgIcon extends StatelessWidget {
 class _LogoutConfirmationDialog extends StatelessWidget {
   const _LogoutConfirmationDialog();
 
+  Future<void> _performLogout(BuildContext context) async {
+    final authService = FirebaseAuthService();
+    try {
+      await authService.signOut();
+      if (context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginIllustraionScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to logout: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -360,10 +409,9 @@ class _LogoutConfirmationDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: TextButton(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.of(context).pop();
-                    // TODO: Implement actual logout logic here
-                    // For now, just close the dialog
+                    await _performLogout(context);
                   },
                   style: TextButton.styleFrom(
                     shape: RoundedRectangleBorder(
@@ -491,18 +539,61 @@ class _ChangeNameDialog extends StatefulWidget {
 
 class _ChangeNameDialogState extends State<_ChangeNameDialog> {
   final TextEditingController _nameController = TextEditingController();
+  final FirebaseAuthService _authService = FirebaseAuthService();
 
   @override
   void initState() {
     super.initState();
-    // Set initial value to current name
-    _nameController.text = 'Sarad kumar';
+    // Set initial value to current user's name
+    final user = _authService.currentUser;
+    if (user != null) {
+      _nameController.text = user.displayName ?? user.email?.split('@').first ?? 'User';
+    }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveName(BuildContext context) async {
+    final newName = _nameController.text.trim();
+    if (newName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Name cannot be empty'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      await _authService.currentUser?.updateDisplayName(newName);
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Display name updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Refresh the profile screen to show new name
+        if (context.mounted) {
+          (context.findAncestorStateOfType<_ProfileScreenState>())?._loadUserInfo();
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update name: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -562,7 +653,7 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
             TextField(
               controller: _nameController,
               decoration: InputDecoration(
-                hintText: 'Sarad kumar',
+                hintText: 'Enter your name',
                 hintStyle: AppTextStyle.bodyMedium.copyWith(
                   color: AppColors.grey,
                 ),
@@ -619,10 +710,7 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: TextButton(
-                      onPressed: () {
-                        // TODO: Implement save name logic here
-                        Navigator.of(context).pop();
-                      },
+                      onPressed: () => _saveName(context),
                       style: TextButton.styleFrom(
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),

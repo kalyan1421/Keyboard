@@ -12,18 +12,26 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
   final List<ChatMessage> _messages = [];
 
   @override
   void initState() {
     super.initState();
     _initializeChat();
+    // Auto-open keyboard after a short delay
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
+    });
   }
 
   @override
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -183,6 +191,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
           // Input Field
           _buildInputField(),
+          const SizedBox(height: 45),
         ],
       ),
     );
@@ -293,6 +302,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               child: TextField(
                 controller: _messageController,
+                focusNode: _focusNode,
+                autofocus: true,
                 decoration: const InputDecoration(
                   hintText: 'Type your message...',
                   border: InputBorder.none,

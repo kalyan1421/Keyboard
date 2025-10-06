@@ -161,6 +161,186 @@ class SwipeKeyboardView @JvmOverloads constructor(
         requestLayout()
     }
     
+    // ========================================
+    // CleverType Configuration Methods
+    // ========================================
+    
+    private var labelScaleMultiplier = 1.0f
+    private var borderlessMode = false
+    private var showLanguageOnSpace = true
+    private var currentLanguageLabel = "English"
+    private var previewEnabled = true
+    private var keySpacingVerticalDp = 5
+    private var keySpacingHorizontalDp = 2
+    private var soundEnabled = true
+    private var soundIntensityLevel = 1
+    private var hapticIntensityLevel = 2
+    private var longPressDelayMs = 200
+    
+    // One-handed mode state
+    private var oneHandedModeEnabled = false
+    private var oneHandedModeSide = "right"
+    private var oneHandedModeWidthPct = 0.75f
+    
+    /**
+     * Set the font scale multiplier for key labels
+     */
+    fun setLabelScale(multiplier: Float) {
+        labelScaleMultiplier = multiplier.coerceIn(0.8f, 1.3f)
+        android.util.Log.d("SwipeKeyboardView", "Label scale set to: $labelScaleMultiplier")
+        // Recreate paint with new scale from theme manager
+        themeManager?.let { manager ->
+            keyTextPaint = manager.createKeyTextPaint()
+            spaceLabelPaint = manager.createSpaceLabelPaint()
+        }
+        invalidate()
+    }
+    
+    /**
+     * Enable or disable borderless key mode
+     */
+    fun setBorderless(enabled: Boolean) {
+        borderlessMode = enabled
+        android.util.Log.d("SwipeKeyboardView", "Borderless mode set to: $enabled")
+        // Borderless mode now removes padding in drawThemedKey
+        invalidate()
+        requestLayout()
+    }
+    
+    /**
+     * Show or hide language label on spacebar
+     */
+    fun setShowLanguageOnSpace(enabled: Boolean) {
+        showLanguageOnSpace = enabled
+        android.util.Log.d("SwipeKeyboardView", "Show language on space set to: $enabled")
+        invalidate()
+    }
+    
+    /**
+     * Set the current language label to display on spacebar
+     */
+    fun setCurrentLanguage(languageLabel: String) {
+        currentLanguageLabel = languageLabel
+        invalidate()
+    }
+    
+    /**
+     * Enable or disable one-handed mode with Gboard-style behavior
+     * @param enabled Whether one-handed mode is active
+     * @param side "left" or "right" - which side to dock the keyboard
+     * @param widthPct Percentage of screen width to use (0.6 - 0.9)
+     */
+    fun setOneHandedMode(enabled: Boolean, side: String = "right", widthPct: Float = 0.75f) {
+        oneHandedModeEnabled = enabled
+        oneHandedModeSide = side
+        oneHandedModeWidthPct = widthPct.coerceIn(0.6f, 0.9f)
+        
+        android.util.Log.d("SwipeKeyboardView", 
+            "One-handed mode set to: enabled=$enabled, side=$side, width=${(widthPct * 100).toInt()}%")
+        
+        // Apply layout changes
+        if (enabled) {
+            val screenWidth = context.resources.displayMetrics.widthPixels
+            val targetWidth = (screenWidth * widthPct).toInt()
+            
+            // Use layout params to constrain width
+            layoutParams = layoutParams?.apply {
+                width = targetWidth
+            } ?: android.view.ViewGroup.LayoutParams(targetWidth, 
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            
+            // Calculate translation to shift keyboard to the correct side
+            val translation = when (side) {
+                "left" -> -((screenWidth - targetWidth) / 2f)
+                "right" -> (screenWidth - targetWidth) / 2f
+                else -> 0f
+            }
+            
+            // Apply translation animation
+            animate()
+                .translationX(translation)
+                .setDuration(200)
+                .start()
+            
+            android.util.Log.d("SwipeKeyboardView", 
+                "Applied one-handed: width=${targetWidth}px, translation=${translation}px")
+        } else {
+            // Reset to full width
+            layoutParams = layoutParams?.apply {
+                width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            } ?: android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            
+            // Reset translation
+            animate()
+                .translationX(0f)
+                .setDuration(200)
+                .start()
+            
+            android.util.Log.d("SwipeKeyboardView", "Reset to full-width mode")
+        }
+        
+        requestLayout()
+        invalidate()
+    }
+    
+    /**
+     * Enable or disable key preview popups
+     */
+    override fun setPreviewEnabled(enabled: Boolean) {
+        super.setPreviewEnabled(enabled)
+        previewEnabled = enabled
+    }
+    
+    /**
+     * Set key spacing (vertical and horizontal)
+     */
+    fun setKeySpacing(verticalDp: Int, horizontalDp: Int) {
+        keySpacingVerticalDp = verticalDp
+        keySpacingHorizontalDp = horizontalDp
+        android.util.Log.d("SwipeKeyboardView", "Key spacing set to: V=${verticalDp}dp, H=${horizontalDp}dp")
+        // Key spacing now applied in drawThemedKey
+        invalidate()
+        requestLayout()
+    }
+    
+    /**
+     * Set long press delay in milliseconds
+     */
+    fun setLongPressDelay(delayMs: Int) {
+        longPressDelayMs = delayMs
+        // Long press delay will be used in touch event handling
+    }
+    
+    /**
+     * Enable/disable sound feedback with intensity level
+     */
+    fun setSoundEnabled(enabled: Boolean, intensityLevel: Int) {
+        soundEnabled = enabled
+        soundIntensityLevel = intensityLevel
+        // Intensity: 0=off, 1=light, 2=medium, 3=strong
+        // This would be used when playing click sounds
+    }
+    
+    /**
+     * Set haptic feedback intensity level
+     */
+    fun setHapticIntensity(intensityLevel: Int) {
+        hapticIntensityLevel = intensityLevel
+        // Intensity: 0=off, 1=light, 2=medium, 3=strong
+        // This would be used when performing haptic feedback
+        // Stored for use in onKey events
+    }
+    
+    /**
+     * Refresh suggestions strip (called after config changes)
+     */
+    fun refresh() {
+        invalidate()
+        requestLayout()
+    }
+    
     /**
      * Initialize all theme-dependent objects from ThemeManager V2
      */
@@ -294,13 +474,19 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         val palette = manager.getCurrentPalette()
         
-        // Key rectangle with padding
-        val padding = 1f * context.resources.displayMetrics.density
+        // Calculate density
+        val density = context.resources.displayMetrics.density
+        
+        // Key rectangle with padding - apply custom spacing if set
+        val basePadding = if (borderlessMode) 0f else (1f * density)
+        val verticalSpacing = keySpacingVerticalDp * density / 2f
+        val horizontalSpacing = keySpacingHorizontalDp * density / 2f
+        
         val keyRect = RectF(
-            key.x.toFloat() + padding,
-            key.y.toFloat() + padding,
-            (key.x + key.width).toFloat() - padding,
-            (key.y + key.height).toFloat() - padding
+            key.x.toFloat() + basePadding + horizontalSpacing,
+            key.y.toFloat() + basePadding + verticalSpacing,
+            (key.x + key.width).toFloat() - basePadding - horizontalSpacing,
+            (key.y + key.height).toFloat() - basePadding - verticalSpacing
         )
         
         // Identify key type using centralized logic
@@ -397,18 +583,27 @@ class SwipeKeyboardView @JvmOverloads constructor(
             else -> keyTextPaint ?: manager.createKeyTextPaint()
         }
         
+        // Apply font scale multiplier
+        val basePaint = Paint(textPaint)
+        basePaint.textSize = textPaint.textSize * labelScaleMultiplier
+        
         // Override text color for special keys with accent background
         if (manager.shouldUseAccentForKey(keyType) || 
             (keyType == "shift" && (isShiftHighlighted || isCapsLockActive)) ||
             (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
             isKeyActive(keyType)) {
-            textPaint.color = Color.WHITE // White text on accent background
+            basePaint.color = Color.WHITE // White text on accent background
                         } else {
-            textPaint.color = palette.keyText
+            basePaint.color = palette.keyText
         }
         
         val text = if (keyType == "space") {
-            "space" // Show "space" label on spacebar
+            // Show language label on spacebar if enabled
+            if (showLanguageOnSpace) {
+                currentLanguageLabel
+            } else {
+                "" // Don't show any label
+            }
         } else if (isCapsLockActive && key.label != null && key.label.length == 1) {
             // Show uppercase when caps lock active
             key.label[0].uppercaseChar().toString()
@@ -417,14 +612,14 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
         
         // Center the text
-        val textHeight = textPaint.descent() - textPaint.ascent()
-        val textOffset = (textHeight / 2) - textPaint.descent()
-        canvas.drawText(text, centerX, centerY + textOffset, textPaint)
+        val textHeight = basePaint.descent() - basePaint.ascent()
+        val textOffset = (textHeight / 2) - basePaint.descent()
+        canvas.drawText(text, centerX, centerY + textOffset, basePaint)
         
         // Draw popup hint for number keys
                 if (key.popupCharacters != null && key.popupCharacters.isNotEmpty()) {
-            val hintPaint = Paint(textPaint).apply {
-                textSize = textPaint.textSize * 0.5f
+            val hintPaint = Paint(basePaint).apply {
+                textSize = basePaint.textSize * 0.5f
                 alpha = (255 * 0.7f).toInt() // 70% opacity
             }
             val hintX = centerX - (key.width * 0.3f)

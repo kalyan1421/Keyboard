@@ -41,4 +41,13 @@
     <string name="english_ime_name">AI Keyboard</string>
     <string name="english_ime_settings">AI Keyboard Settings</string>
     <string name="ai_keyboard_name">AI Keyboard</string>
+    
+    <!-- Emoji Panel -->
+    <string name="emoji_search">Search emojis</string>
+    <string name="search_emojis">Search emojis</string>
+    <string name="emoji_skin_tone">Skin tone</string>
+    <string name="abc">ABC</string>
+    <string name="space">Space</string>
+    <string name="send">Send</string>
+    <string name="delete">Delete</string>
 </resources>

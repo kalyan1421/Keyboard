@@ -2,8 +2,34 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Default: deny all access
     match /{document=**} {
       allow read, write: if false;
+    }
+    
+    // User-specific data: allow read/write only to the owner
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    
+    // Keyboard settings: user can only access their own settings
+    match /users/{uid}/settings/keyboard {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    
+    // Dictionary: user can only access their own dictionary
+    match /users/{uid}/dictionary/{locale} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      
+      // Allow listing dictionaries for this user
+      allow list: if request.auth != null && request.auth.uid == uid;
+    }
+    
+    // Dictionary frequency data: read-only for all authenticated users
+    // This is shared data used for autocorrect word frequency scoring
+    match /dictionary_frequency/{language} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only admins via Firebase Console
     }
   }
 }

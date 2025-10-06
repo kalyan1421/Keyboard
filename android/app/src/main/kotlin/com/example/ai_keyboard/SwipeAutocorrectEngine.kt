@@ -41,6 +41,17 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
     private var userDictionary = mutableMapOf<String, Int>() // word -> usage count
     private var bigramFrequencies = mapOf<Pair<String, String>, Int>()
     
+    // STEP 2: Integration with UnifiedAutocorrectEngine
+    private var unifiedEngine: UnifiedAutocorrectEngine? = null
+    
+    /**
+     * Set the unified autocorrect engine for consistent suggestions
+     */
+    fun setUnifiedEngine(engine: UnifiedAutocorrectEngine) {
+        this.unifiedEngine = engine
+        Log.d(TAG, "✅ SwipeAutocorrectEngine integrated with UnifiedAutocorrectEngine")
+    }
+    
     // QWERTY keyboard layout for proximity scoring
     private val qwertyLayout = mapOf(
         'q' to Pair(0, 0), 'w' to Pair(1, 0), 'e' to Pair(2, 0), 'r' to Pair(3, 0),
@@ -122,17 +133,43 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             // Step 5: Apply context scoring (bigrams)
             applyContextScoring(candidates, previousWord, previousWord2)
             
-            // Step 6: Rank and return top candidates
-            val rankedCandidates = rankCandidates(candidates)
-                .take(MAX_CANDIDATES)
+            // Step 6: Delegate to unified autocorrect engine for consistent scoring
+            val lang = "en" // TODO: Get current language from context
+            val unifiedCorrections = unifiedEngine?.suggestForSwipe(swipeSequence, lang) ?: emptyList()
+            
+            // Get ranked candidates first
+            val rankedCandidates = rankCandidates(candidates).take(MAX_CANDIDATES)
+            
+            // Merge swipe predictions with unified corrections
+            val mergedCandidates = mergePredictions(
+                rankedCandidates.map { it.word }, 
+                unifiedCorrections,
+                swipeSequence
+            )
+            
+            // Convert back to SwipeCandidate format
+            val finalCandidates = mergedCandidates.mapIndexed { index, word ->
+                val existingCandidate = rankedCandidates.find { it.word == word }
+                existingCandidate ?: SwipeCandidate(
+                    word = word,
+                    editDistance = 1,
+                    proximityScore = 0.8 - index * 0.1,
+                    frequencyScore = 0.7 - index * 0.1,
+                    contextScore = 0.0,
+                    finalScore = 0.8 - index * 0.1,
+                    source = CandidateSource.UNIFIED_ENGINE
+                )
+            }
+            
+            // rankedCandidates already computed above
             
             val processingTime = System.currentTimeMillis() - startTime
             
-            Log.d(TAG, "Generated ${rankedCandidates.size} candidates in ${processingTime}ms for '$swipeSequence'")
+            Log.d(TAG, "Generated ${finalCandidates.size} unified candidates in ${processingTime}ms for '$swipeSequence'")
             
             return@withContext SwipeResult(
                 originalSequence = swipeSequence,
-                candidates = rankedCandidates,
+                candidates = finalCandidates,
                 processingTimeMs = processingTime
             )
             
@@ -521,6 +558,179 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
         val frequency = wordFrequencies[word] ?: 0
         return log10(max(frequency, 1).toDouble() + 1)
     }
+    
+    // ========== SWIPE PATH MODEL INTEGRATION ==========
+    
+    /**
+     * Decode swipe path coordinates into word predictions
+     * Placeholder for future TFLite model integration
+     */
+    fun decodeSwipePath(points: List<Pair<Float, Float>>): List<String> {
+        if (points.size < 2) return emptyList()
+        
+        // Normalize gesture coordinates to 0-1 range
+        val maxX = points.maxOf { it.first }
+        val maxY = points.maxOf { it.second }
+        val norm = points.map { (x, y) -> 
+            Pair(x / maxOf(maxX, 1f), y / maxOf(maxY, 1f))
+        }
+        
+        // Estimate starting letter based on first point
+        val startLetter = estimateStartingLetter(norm.first())
+        
+        // Get candidates starting with estimated letter
+        val candidates = mainDictionary.filter { 
+            it.startsWith(startLetter) && it.length >= MIN_WORD_LENGTH 
+        }.take(20)
+        
+        // Score candidates by path proximity (simplified scoring)
+        val scored = candidates.map { word ->
+            val pathScore = scoreWordByPath(word, norm)
+            word to pathScore
+        }.sortedByDescending { it.second }
+        
+        Log.d(TAG, "🔄 Swipe path decoded: ${scored.take(3).map { it.first }}")
+        return scored.take(5).map { it.first }
+    }
+    
+    /**
+     * Estimate starting letter from normalized first touch point
+     */
+    private fun estimateStartingLetter(point: Pair<Float, Float>): String {
+        val (x, y) = point
+        
+        // Rough QWERTY layout mapping (normalized coordinates)
+        return when {
+            y < 0.33 -> { // Top row
+                when {
+                    x < 0.1 -> "q"
+                    x < 0.2 -> "w"
+                    x < 0.3 -> "e"
+                    x < 0.4 -> "r"
+                    x < 0.5 -> "t"
+                    x < 0.6 -> "y"
+                    x < 0.7 -> "u"
+                    x < 0.8 -> "i"
+                    x < 0.9 -> "o"
+                    else -> "p"
+                }
+            }
+            y < 0.66 -> { // Middle row
+                when {
+                    x < 0.11 -> "a"
+                    x < 0.22 -> "s"
+                    x < 0.33 -> "d"
+                    x < 0.44 -> "f"
+                    x < 0.55 -> "g"
+                    x < 0.66 -> "h"
+                    x < 0.77 -> "j"
+                    x < 0.88 -> "k"
+                    else -> "l"
+                }
+            }
+            else -> { // Bottom row
+                when {
+                    x < 0.14 -> "z"
+                    x < 0.28 -> "x"
+                    x < 0.42 -> "c"
+                    x < 0.56 -> "v"
+                    x < 0.70 -> "b"
+                    x < 0.84 -> "n"
+                    else -> "m"
+                }
+            }
+        }
+    }
+    
+    /**
+     * Score word by how well it matches the swipe path
+     * Simplified scoring - can be replaced by ML model
+     */
+    private fun scoreWordByPath(word: String, path: List<Pair<Float, Float>>): Double {
+        if (word.isEmpty() || path.isEmpty()) return 0.0
+        
+        // Simple scoring based on word length and path length similarity
+        val lengthRatio = minOf(word.length.toDouble() / path.size, 1.0)
+        
+        // Frequency boost
+        val freqBoost = getFrequencyScore(word)
+        
+        return lengthRatio * 0.5 + freqBoost * 0.5
+    }
+    
+    /**
+     * Merge swipe predictions with text-based autocorrect predictions
+     */
+    fun mergePredictions(
+        swipePreds: List<String>, 
+        contextPreds: List<String>,
+        currentWord: String = ""
+    ): List<String> {
+        val merged = mutableListOf<String>()
+        
+        // Prioritize swipe predictions if they're strong
+        merged.addAll(swipePreds.take(2))
+        
+        // Add context predictions that aren't already included
+        contextPreds.forEach { pred ->
+            if (!merged.contains(pred) && merged.size < 5) {
+                merged.add(pred)
+            }
+        }
+        
+        // If current word is partially typed, add prefix completions
+        if (currentWord.length >= 2) {
+            mainDictionary.filter { 
+                it.startsWith(currentWord) && !merged.contains(it) 
+            }.take(5 - merged.size).forEach { merged.add(it) }
+        }
+        
+        Log.d(TAG, "🔀 Merged predictions: $merged")
+        return merged.take(5).distinct()
+    }
+    
+    /**
+     * Integrate with AutocorrectEngine for unified predictions
+     * This will be called from AIKeyboardService
+     */
+    suspend fun getUnifiedCandidates(
+        swipePath: List<Pair<Float, Float>>?,
+        typedSequence: String,
+        previousWord: String = "",
+        currentLanguage: String = "en"
+    ): List<String> = withContext(Dispatchers.Default) {
+        
+        val predictions = mutableListOf<String>()
+        
+        // Get swipe-based predictions if path is available
+        if (swipePath != null && swipePath.size >= 2) {
+            val swipePreds = decodeSwipePath(swipePath)
+            predictions.addAll(swipePreds)
+        }
+        
+        // Get typed-text predictions
+        if (typedSequence.isNotEmpty()) {
+            val textResult = getCandidates(typedSequence, previousWord)
+            predictions.addAll(textResult.candidates.take(3).map { it.word })
+        }
+        
+        // STEP 4: Delegate to unified correction logic
+        val decodedWord = predictions.firstOrNull() ?: typedSequence
+        if (decodedWord.isNotEmpty() && unifiedEngine != null) {
+            try {
+                val unified = unifiedEngine!!.getCorrections(decodedWord, currentLanguage, emptyList())
+                val unifiedWords = unified.map { it.word }
+                predictions.addAll(unifiedWords)
+                
+                Log.d(TAG, "🔀 Merged predictions: ${predictions.distinct().take(5)} for '$decodedWord'")
+            } catch (e: Exception) {
+                Log.w(TAG, "Error getting unified predictions: ${e.message}")
+            }
+        }
+        
+        // Return merged and deduplicated results
+        return@withContext predictions.distinct().take(5)
+    }
 }
 
 /**
@@ -555,5 +765,6 @@ enum class CandidateSource {
     EXACT_MATCH,
     EDIT_DISTANCE, 
     PATTERN_MATCH,
-    USER_DICTIONARY
+    USER_DICTIONARY,
+    UNIFIED_ENGINE
 }

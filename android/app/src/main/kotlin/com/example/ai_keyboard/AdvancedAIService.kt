@@ -252,6 +252,17 @@ class AdvancedAIService(private val context: Context) {
     }
     
     /**
+     * Process text with custom system prompt (for user-defined prompts)
+     */
+    suspend fun processWithCustomPrompt(
+        text: String,
+        systemPrompt: String,
+        promptTitle: String = "custom"
+    ): AIResult {
+        return processWithAI(text, systemPrompt, "custom_${promptTitle}")
+    }
+    
+    /**
      * Core AI processing with caching
      */
     private suspend fun processWithAI(
@@ -554,6 +565,39 @@ class AdvancedAIService(private val context: Context) {
      * Get available processing features
      */
     fun getAvailableFeatures(): List<ProcessingFeature> = ProcessingFeature.values().toList()
+    
+    /**
+     * Check if the service is fully initialized and ready to use
+     */
+    fun isInitialized(): Boolean {
+        return config.getApiKey() != null && config.getApiKey()?.isNotEmpty() == true
+    }
+    
+    /**
+     * Preload/warm up the AI service to prevent cold-start delays
+     * This is a lightweight operation that validates configuration without making API calls
+     */
+    fun preloadWarmup() {
+        scope.launch {
+            try {
+                // Validate configuration
+                if (!isInitialized()) {
+                    Log.d(TAG, "⚠️ AI service not configured, skipping warm-up")
+                    return@launch
+                }
+                
+                // Check network availability
+                if (!isNetworkAvailable()) {
+                    Log.d(TAG, "⚠️ No network available for AI warm-up")
+                    return@launch
+                }
+                
+                Log.d(TAG, "🧠 AI service preloaded and ready (API key configured, network available)")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ AI warm-up failed: ${e.message}")
+            }
+        }
+    }
     
     /**
      * Cleanup resources

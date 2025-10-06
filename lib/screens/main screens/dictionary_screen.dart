@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:convert';
 
 class DictionaryScreen extends StatefulWidget {
   const DictionaryScreen({super.key});
@@ -15,12 +19,91 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   bool dictionaryEnabled = true;
 
   // Custom Word Entries
-  List<Map<String, String>> customWords = [
-    {'phrase': 'Good Morning', 'abbreviation': 'Gm'},
-    {'phrase': 'How are you?', 'abbreviation': 'How ru'},
-    {'phrase': 'Good Afternoon', 'abbreviation': 'GA'},
-    {'phrase': 'I like you', 'abbreviation': 'like'},
-  ];
+  List<DictionaryEntry> customWords = [];
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+    _loadDictionaryEntries();
+  }
+  
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      dictionaryEnabled = prefs.getBool('dictionary_enabled') ?? true;
+    });
+  }
+  
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('dictionary_enabled', dictionaryEnabled);
+    _sendBroadcast();
+  }
+  
+  void _sendBroadcast() {
+    try {
+      const platform = MethodChannel('ai_keyboard/config');
+      platform.invokeMethod('sendBroadcast', {
+        'action': 'com.example.ai_keyboard.DICTIONARY_CHANGED'
+      });
+      debugPrint('Dictionary settings broadcast sent');
+    } catch (e) {
+      debugPrint('Error sending broadcast: $e');
+    }
+  }
+  
+  Future<void> _loadDictionaryEntries() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final entriesJson = prefs.getString('dictionary_entries');
+      if (entriesJson != null) {
+        final List<dynamic> entriesList = json.decode(entriesJson);
+        setState(() {
+          customWords = entriesList
+              .map((entry) => DictionaryEntry.fromJson(entry))
+              .toList();
+        });
+      } else {
+        // Add default entries
+        setState(() {
+          customWords = [
+            DictionaryEntry(
+              id: Uuid().v4(),
+              shortcut: 'gm',
+              expansion: 'Good Morning',
+            ),
+            DictionaryEntry(
+              id: Uuid().v4(),
+              shortcut: 'howru',
+              expansion: 'How are you?',
+            ),
+            DictionaryEntry(
+              id: Uuid().v4(),
+              shortcut: 'ga',
+              expansion: 'Good Afternoon',
+            ),
+          ];
+        });
+        await _saveDictionaryEntries();
+      }
+    } catch (e) {
+      debugPrint('Error loading dictionary entries: $e');
+    }
+  }
+  
+  Future<void> _saveDictionaryEntries() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final entriesJson = json.encode(
+        customWords.map((entry) => entry.toJson()).toList()
+      );
+      await prefs.setString('dictionary_entries', entriesJson);
+      _sendBroadcast();
+    } catch (e) {
+      debugPrint('Error saving dictionary entries: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +164,23 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             const SizedBox(height: 16),
 
             // Custom Word Entries List
-            ...customWords.map((word) => _buildWordEntryCard(word)).toList(),
+            if (customWords.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.lightGrey,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    'No dictionary entries yet. Add shortcuts to expand text faster!',
+                    style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            else
+              ...customWords.map((word) => _buildWordEntryCard(word)).toList(),
 
             const SizedBox(height: 24),
           ],
@@ -130,7 +229,10 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
           ),
           CustomToggleSwitch(
             value: dictionaryEnabled,
-            onChanged: (value) => setState(() => dictionaryEnabled = value),
+            onChanged: (value) {
+              setState(() => dictionaryEnabled = value);
+              _saveSettings();
+            },
             width: 48.0,
             height: 16.0,
             knobSize: 24.0,
@@ -166,7 +268,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     );
   }
 
-  Widget _buildWordEntryCard(Map<String, String> word) {
+  Widget _buildWordEntryCard(DictionaryEntry entry) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -180,24 +282,35 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Expansion text
                 Text(
-                  word['phrase']!,
+                  entry.expansion,
                   style: AppTextStyle.titleLarge.copyWith(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 4),
+                // Shortcut
                 Text(
-                  word['abbreviation']!,
-                  style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                  'Shortcut: ${entry.shortcut}',
+                  style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                ),
+                const SizedBox(height: 2),
+                // Usage frequency
+                Text(
+                  entry.getFormattedUsageCount(),
+                  style: AppTextStyle.bodySmall.copyWith(
+                    color: AppColors.secondary,
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
           ),
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert, color: AppColors.grey, size: 20),
-            onSelected: (value) => _handleWordAction(value, word),
+            onSelected: (value) => _handleWordAction(value, entry),
             itemBuilder: (BuildContext context) => [
               PopupMenuItem<String>(
                 value: 'edit',
@@ -236,21 +349,20 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     );
   }
 
-  void _handleWordAction(String action, Map<String, String> word) {
+  void _handleWordAction(String action, DictionaryEntry entry) {
     switch (action) {
       case 'edit':
-        _showEditWordDialog(word);
+        _showEditWordDialog(entry);
         break;
       case 'delete':
-        _showDeleteConfirmation(word);
+        _showDeleteConfirmation(entry);
         break;
     }
   }
 
   void _showAddWordDialog() {
-    final TextEditingController phraseController = TextEditingController();
-    final TextEditingController abbreviationController =
-        TextEditingController();
+    final TextEditingController expansionController = TextEditingController();
+    final TextEditingController shortcutController = TextEditingController();
 
     showDialog(
       context: context,
@@ -272,7 +384,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
               children: [
                 // Header
                 Text(
-                  'Add Word',
+                  'Add Dictionary Entry',
                   style: AppTextStyle.titleLarge.copyWith(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w800,
@@ -282,13 +394,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
 
                 const SizedBox(height: 16),
 
-                // Phrase Input
+                // Shortcut Input
                 TextField(
-                  controller: phraseController,
+                  controller: shortcutController,
                   decoration: InputDecoration(
                     fillColor: AppColors.lightGrey,
                     filled: true,
-                    labelText: 'Phrase',
+                    labelText: 'Shortcut (e.g., "brb")',
                     labelStyle: AppTextStyle.bodyMedium.copyWith(
                       color: AppColors.grey,
                     ),
@@ -305,13 +417,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
 
                 const SizedBox(height: 16),
 
-                // Abbreviation Input
+                // Expansion Input
                 TextField(
-                  controller: abbreviationController,
+                  controller: expansionController,
                   decoration: InputDecoration(
                     fillColor: AppColors.lightGrey,
                     filled: true,
-                    labelText: 'Abbreviation',
+                    labelText: 'Expansion (e.g., "be right back")',
                     labelStyle: AppTextStyle.bodyMedium.copyWith(
                       color: AppColors.grey,
                     ),
@@ -354,15 +466,17 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {
-                          if (phraseController.text.isNotEmpty &&
-                              abbreviationController.text.isNotEmpty) {
+                        onPressed: () async {
+                          if (expansionController.text.isNotEmpty &&
+                              shortcutController.text.isNotEmpty) {
                             setState(() {
-                              customWords.add({
-                                'phrase': phraseController.text,
-                                'abbreviation': abbreviationController.text,
-                              });
+                              customWords.add(DictionaryEntry(
+                                id: Uuid().v4(),
+                                shortcut: shortcutController.text.toLowerCase(),
+                                expansion: expansionController.text,
+                              ));
                             });
+                            await _saveDictionaryEntries();
                             Navigator.of(context).pop();
                           }
                         },
@@ -393,12 +507,12 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     );
   }
 
-  void _showEditWordDialog(Map<String, String> word) {
-    final TextEditingController phraseController = TextEditingController(
-      text: word['phrase'],
+  void _showEditWordDialog(DictionaryEntry entry) {
+    final TextEditingController expansionController = TextEditingController(
+      text: entry.expansion,
     );
-    final TextEditingController abbreviationController = TextEditingController(
-      text: word['abbreviation'],
+    final TextEditingController shortcutController = TextEditingController(
+      text: entry.shortcut,
     );
 
     showDialog(
@@ -436,13 +550,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                     color: AppColors.grey,
                   ),
                 ),
-                // Phrase Input
+                // Expansion Input
                 TextField(
-                  controller: phraseController,
+                  controller: expansionController,
                   decoration: InputDecoration(
                     fillColor: AppColors.lightGrey,
                     filled: true,
-                    labelText: 'Phrase',
+                    labelText: 'Expansion',
                     labelStyle: AppTextStyle.bodyMedium.copyWith(
                       color: AppColors.grey,
                     ),
@@ -469,13 +583,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                   ),
                 ),
 
-                // Abbreviation Input
+                // Shortcut Input
                 TextField(
-                  controller: abbreviationController,
+                  controller: shortcutController,
                   decoration: InputDecoration(
                     fillColor: AppColors.lightGrey,
                     filled: true,
-                    labelText: 'Abbreviation',
+                    labelText: 'Shortcut',
                     labelStyle: AppTextStyle.bodyMedium.copyWith(
                       color: AppColors.grey,
                     ),
@@ -523,18 +637,19 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {
-                          if (phraseController.text.isNotEmpty &&
-                              abbreviationController.text.isNotEmpty) {
+                        onPressed: () async {
+                          if (expansionController.text.isNotEmpty &&
+                              shortcutController.text.isNotEmpty) {
                             setState(() {
-                              int index = customWords.indexOf(word);
+                              int index = customWords.indexWhere((e) => e.id == entry.id);
                               if (index != -1) {
-                                customWords[index] = {
-                                  'phrase': phraseController.text,
-                                  'abbreviation': abbreviationController.text,
-                                };
+                                customWords[index] = entry.copyWith(
+                                  shortcut: shortcutController.text.toLowerCase(),
+                                  expansion: expansionController.text,
+                                );
                               }
                             });
+                            await _saveDictionaryEntries();
                             Navigator.of(context).pop();
                           }
                         },
@@ -565,101 +680,89 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     );
   }
 
-  void _showDeleteConfirmation(Map<String, String> word) {
+  void _showDeleteConfirmation(DictionaryEntry entry) {
     showDialog(
       context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+      builder: (context) => AlertDialog(
+        title: Text('Delete Entry'),
+        content: Text('Are you sure you want to delete "${entry.shortcut}" → "${entry.expansion}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancel'),
           ),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Header
-                Text(
-                  'Delete Word',
-                  style: AppTextStyle.titleLarge.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Confirmation Message
-                Text(
-                  'Are you sure you want to delete "${word['phrase']}"?',
-                  style: AppTextStyle.bodyMedium.copyWith(
-                    color: AppColors.grey,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 24),
-
-                // Action Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: AppColors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Cancel',
-                          style: AppTextStyle.buttonSecondary.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            customWords.remove(word);
-                          });
-                          Navigator.of(context).pop();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: AppColors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Delete',
-                          style: AppTextStyle.buttonSecondary.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          TextButton(
+            onPressed: () async {
+              setState(() {
+                customWords.removeWhere((e) => e.id == entry.id);
+              });
+              await _saveDictionaryEntries();
+              Navigator.of(context).pop();
+            },
+            child: Text('Delete', style: TextStyle(color: AppColors.secondary)),
           ),
-        );
-      },
+        ],
+      ),
     );
+  }
+}
+
+// DictionaryEntry model class
+class DictionaryEntry {
+  final String id;
+  final String shortcut;
+  final String expansion;
+  final int usageCount;
+  final int timestamp;
+  
+  DictionaryEntry({
+    required this.id,
+    required this.shortcut,
+    required this.expansion,
+    this.usageCount = 0,
+    int? timestamp,
+  }) : timestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
+  
+  factory DictionaryEntry.fromJson(Map<String, dynamic> json) {
+    return DictionaryEntry(
+      id: json['id'] as String,
+      shortcut: json['shortcut'] as String,
+      expansion: json['expansion'] as String,
+      usageCount: json['usageCount'] as int? ?? 0,
+      timestamp: json['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'shortcut': shortcut,
+      'expansion': expansion,
+      'usageCount': usageCount,
+      'timestamp': timestamp,
+    };
+  }
+  
+  DictionaryEntry copyWith({
+    String? id,
+    String? shortcut,
+    String? expansion,
+    int? usageCount,
+    int? timestamp,
+  }) {
+    return DictionaryEntry(
+      id: id ?? this.id,
+      shortcut: shortcut ?? this.shortcut,
+      expansion: expansion ?? this.expansion,
+      usageCount: usageCount ?? this.usageCount,
+      timestamp: timestamp ?? this.timestamp,
+    );
+  }
+  
+  String getFormattedUsageCount() {
+    if (usageCount == 0) return 'Never used';
+    if (usageCount == 1) return 'Used once';
+    if (usageCount < 10) return 'Used $usageCount times';
+    return 'Used $usageCount+ times';
   }
 }

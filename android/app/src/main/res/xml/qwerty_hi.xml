@@ -6,32 +6,32 @@
     android:keyHeight="@dimen/key_height"
     android:keyTextSize="@dimen/key_text_size">
     
-    <!-- First row: Devanagari consonants (top row) -->
+    <!-- First row: Devanagari consonants (top row) with long-press variants -->
     <Row android:rowEdgeFlags="top">
-        <Key android:codes="2325" android:keyLabel="क" android:keyWidth="9.5%p" android:keyEdgeFlags="left"/>
-        <Key android:codes="2326" android:keyLabel="ख" android:keyWidth="9.5%p"/>
-        <Key android:codes="2327" android:keyLabel="ग" android:keyWidth="9.5%p"/>
-        <Key android:codes="2328" android:keyLabel="घ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2329" android:keyLabel="ङ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2330" android:keyLabel="च" android:keyWidth="9.5%p"/>
-        <Key android:codes="2331" android:keyLabel="छ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2332" android:keyLabel="ज" android:keyWidth="9.5%p"/>
-        <Key android:codes="2333" android:keyLabel="झ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2334" android:keyLabel="ञ" android:keyWidth="9.5%p" android:keyEdgeFlags="right"/>
+        <Key android:codes="2325" android:keyLabel="क" android:keyWidth="9.5%p" android:keyEdgeFlags="left" android:popupCharacters="क़खग"/>
+        <Key android:codes="2326" android:keyLabel="ख" android:keyWidth="9.5%p" android:popupCharacters="ख़घ"/>
+        <Key android:codes="2327" android:keyLabel="ग" android:keyWidth="9.5%p" android:popupCharacters="ग़घ"/>
+        <Key android:codes="2328" android:keyLabel="घ" android:keyWidth="9.5%p" android:popupCharacters="ङ"/>
+        <Key android:codes="2329" android:keyLabel="ङ" android:keyWidth="9.5%p" android:popupCharacters="ंः"/>
+        <Key android:codes="2330" android:keyLabel="च" android:keyWidth="9.5%p" android:popupCharacters="छज"/>
+        <Key android:codes="2331" android:keyLabel="छ" android:keyWidth="9.5%p" android:popupCharacters="झ"/>
+        <Key android:codes="2332" android:keyLabel="ज" android:keyWidth="9.5%p" android:popupCharacters="ज़झञ"/>
+        <Key android:codes="2333" android:keyLabel="झ" android:keyWidth="9.5%p" android:popupCharacters="ञ"/>
+        <Key android:codes="2334" android:keyLabel="ञ" android:keyWidth="9.5%p" android:keyEdgeFlags="right" android:popupCharacters="ं"/>
     </Row>
     
-    <!-- Second row: Devanagari consonants (middle row) -->
+    <!-- Second row: Devanagari consonants (middle row) with long-press variants -->
     <Row>
-        <Key android:codes="2335" android:keyLabel="ट" android:keyWidth="9.5%p" android:keyEdgeFlags="left" android:horizontalGap="5%p"/>
-        <Key android:codes="2336" android:keyLabel="ठ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2337" android:keyLabel="ड" android:keyWidth="9.5%p"/>
-        <Key android:codes="2338" android:keyLabel="ढ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2339" android:keyLabel="ण" android:keyWidth="9.5%p"/>
-        <Key android:codes="2340" android:keyLabel="त" android:keyWidth="9.5%p"/>
-        <Key android:codes="2341" android:keyLabel="थ" android:keyWidth="9.5%p"/>
-        <Key android:codes="2342" android:keyLabel="द" android:keyWidth="9.5%p"/>
-        <Key android:codes="2343" android:keyLabel="ध" android:keyWidth="9.5%p"/>
-        <Key android:codes="2344" android:keyLabel="न" android:keyWidth="9.5%p" android:keyEdgeFlags="right"/>
+        <Key android:codes="2335" android:keyLabel="ट" android:keyWidth="9.5%p" android:keyEdgeFlags="left" android:horizontalGap="5%p" android:popupCharacters="ठड"/>
+        <Key android:codes="2336" android:keyLabel="ठ" android:keyWidth="9.5%p" android:popupCharacters="ढ"/>
+        <Key android:codes="2337" android:keyLabel="ड" android:keyWidth="9.5%p" android:popupCharacters="ड़ढ"/>
+        <Key android:codes="2338" android:keyLabel="ढ" android:keyWidth="9.5%p" android:popupCharacters="ढ़ण"/>
+        <Key android:codes="2339" android:keyLabel="ण" android:keyWidth="9.5%p" android:popupCharacters="न"/>
+        <Key android:codes="2340" android:keyLabel="त" android:keyWidth="9.5%p" android:popupCharacters="थद"/>
+        <Key android:codes="2341" android:keyLabel="थ" android:keyWidth="9.5%p" android:popupCharacters="ध"/>
+        <Key android:codes="2342" android:keyLabel="द" android:keyWidth="9.5%p" android:popupCharacters="धन"/>
+        <Key android:codes="2343" android:keyLabel="ध" android:keyWidth="9.5%p" android:popupCharacters="न"/>
+        <Key android:codes="2344" android:keyLabel="न" android:keyWidth="9.5%p" android:keyEdgeFlags="right" android:popupCharacters="णञं"/>
     </Row>
     
     <!-- Third row: Shift + more consonants + Backspace -->
@@ -58,25 +58,11 @@
     
     <!-- Bottom row: ?123 + Language + Emoji + Space + Punctuation + Enter -->
     <Row android:rowEdgeFlags="bottom">
-        <Key android:codes="-12" 
-             android:keyLabel="\?123" 
-             android:keyWidth="12%p" 
-             android:keyEdgeFlags="left"/>
-        <Key android:codes="44" android:keyLabel="," android:keyWidth="6%p"/>
-        <Key android:codes="-14" 
-             android:keyLabel="🌐" 
-             android:keyWidth="8%p"/>
-        <Key android:codes="-15" 
-             android:keyLabel="😊" 
-             android:keyWidth="8%p"/>
-        <Key android:codes="32" 
-             android:keyIcon="@drawable/sym_keyboard_space" 
-             android:keyWidth="36%p" 
-             android:isRepeatable="true"/>
-        <Key android:codes="46" android:keyLabel="." android:keyWidth="6%p"/>
-        <Key android:codes="10" 
-             android:keyLabel="↵"
-             android:keyWidth="24%p" 
-             android:keyEdgeFlags="right"/>
+        <Key android:codes="-3" android:keyLabel="\?123" android:keyWidth="15%p" android:keyEdgeFlags="left"/>
+        <Key android:codes="44" android:keyLabel="," android:keyWidth="10%p"/>
+        <Key android:codes="-14" android:keyLabel="🌐" android:keyWidth="10%p"/>
+        <Key android:codes="32" android:keyIcon="@drawable/sym_keyboard_space" android:keyWidth="30%p" android:isRepeatable="false"/>
+        <Key android:codes="46" android:keyLabel="." android:keyWidth="10%p" android:popupCharacters="!?.,:;"/>
+        <Key android:codes="-4" android:keyIcon="@drawable/sym_keyboard_return" android:keyWidth="15%p" android:keyEdgeFlags="right"/>
     </Row>
 </Keyboard>

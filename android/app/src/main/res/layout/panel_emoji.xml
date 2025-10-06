@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/emojiPanelRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:clipToPadding="false">
+
+    <!-- Fixed toolbar -->
+    <LinearLayout
+        android:id="@+id/emojiToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:id="@+id/emojiSearchBtn"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="@string/emoji_search"
+            android:src="@android:drawable/ic_menu_search"/>
+
+        <EditText
+            android:id="@+id/emojiSearchInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:hint="@string/search_emojis"
+            android:textSize="14sp"
+            android:background="@null"
+            android:inputType="text"
+            android:imeOptions="actionSearch"
+            android:maxLines="1"/>
+
+        <!-- Tone chip entry point -->
+        <ImageView
+            android:id="@+id/emojiToneBtn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:contentDescription="@string/emoji_skin_tone"
+            android:src="@android:drawable/ic_menu_edit"
+            android:padding="4dp"/>
+    </LinearLayout>
+
+    <!-- Categories (fixed under toolbar) -->
+    <HorizontalScrollView
+        android:id="@+id/emojiCategoriesScroll"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:fillViewport="false"
+        android:overScrollMode="never"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/emojiCategories"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:gravity="center_vertical"/>
+    </HorizontalScrollView>
+
+    <!-- Emoji grid (scrolls) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/emojiGrid"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:overScrollMode="never"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="4dp"
+        android:clipToPadding="false"/>
+
+    <!-- Minimal footer: ABC | Space | Send | Delete -->
+    <LinearLayout
+        android:id="@+id/emojiFooter"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp">
+
+        <TextView
+            android:id="@+id/btnEmojiToABC"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:text="@string/abc"
+            android:gravity="center"
+            android:textSize="16sp"
+            android:contentDescription="@string/abc"/>
+
+        <TextView
+            android:id="@+id/btnEmojiSpace"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="2"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/space"
+            android:gravity="center"
+            android:textSize="16sp"
+            android:contentDescription="@string/space"/>
+
+        <ImageView
+            android:id="@+id/btnEmojiSend"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:padding="10dp"
+            android:src="@android:drawable/ic_menu_send"
+            android:contentDescription="@string/send"/>
+
+        <ImageView
+            android:id="@+id/btnEmojiDelete"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:padding="10dp"
+            android:src="@android:drawable/ic_input_delete"
+            android:contentDescription="@string/delete"/>
+    </LinearLayout>
+</LinearLayout>
+

@@ -1,0 +1,204 @@
+# Telugu Word Dictionary - Starter Set
+# Format: word<TAB>frequency<TAB>category
+# Frequency: Higher = more common (scale: 1-10000)
+# This is a starter set. Full dictionary should contain 15,000+ words.
+
+# Greetings & Common Phrases (10000-9000)
+నమస్కారం	10000	greeting
+నమస్కారము	9900	greeting
+ధన్యవాదాలు	9500	greeting
+వందనములు	9200	greeting
+మల్లీ	9000	greeting
+
+# Question Words (9000-8500)
+ఎలా	8900	question
+ఏమిటి	8800	question
+ఎక్కడ	8700	question
+ఎప్పుడు	8600	question
+ఎందుకు	8500	question
+ఎవరు	8400	question
+ఎంత	8300	question
+ఎవరి	8200	question
+
+# Common Verbs (8500-7000)
+ఉన్నారు	8900	verb
+ఉన్నాను	8800	verb
+ఉన్నది	8700	verb
+ఉంది	8600	verb
+ఉందా	8500	verb
+వుంది	8400	verb
+లేదు	8300	verb
+లేదా	8200	verb
+చేస్తాను	8100	verb
+చేస్తారు	8000	verb
+వచ్చాను	7900	verb
+వచ్చారు	7800	verb
+వెళ్ళాను	7700	verb
+వెళ్ళారు	7600	verb
+ఇస్తాను	7500	verb
+ఇస్తారు	7400	verb
+తినాలి	7300	verb
+త
+
+ాగాలి	7200	verb
+చూడండి	7100	verb
+వినండి	7000	verb
+
+# Pronouns (7000-6500)
+నేను	7500	pronoun
+మీరు	7400	pronoun
+మేము	7300	pronoun
+నువ్వు	7200	pronoun
+అతను	7100	pronoun
+ఆమె	7000	pronoun
+అది	6900	pronoun
+ఇది	6800	pronoun
+నాకు	6700	pronoun
+మీకు	6600	pronoun
+నీకు	6500	pronoun
+
+# Adjectives (6500-5500)
+మంచిది	6800	adjective
+మంచి	6700	adjective
+చెడ్డది	6600	adjective
+బాగుంది	6500	adjective
+బాగా	6400	adjective
+పెద్ద	6300	adjective
+చిన్న	6200	adjective
+కొత్త	6100	adjective
+పాత	6000	adjective
+అందమైన	5900	adjective
+చక్కని	5800	adjective
+బలమైన	5700	adjective
+బలహీనమైన	5600	adjective
+సుందరమైన	5500	adjective
+
+# Adverbs & Modifiers (5500-5000)
+చాలా	6000	adverb
+కొంచెం	5900	adverb
+బాగా	5800	adverb
+త్వరగా	5700	adverb
+నెమ్మదిగా	5600	adverb
+ఇప్పుడు	5500	adverb
+మళ్ళీ	5400	adverb
+ఎప్పుడో	5300	adverb
+ఎక్కువ	5200	adverb
+తక్కువ	5100	adverb
+తరచుగా	5000	adverb
+
+# Postpositions (5000-4500)
+లో	5500	postposition
+నుండి	5400	postposition
+కు	5300	postposition
+కి	5200	postposition
+తో	5100	postposition
+చేత	5000	postposition
+వరకు	4900	postposition
+గురించి	4800	postposition
+కోసం	4700	postposition
+వల్ల	4600	postposition
+దగ్గర	4500	postposition
+
+# Conjunctions (4500-4000)
+మరియు	5000	conjunction
+లేదా	4900	conjunction
+కానీ	4800	conjunction
+కాబట్టి	4700	conjunction
+అయితే	4600	conjunction
+అయినా	4500	conjunction
+ఎందుకంటే	4400	conjunction
+ఎప్పుడైతే	4300	conjunction
+అప్పుడు	4200	conjunction
+ఎప్పటికైనా	4100	conjunction
+కూడా	4000	conjunction
+
+# Negation & Affirmation (4000-3500)
+కాదు	5500	negation
+లేదు	5400	negation
+లేదా	5000	negation
+అవును	4800	affirmation
+ఔను	4700	affirmation
+సరే	4600	affirmation
+తప్పకుండా	4400	affirmation
+సరైన	4200	affirmation
+తప్పు	4000	negation
+కచ్చితంగా	3800	affirmation
+
+# Common Nouns (4000-2000)
+రోజు	4500	noun
+రాత్రి	4400	noun
+ఉదయం	4300	noun
+సాయంత్రం	4200	noun
+సమయం	4100	noun
+ప్రజలు	4000	noun
+మనిషి	3900	noun
+స్త్రీ	3800	noun
+పిల్ల	3700	noun
+ఇల్లు	3600	noun
+పని	3500	noun
+నీరు	3400	noun
+భోజనం	3300	noun
+టీ	3200	noun
+పాలు	3100	noun
+అన్నం	3000	noun
+కూరలు	2900	noun
+పండు	2800	noun
+పుస్తకం	2700	noun
+డబ్బు	2600	noun
+రూపాయి	2500	noun
+స్నేహితుడు	2400	noun
+కుటుంబం	2300	noun
+తల్లి	2200	noun
+తండ్రి	2100	noun
+అన్న	2000	noun
+
+# Time Words (2000-1500)
+ఈరోజు	3500	time
+రేపు	3400	time
+నిన్న	3300	time
+మొన్న	3000	time
+ఇప్పుడు	2800	time
+తర్వాత	2600	time
+ముందు	2400	time
+ఉదయం	2200	time
+సాయంత్రం	2000	time
+మధ్యాహ్నం	1800	time
+రాత్రి	1600	time
+ఏ	1500	time
+
+# Numbers (2000-1000)
+ఒకటి	2500	number
+రెండు	2400	number
+మూడు	2300	number
+నాలుగు	2200	number
+ఐదు	2100	number
+ఆరు	2000	number
+ఏడు	1900	number
+ఎనిమిది	1800	number
+తొమ్మిది	1700	number
+పది	1600	number
+వంద	1500	number
+వేయి	1400	number
+లక్ష	1300	number
+కోటి	1200	number
+
+# Misc Common Words (1500-500)
+గారు	4500	honorific
+కూడా	4000	particle
+ఏ	3800	particle
+అంటే	3600	particle
+నా	3400	possessive
+మీ	3200	possessive
+చేయగలను	1500	auxiliary
+కావాలి	1400	auxiliary
+వద్దు	1300	auxiliary
+తెలుసు	1200	verb
+తెలియదు	1100	verb
+కలుసుకోవచ్చు	1000	verb
+అయ్యింది	900	verb
+పెట్టు	800	verb
+తీసుకో	700	verb
+అర్థం	600	verb
+చదువు	550	verb
+రాయి	500	verb
+
