@@ -1,6 +1,7 @@
 package com.example.ai_keyboard
 
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.inputmethod.InputConnection
 import java.util.regex.Pattern
 

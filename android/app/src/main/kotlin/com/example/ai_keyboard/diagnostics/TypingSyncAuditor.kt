@@ -1,6 +1,7 @@
 package com.example.ai_keyboard.diagnostics
 
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * TypingSyncAuditor: One-time analysis tool to audit current typing/suggestion features

@@ -8,6 +8,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * Simple language switch button for multilingual keyboard

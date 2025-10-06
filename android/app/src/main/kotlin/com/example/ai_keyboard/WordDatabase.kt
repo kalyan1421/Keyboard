@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.content.ContentValues
 import android.database.Cursor
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.IOException

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject

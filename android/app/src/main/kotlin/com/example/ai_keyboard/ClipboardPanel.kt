@@ -3,6 +3,7 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.graphics.Color
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout

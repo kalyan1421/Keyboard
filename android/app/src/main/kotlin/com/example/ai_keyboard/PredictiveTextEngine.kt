@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import kotlinx.coroutines.*
 import kotlin.math.max
 import kotlin.math.min

@@ -1,6 +1,7 @@
 package com.example.ai_keyboard
 
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * Emoji suggestion engine that suggests emojis based on typed words

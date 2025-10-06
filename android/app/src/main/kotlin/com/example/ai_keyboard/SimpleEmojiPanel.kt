@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.Gravity
 import android.view.View
 import android.widget.*

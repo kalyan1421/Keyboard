@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.util.LruCache
 import java.io.File
 import java.util.concurrent.Executors

@@ -3,6 +3,7 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.inputmethodservice.Keyboard
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import java.io.InputStream
 
 /**

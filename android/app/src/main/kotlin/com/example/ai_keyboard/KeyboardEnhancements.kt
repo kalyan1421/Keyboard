@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.os.SystemClock
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import java.util.ArrayDeque
 
 /**

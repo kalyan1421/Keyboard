@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File

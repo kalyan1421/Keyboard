@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.Gravity
 import android.view.View
 import android.widget.*

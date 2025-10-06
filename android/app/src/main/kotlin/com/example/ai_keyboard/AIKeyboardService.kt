@@ -17,6 +17,7 @@ import android.os.Vibrator
 import android.os.VibrationEffect
 import android.text.TextUtils
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.KeyEvent
 import android.view.View
 import android.view.MotionEvent

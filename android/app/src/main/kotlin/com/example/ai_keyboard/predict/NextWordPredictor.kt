@@ -1,6 +1,7 @@
 package com.example.ai_keyboard.predict
 
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import com.example.ai_keyboard.MultilingualDictionary
 import com.example.ai_keyboard.UnifiedAutocorrectEngine
 import kotlinx.coroutines.CoroutineScope

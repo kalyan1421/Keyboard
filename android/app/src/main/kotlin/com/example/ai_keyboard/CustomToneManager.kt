@@ -3,6 +3,7 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import org.json.JSONArray
 import org.json.JSONObject
 
