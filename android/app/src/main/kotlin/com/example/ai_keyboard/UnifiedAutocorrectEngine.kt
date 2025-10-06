@@ -1,7 +1,6 @@
 package com.example.ai_keyboard
 
 import android.content.Context
-import android.util.Log
 import android.util.LruCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
