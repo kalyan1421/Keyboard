@@ -63,7 +63,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
      * Initialize the clipboard manager
      */
     override fun initialize() {
-        logD( "Initializing ClipboardHistoryManager")
+        logW("Initializing ClipboardHistoryManager")
         
         // Load settings
         loadSettings()
@@ -78,7 +78,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         // Perform initial cleanup
         cleanupExpiredItems()
         
-        logD( "ClipboardHistoryManager initialized with ${historyItems.size} history items and ${templateItems.size} templates")
+        logW("ClipboardHistoryManager initialized with ${historyItems.size} history items and ${templateItems.size} templates")
     }
     
     /**
@@ -88,7 +88,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         try {
             clipboardManager.removePrimaryClipChangedListener(clipboardChangeListener)
             listeners.clear()
-            logD( "ClipboardHistoryManager cleaned up")
+            logW("ClipboardHistoryManager cleaned up")
         } catch (e: Exception) {
             logE( "Error during cleanup", e)
         }
@@ -104,7 +104,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             
             // Don't add if it's the same as the most recent item
             if (historyItems.isNotEmpty() && historyItems[0].text == trimmedText) {
-                logD( "Skipping duplicate clipboard item")
+                logW("Skipping duplicate clipboard item")
                 return
             }
             
@@ -116,7 +116,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             // Enforce max size
             while (historyItems.size > maxHistorySize) {
                 val removed = historyItems.removeAt(historyItems.size - 1)
-                logD( "Removed old clipboard item: ${removed.getPreview()}")
+                logW("Removed old clipboard item: ${removed.getPreview()}")
             }
             
             // Save to preferences
@@ -126,7 +126,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             notifyHistoryUpdated()
             notifyNewItem(newItem)
             
-            logD( "Added clipboard item: ${newItem.getPreview()}")
+            logW("Added clipboard item: ${newItem.getPreview()}")
             
         } catch (e: Exception) {
             logE( "Error adding clipboard item", e)
@@ -205,7 +205,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             historyItems[index] = updatedItem
             saveHistoryToPrefs()
             notifyHistoryUpdated()
-            logD( "Toggled pin for item: ${updatedItem.getPreview()} -> pinned: ${updatedItem.isPinned}")
+            logW("Toggled pin for item: ${updatedItem.getPreview()} -> pinned: ${updatedItem.isPinned}")
             return updatedItem.isPinned
         }
         return false
@@ -222,7 +222,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             if (historyRemoved) saveHistoryToPrefs()
             if (templateRemoved) saveTemplatesToPrefs()
             notifyHistoryUpdated()
-            logD( "Deleted clipboard item: $itemId")
+            logW("Deleted clipboard item: $itemId")
             return true
         }
         return false
@@ -236,7 +236,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         templateItems.add(template)
         saveTemplatesToPrefs()
         notifyHistoryUpdated()
-        logD( "Added template: ${template.getPreview()}")
+        logW("Added template: ${template.getPreview()}")
         return template
     }
     
@@ -248,7 +248,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         templateItems.addAll(templates.filter { it.isTemplate })
         saveTemplatesToPrefs()
         notifyHistoryUpdated()
-        logD( "Updated templates: ${templateItems.size} items")
+        logW("Updated templates: ${templateItems.size} items")
     }
     
     /**
@@ -281,7 +281,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             notifyHistoryUpdated()
         }
         
-        logD( "Updated settings: maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled, expiryMinutes=$expiryDurationMinutes")
+        logW("Updated settings: maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled, expiryMinutes=$expiryDurationMinutes")
     }
     
     /**
@@ -298,7 +298,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         if (historyItems.size != initialSize) {
             saveHistoryToPrefs()
             notifyHistoryUpdated()
-            logD( "Cleaned up ${initialSize - historyItems.size} expired items")
+            logW("Cleaned up ${initialSize - historyItems.size} expired items")
         }
     }
     
@@ -348,7 +348,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                     val item = ClipboardItem.fromJson(jsonArray.getJSONObject(i))
                     historyItems.add(item)
                 }
-                logD( "Loaded ${historyItems.size} history items from preferences")
+                logW("Loaded ${historyItems.size} history items from preferences")
             }
         } catch (e: Exception) {
             logE( "Error loading history from preferences", e)
@@ -386,7 +386,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             flutterPrefs.edit()
                 .putString("flutter.clipboard_items", jsonArray.toString())
                 .commit()
-            logD( "Synced ${historyItems.size} items to Flutter SharedPreferences")
+            logW("Synced ${historyItems.size} items to Flutter SharedPreferences")
         } catch (e: Exception) {
             logE( "Error syncing to Flutter SharedPreferences", e)
         }
@@ -401,7 +401,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val itemsJson = flutterPrefs.getString("flutter.clipboard_items", null)
             if (itemsJson.isNullOrEmpty()) {
-                logD( "No clipboard items in Flutter prefs")
+                logW("No clipboard items in Flutter prefs")
                 return
             }
             
@@ -420,11 +420,11 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                         flutterItems.add(item)
                     } else {
                         skippedCount++
-                        LogUtil.w(TAG, "Skipped clipboard item with empty text at index $i")
+                        logW("Skipped clipboard item with empty text at index $i")
                     }
                 } catch (e: Exception) {
                     skippedCount++
-                    LogUtil.w(TAG, "Failed to parse clipboard item at index $i: ${e.message}")
+                    logW("Failed to parse clipboard item at index $i: ${e.message}")
                 }
             }
             
@@ -438,7 +438,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                 }
             }
             
-            logD( "Loaded ${flutterItems.size} items from Flutter SharedPreferences (skipped: $skippedCount)")
+            logW("Loaded ${flutterItems.size} items from Flutter SharedPreferences (skipped: $skippedCount)")
             
             // Save cleaned list back to prefs
             if (flutterItems.isNotEmpty()) {
@@ -461,7 +461,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                     val item = ClipboardItem.fromJson(jsonArray.getJSONObject(i))
                     templateItems.add(item)
                 }
-                logD( "Loaded ${templateItems.size} template items from preferences")
+                logW("Loaded ${templateItems.size} template items from preferences")
             }
         } catch (e: Exception) {
             logE( "Error loading templates from preferences", e)
