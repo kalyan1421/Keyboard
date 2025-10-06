@@ -1,0 +1,112 @@
+AI KEYBOARD - PROJECT CLEANUP CHECKLIST
+========================================
+
+Date Started: _________________
+Completed By: _________________
+
+PHASE 1: IMMEDIATE SAFE DELETIONS (AUTOMATED)
+□ Run ./cleanup_safe.sh
+□ Verify 5 Dart files deleted successfully
+□ Verify flutter clean completed
+□ Verify flutter pub get completed
+
+PHASE 2: MANUAL CODE EDITS
+□ Edit lib/main.dart:
+  □ Remove lines 24-29 (duplicate imports)
+  □ Remove lines 668-686 (commented Container widget)
+  □ Remove lines 1468-1481 (commented _openThemeEditor method)
+  
+□ Edit pubspec.yaml:
+  □ Remove lines 92-96 (duplicate asset declarations for bigrams)
+  
+□ Run: flutter pub get
+
+PHASE 3: MANUAL REVIEW ITEMS (REQUIRES TESTING)
+□ Test if lib/predictive_engine.dart is used by Kotlin bridge
+  If NOT used:
+  □ Delete lib/predictive_engine.dart
+  
+□ Test if lib/autocorrect_service.dart is used by Kotlin bridge  
+  If NOT used:
+  □ Delete lib/autocorrect_service.dart
+  
+□ Test if lib/ai_bridge_handler.dart is used by Kotlin bridge
+  If NOT used:
+  □ Delete lib/ai_bridge_handler.dart
+
+□ Check if assets/dictionaries/*.txt bigram files are needed by Flutter UI
+  If NOT needed:
+  □ Delete assets/dictionaries/en_bigrams.txt
+  □ Delete assets/dictionaries/hi_bigrams.txt
+  □ Delete assets/dictionaries/es_bigrams.txt
+  □ Delete assets/dictionaries/de_bigrams.txt
+  □ Delete assets/dictionaries/fr_bigrams.txt
+  Note: Keep android/app/src/main/assets/dictionaries/* for native keyboard
+
+□ Review font files - if using Variable fonts exclusively:
+  □ Consider deleting assets/fonts/NotoSansDevanagari-Bold.ttf
+  □ Consider deleting assets/fonts/NotoSansDevanagari-Regular.ttf
+  □ Test that Devanagari text still renders correctly
+
+□ Review KeyboardSettingsActivity.kt usage
+  If legacy/unused:
+  □ Remove from AndroidManifest.xml
+  □ Delete android/.../KeyboardSettingsActivity.kt
+
+PHASE 4: XML/DRAWABLE CONSOLIDATION (OPTIONAL)
+□ Review if keyboard_view_google_layout.xml is used
+□ Review if keyboard_view_layout.xml is duplicate
+□ Consolidate key background drawables:
+  □ Identify which of the 8 key_background_*.xml variants are actually used
+  □ Remove unused variants
+
+PHASE 5: BUILD & TEST
+□ Run: flutter clean
+□ Run: cd android && ./gradlew clean && cd ..
+□ Run: flutter pub get
+□ Run: flutter build apk --debug
+□ Verify build succeeds with no errors
+
+PHASE 6: FUNCTIONALITY TESTING
+□ Install APK on test device
+□ Enable AI Keyboard in Android Settings
+□ Test basic typing
+□ Test autocorrect functionality
+□ Test swipe typing
+□ Test language switching (EN → HI → TA → TE)
+□ Test emoji panel
+□ Test clipboard features
+□ Test theme application
+□ Test AI writing features
+□ Test sounds/vibration
+□ Test Firebase authentication
+□ Test settings sync
+
+PHASE 7: COMMIT CHANGES
+□ Review all changes: git status
+□ Stage changes: git add -A
+□ Commit: git commit -m "chore: project cleanup - remove unused files and code"
+□ Push to remote: git push origin main
+
+PHASE 8: DOCUMENTATION
+□ Update README.md with any significant changes
+□ Archive PROJECT_CLEANUP_REPORT.md for reference
+□ Document any breaking changes
+
+POST-CLEANUP METRICS
+====================
+Files deleted: _______
+Total lines removed: _______
+Size savings: _______ MB
+Build time improvement: _______
+Any issues encountered: 
+_________________________________
+_________________________________
+_________________________________
+
+NOTES:
+_________________________________
+_________________________________
+_________________________________
+_________________________________
+
