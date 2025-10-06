@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -13,6 +14,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
+import com.example.ai_keyboard.utils.LogUtil
+import com.example.ai_keyboard.utils.BroadcastManager
 
 
 class MainActivity : FlutterActivity() {
@@ -81,12 +84,12 @@ class MainActivity : FlutterActivity() {
                                         swipeTyping, voiceInput, shiftFeedback, showNumberRow
                                     )
                                 }
-                                android.util.Log.d("MainActivity", "✓ Settings updated via MethodChannel")
+                                LogUtil.d("MainActivity", "✓ Settings updated via MethodChannel")
                                 result.success(true)
                             }
                             "notifyConfigChange" -> {
                                 // Unified method for all config changes (settings + themes)
-                                Log.d("MainActivity", "✓ notifyConfigChange received")
+                                LogUtil.d("MainActivity", "✓ notifyConfigChange received")
                                 withContext(Dispatchers.IO) {
                                     sendSettingsChangedBroadcast()
                                 }
@@ -94,7 +97,7 @@ class MainActivity : FlutterActivity() {
                             }
                             "broadcastSettingsChanged" -> {
                                 // Force immediate broadcast to keyboard service
-                                Log.d("MainActivity", "✓ broadcastSettingsChanged received - forcing immediate update")
+                                LogUtil.d("MainActivity", "✓ broadcastSettingsChanged received - forcing immediate update")
                                 withContext(Dispatchers.IO) {
                                     sendSettingsChangedBroadcast()
                                 }
@@ -111,14 +114,14 @@ class MainActivity : FlutterActivity() {
                                 val themeName = call.argument<String>("themeName") ?: "Unknown Theme"
                                 val hasThemeData = call.argument<Boolean>("hasThemeData") ?: false
                                 
-                                Log.d("MainActivity", "🎨 Theme V2 changed: $themeName ($themeId)")
+                                LogUtil.d("MainActivity", "🎨 Theme V2 changed: $themeName ($themeId)")
                                 withContext(Dispatchers.IO) {
                                     notifyKeyboardServiceThemeChangedV2(themeId, themeName, hasThemeData)
                                 }
                                 result.success(true)
                             }
                             "settingsChanged" -> {
-                                Log.d("MainActivity", "Settings changed broadcast requested")
+                                LogUtil.d("MainActivity", "Settings changed broadcast requested")
                                 withContext(Dispatchers.IO) {
                                     sendSettingsChangedBroadcast()
                                 }
@@ -164,21 +167,21 @@ class MainActivity : FlutterActivity() {
                             }
                             "sendBroadcast" -> {
                                 val action = call.argument<String>("action") ?: ""
-                                Log.d("MainActivity", "sendBroadcast called with action: $action")
+                                LogUtil.d("MainActivity", "sendBroadcast called with action: $action")
                                 withContext(Dispatchers.IO) {
                                     sendBroadcast(action)
                                 }
                                 result.success(true)
                             }
                             "updateCustomPrompts" -> {
-                                Log.d("MainActivity", "Custom prompts updated, notifying keyboard service")
+                                LogUtil.d("MainActivity", "Custom prompts updated, notifying keyboard service")
                                 withContext(Dispatchers.IO) {
                                     sendSettingsChangedBroadcast()
                                 }
                                 result.success(true)
                             }
                             "clearLearnedWords" -> {
-                                Log.d("MainActivity", "Clearing learned words")
+                                LogUtil.d("MainActivity", "Clearing learned words")
                                 withContext(Dispatchers.IO) {
                                     clearUserLearnedWords()
                                 }
@@ -187,7 +190,7 @@ class MainActivity : FlutterActivity() {
                             "setEnabledLanguages" -> {
                                 val enabled = call.argument<List<String>>("enabled") ?: emptyList()
                                 val current = call.argument<String>("current") ?: "en"
-                                Log.d("MainActivity", "Setting enabled languages: $enabled, current: $current")
+                                LogUtil.d("MainActivity", "Setting enabled languages: $enabled, current: $current")
                                 withContext(Dispatchers.IO) {
                                     setEnabledLanguages(enabled, current)
                                 }
@@ -195,7 +198,7 @@ class MainActivity : FlutterActivity() {
                             }
                             "setCurrentLanguage" -> {
                                 val language = call.argument<String>("language") ?: "en"
-                                Log.d("MainActivity", "Setting current language: $language")
+                                LogUtil.d("MainActivity", "Setting current language: $language")
                                 withContext(Dispatchers.IO) {
                                     setCurrentLanguage(language)
                                 }
@@ -203,7 +206,7 @@ class MainActivity : FlutterActivity() {
                             }
                             "setMultilingual" -> {
                                 val enabled = call.argument<Boolean>("enabled") ?: false
-                                Log.d("MainActivity", "Setting multilingual mode: $enabled")
+                                LogUtil.d("MainActivity", "Setting multilingual mode: $enabled")
                                 withContext(Dispatchers.IO) {
                                     setMultilingualMode(enabled)
                                 }
@@ -211,7 +214,7 @@ class MainActivity : FlutterActivity() {
                             }
                             "setTransliterationEnabled" -> {
                                 val enabled = call.argument<Boolean>("enabled") ?: true
-                                Log.d("MainActivity", "Setting transliteration: $enabled")
+                                LogUtil.d("MainActivity", "Setting transliteration: $enabled")
                                 withContext(Dispatchers.IO) {
                                     setTransliterationEnabled(enabled)
                                 }
@@ -219,7 +222,7 @@ class MainActivity : FlutterActivity() {
                             }
                             "setReverseTransliterationEnabled" -> {
                                 val enabled = call.argument<Boolean>("enabled") ?: false
-                                Log.d("MainActivity", "Setting reverse transliteration: $enabled")
+                                LogUtil.d("MainActivity", "Setting reverse transliteration: $enabled")
                                 withContext(Dispatchers.IO) {
                                     setReverseTransliterationEnabled(enabled)
                                 }
@@ -360,106 +363,68 @@ class MainActivity : FlutterActivity() {
             .putBoolean("show_number_row", showNumberRow)
             .apply()
             
-        android.util.Log.d("MainActivity", "✓ Settings V2 persisted to SharedPreferences")
-        android.util.Log.d("TypingSync", "Settings applied: popup=$popupEnabled, autocorrect=$autocorrect, emoji=$emojiSuggestions, nextWord=$nextWordPrediction, clipboard=$clipboardEnabled")
+        LogUtil.d("MainActivity", "✓ Settings V2 persisted to SharedPreferences")
+        LogUtil.d("TypingSync", "Settings applied: popup=$popupEnabled, autocorrect=$autocorrect, emoji=$emojiSuggestions, nextWord=$nextWordPrediction, clipboard=$clipboardEnabled")
         
         // Notify keyboard service to reload settings immediately
         notifyKeyboardServiceSettingsChanged()
     }
     
     private fun notifyKeyboardServiceSettingsChanged() {
-        try {
-            // Send broadcast to keyboard service to reload settings
-            val intent = Intent("com.example.ai_keyboard.SETTINGS_CHANGED").apply {
-                setPackage(packageName)
-            }
-            sendBroadcast(intent)
-            android.util.Log.d("MainActivity", "Broadcast sent: SETTINGS_CHANGED")
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error sending broadcast", e)
-        }
+        BroadcastManager.sendToKeyboard(this, "com.example.ai_keyboard.SETTINGS_CHANGED")
     }
     
     private fun notifyKeyboardServiceThemeChanged() {
         try {
-            android.util.Log.d("MainActivity", "Starting theme change notification process")
+            LogUtil.d("MainActivity", "Starting theme change notification process")
             
             // Log SharedPreferences state for debugging
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val themeData = prefs.getString("flutter.current_theme_data", null)
             val themeId = prefs.getString("flutter.current_theme_id", null)
-            android.util.Log.d("MainActivity", "Theme data - ID: $themeId, Data length: ${themeData?.length ?: 0}")
+            LogUtil.d("MainActivity", "Theme data - ID: $themeId, Data length: ${themeData?.length ?: 0}")
             
-            // Ensure SharedPreferences are flushed before sending broadcast
-            // Note: Using apply() to ensure async write is committed
-            
-            // Add small delay to ensure SharedPreferences are written to disk
-            Handler(Looper.getMainLooper()).postDelayed({
-                val intent = Intent("com.example.ai_keyboard.THEME_CHANGED").apply {
-                    setPackage(packageName)
-                    // Add theme info to intent for debugging
-                    putExtra("theme_id", themeId)
-                    putExtra("has_theme_data", themeData != null)
-                }
-                sendBroadcast(intent)
-                android.util.Log.d("MainActivity", "Theme broadcast sent successfully with delay")
-            }, 50) // 50ms delay should be sufficient
-            
+            // Send broadcast with theme extras
+            val extras = Bundle().apply {
+                putString("theme_id", themeId)
+                putBoolean("has_theme_data", themeData != null)
+            }
+            BroadcastManager.sendToKeyboard(this, "com.example.ai_keyboard.THEME_CHANGED", extras)
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to send theme change broadcast", e)
+            LogUtil.e("MainActivity", "Failed to send theme change broadcast", e)
         }
     }
     
     private fun notifyKeyboardServiceThemeChangedV2(themeId: String, themeName: String, hasThemeData: Boolean) {
         try {
-            android.util.Log.d("MainActivity", "Starting Theme V2 change notification: $themeName")
+            LogUtil.d("MainActivity", "Starting Theme V2 change notification: $themeName")
             
             // Log V2 SharedPreferences state for debugging
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val themeV2Data = prefs.getString("flutter.theme.v2.json", null)
             val settingsChanged = prefs.getBoolean("flutter.keyboard_settings.settings_changed", false)
-            android.util.Log.d("MainActivity", "Theme V2 data - ID: $themeId, Data length: ${themeV2Data?.length ?: 0}, Settings changed: $settingsChanged")
+            LogUtil.d("MainActivity", "Theme V2 data - ID: $themeId, Data length: ${themeV2Data?.length ?: 0}, Settings changed: $settingsChanged")
             
-            // Send immediate broadcast for theme change
-            Handler(Looper.getMainLooper()).postDelayed({
-                val intent = Intent("com.example.ai_keyboard.THEME_CHANGED").apply {
-                    setPackage(packageName)
-                    putExtra("theme_id", themeId)
-                    putExtra("theme_name", themeName)
-                    putExtra("has_theme_data", hasThemeData)
-                    putExtra("is_v2_theme", true)
-                }
-                sendBroadcast(intent)
-                android.util.Log.d("MainActivity", "🎨 Theme V2 broadcast sent: $themeName")
-            }, 10) // Minimal delay for V2
-            
+            // Send broadcast with theme V2 extras
+            val extras = Bundle().apply {
+                putString("theme_id", themeId)
+                putString("theme_name", themeName)
+                putBoolean("has_theme_data", hasThemeData)
+                putBoolean("is_v2_theme", true)
+            }
+            BroadcastManager.sendToKeyboard(this, "com.example.ai_keyboard.THEME_CHANGED", extras)
+            LogUtil.d("MainActivity", "🎨 Theme V2 broadcast sent: $themeName")
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to send Theme V2 broadcast", e)
+            LogUtil.e("MainActivity", "Failed to send Theme V2 broadcast", e)
         }
     }
     
     private fun sendSettingsChangedBroadcast() {
-        try {
-            val intent = Intent("com.example.ai_keyboard.SETTINGS_CHANGED").apply {
-                setPackage(packageName)
-            }
-            sendBroadcast(intent)
-            android.util.Log.d("MainActivity", "Settings changed broadcast sent")
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to send settings broadcast", e)
-        }
+        BroadcastManager.sendToKeyboard(this, "com.example.ai_keyboard.SETTINGS_CHANGED")
     }
     
     private fun sendBroadcast(action: String) {
-        try {
-            val intent = Intent(action).apply {
-                setPackage(packageName)
-            }
-            sendBroadcast(intent)
-            android.util.Log.d("MainActivity", "Broadcast sent: $action")
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to send broadcast: $action", e)
-        }
+        BroadcastManager.sendToKeyboard(this, action)
     }
     
     private suspend fun updateClipboardSettings(
@@ -499,7 +464,7 @@ class MainActivity : FlutterActivity() {
                 .commit()
                 
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error saving clipboard templates", e)
+            LogUtil.e("MainActivity", "Error saving clipboard templates", e)
         }
         
         // Notify keyboard service to reload clipboard settings
@@ -512,9 +477,9 @@ class MainActivity : FlutterActivity() {
                 setPackage(packageName)
             }
             sendBroadcast(intent)
-            android.util.Log.d("MainActivity", "Clipboard settings broadcast sent")
+            LogUtil.d("MainActivity", "Clipboard settings broadcast sent")
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to send clipboard settings broadcast", e)
+            LogUtil.e("MainActivity", "Failed to send clipboard settings broadcast", e)
         }
     }
     
@@ -537,7 +502,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error parsing emoji history", e)
+            LogUtil.e("MainActivity", "Error parsing emoji history", e)
         }
         
         return mapOf(
@@ -554,7 +519,7 @@ class MainActivity : FlutterActivity() {
             .putInt("emoji_history_max_size", historyMaxSize)
             .apply()
         
-        android.util.Log.d("MainActivity", "Emoji settings updated: skinTone=$skinTone, historyMaxSize=$historyMaxSize")
+        LogUtil.d("MainActivity", "Emoji settings updated: skinTone=$skinTone, historyMaxSize=$historyMaxSize")
         
         // Notify keyboard service to reload emoji settings
         notifyKeyboardServiceEmojiChanged()
@@ -566,9 +531,9 @@ class MainActivity : FlutterActivity() {
                 setPackage(packageName)
             }
             sendBroadcast(intent)
-            android.util.Log.d("MainActivity", "Emoji settings broadcast sent")
+            LogUtil.d("MainActivity", "Emoji settings broadcast sent")
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to send emoji settings broadcast", e)
+            LogUtil.e("MainActivity", "Failed to send emoji settings broadcast", e)
         }
     }
     
@@ -589,7 +554,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error parsing emoji history", e)
+            LogUtil.e("MainActivity", "Error parsing emoji history", e)
         }
         
         return mapOf(
@@ -607,7 +572,7 @@ class MainActivity : FlutterActivity() {
             .putString("emoji_history", "[$historyJson]")
             .apply()
         
-        android.util.Log.d("MainActivity", "Emoji config updated: skinTone=$skinTone, recent=${recent.size}")
+        LogUtil.d("MainActivity", "Emoji config updated: skinTone=$skinTone, recent=${recent.size}")
         notifyKeyboardServiceEmojiChanged()
     }
 
@@ -617,7 +582,7 @@ class MainActivity : FlutterActivity() {
             val userWordsFile = java.io.File(filesDir, "user_words.json")
             if (userWordsFile.exists()) {
                 userWordsFile.delete()
-                android.util.Log.d("MainActivity", "Local user words file deleted")
+                LogUtil.d("MainActivity", "Local user words file deleted")
             }
             
             // Send broadcast to keyboard service to clear words
@@ -626,9 +591,9 @@ class MainActivity : FlutterActivity() {
             }
             sendBroadcast(intent)
             
-            android.util.Log.d("MainActivity", "✅ Clear learned words request sent to keyboard service")
+            LogUtil.d("MainActivity", "✅ Clear learned words request sent to keyboard service")
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "❌ Error clearing learned words", e)
+            LogUtil.e("MainActivity", "❌ Error clearing learned words", e)
             throw e
         }
     }
@@ -644,12 +609,12 @@ class MainActivity : FlutterActivity() {
                 .putString("flutter.current_language", current)
                 .apply()
             
-            Log.d("MainActivity", "✅ Enabled languages saved: $languages")
+            LogUtil.d("MainActivity", "✅ Enabled languages saved: $languages")
             
             // Send broadcast to keyboard service
             sendLanguageChangeBroadcast(current)
         } catch (e: Exception) {
-            Log.e("MainActivity", "❌ Error setting enabled languages", e)
+            LogUtil.e("MainActivity", "❌ Error setting enabled languages", e)
         }
     }
     
@@ -660,12 +625,12 @@ class MainActivity : FlutterActivity() {
                 .putString("flutter.current_language", language)
                 .apply()
             
-            Log.d("MainActivity", "✅ Current language set to: $language")
+            LogUtil.d("MainActivity", "✅ Current language set to: $language")
             
             // Send broadcast to keyboard service
             sendLanguageChangeBroadcast(language)
         } catch (e: Exception) {
-            Log.e("MainActivity", "❌ Error setting current language", e)
+            LogUtil.e("MainActivity", "❌ Error setting current language", e)
         }
     }
     
@@ -676,7 +641,7 @@ class MainActivity : FlutterActivity() {
                 .putBoolean("flutter.multilingual_enabled", enabled)
                 .apply()
             
-            Log.d("MainActivity", "✅ Multilingual mode set to: $enabled")
+            LogUtil.d("MainActivity", "✅ Multilingual mode set to: $enabled")
             
             // Send broadcast to keyboard service
             val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
@@ -685,7 +650,7 @@ class MainActivity : FlutterActivity() {
             }
             sendBroadcast(intent)
         } catch (e: Exception) {
-            Log.e("MainActivity", "❌ Error setting multilingual mode", e)
+            LogUtil.e("MainActivity", "❌ Error setting multilingual mode", e)
         }
     }
     
@@ -696,9 +661,9 @@ class MainActivity : FlutterActivity() {
                 putExtra("language", language)
             }
             sendBroadcast(intent)
-            Log.d("MainActivity", "✅ Language change broadcast sent: $language")
+            LogUtil.d("MainActivity", "✅ Language change broadcast sent: $language")
         } catch (e: Exception) {
-            Log.e("MainActivity", "❌ Failed to send language change broadcast", e)
+            LogUtil.e("MainActivity", "❌ Failed to send language change broadcast", e)
         }
     }
     
@@ -710,7 +675,7 @@ class MainActivity : FlutterActivity() {
                 .putBoolean("flutter.transliteration_enabled", enabled)
                 .apply()
             
-            Log.d("MainActivity", "✅ Transliteration enabled set to: $enabled")
+            LogUtil.d("MainActivity", "✅ Transliteration enabled set to: $enabled")
             
             // Send broadcast to keyboard service
             val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
@@ -719,7 +684,7 @@ class MainActivity : FlutterActivity() {
             }
             sendBroadcast(intent)
         } catch (e: Exception) {
-            Log.e("MainActivity", "❌ Error setting transliteration enabled", e)
+            LogUtil.e("MainActivity", "❌ Error setting transliteration enabled", e)
         }
     }
     
@@ -730,7 +695,7 @@ class MainActivity : FlutterActivity() {
                 .putBoolean("flutter.reverse_transliteration_enabled", enabled)
                 .apply()
             
-            Log.d("MainActivity", "✅ Reverse transliteration enabled set to: $enabled")
+            LogUtil.d("MainActivity", "✅ Reverse transliteration enabled set to: $enabled")
             
             // Send broadcast to keyboard service
             val intent = Intent("com.example.ai_keyboard.LANGUAGE_CHANGED").apply {
@@ -739,7 +704,7 @@ class MainActivity : FlutterActivity() {
             }
             sendBroadcast(intent)
         } catch (e: Exception) {
-            Log.e("MainActivity", "❌ Error setting reverse transliteration enabled", e)
+            LogUtil.e("MainActivity", "❌ Error setting reverse transliteration enabled", e)
         }
     }
 
