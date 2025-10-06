@@ -1,9 +1,7 @@
 package com.example.ai_keyboard
 
 import android.content.Context
-import android.content.SharedPreferences
-import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
+import com.example.ai_keyboard.managers.BaseManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
@@ -12,16 +10,14 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Manages user dictionary entries (shortcuts → expansions) with frequency tracking
  * Similar to Gboard and CleverType personal dictionary features
  */
-class DictionaryManager(private val context: Context) {
+class DictionaryManager(context: Context) : BaseManager(context) {
     
     companion object {
-        private const val TAG = "DictionaryManager"
-        private const val PREFS_NAME = "dictionary_manager"
         private const val KEY_ENTRIES = "dictionary_entries"
         private const val KEY_ENABLED = "dictionary_enabled"
     }
     
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    override fun getPreferencesName() = "dictionary_manager"
     
     // Thread-safe list for concurrent access
     private val entries = CopyOnWriteArrayList<DictionaryEntry>()

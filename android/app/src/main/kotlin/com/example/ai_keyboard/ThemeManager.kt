@@ -1,14 +1,12 @@
 package com.example.ai_keyboard
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.*
 import android.graphics.drawable.*
-import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
 import android.util.LruCache
 import androidx.core.content.res.ResourcesCompat
+import com.example.ai_keyboard.managers.BaseManager
 import com.example.ai_keyboard.themes.KeyboardThemeV2
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import org.json.JSONObject
@@ -21,11 +19,9 @@ import kotlin.math.*
  * Replaces old theme system with centralized JSON-based theming
  * All colors, drawables, and styling come from KeyboardThemeV2
  */
-class ThemeManager(private val context: Context) {
+class ThemeManager(context: Context) : BaseManager(context) {
     
     companion object {
-        private const val TAG = "ThemeManagerV2"
-        private const val PREFS_NAME = "FlutterSharedPreferences"
         // CRITICAL: Flutter plugin adds "flutter." prefix automatically!
         // So we access "flutter.theme.v2.json" which matches Flutter's 'theme.v2.json' key
         private const val THEME_V2_KEY = "flutter.theme.v2.json"
@@ -36,7 +32,7 @@ class ThemeManager(private val context: Context) {
         private const val IMAGE_CACHE_SIZE = 10
     }
     
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    override fun getPreferencesName() = "FlutterSharedPreferences"
     private var currentTheme: KeyboardThemeV2? = null
     private var currentPalette: ThemePaletteV2? = null
     private var themeHash: String = ""

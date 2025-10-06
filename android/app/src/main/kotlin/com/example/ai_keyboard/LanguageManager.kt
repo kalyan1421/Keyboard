@@ -1,17 +1,13 @@
 package com.example.ai_keyboard
 
 import android.content.Context
-import android.content.SharedPreferences
-import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
+import com.example.ai_keyboard.managers.BaseManager
 
 /**
  * Manages language switching, preferences, and app-specific language settings
  */
-class LanguageManager(private val context: Context) {
+class LanguageManager(context: Context) : BaseManager(context) {
     companion object {
-        private const val TAG = "LanguageManager"
-        private const val PREFS_NAME = "keyboard_language_prefs"
         private const val KEY_CURRENT_LANGUAGE = "current_language"
         private const val KEY_ENABLED_LANGUAGES = "enabled_languages"
         private const val KEY_AUTO_SWITCH = "auto_switch"
@@ -19,7 +15,7 @@ class LanguageManager(private val context: Context) {
         private const val KEY_APP_PREFIX = "app_"
     }
     
-    private val preferences: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    override fun getPreferencesName() = "keyboard_language_prefs"
     private var currentLanguage = "en"
     private var enabledLanguages = mutableSetOf("en")
     private val languageChangeListeners = mutableListOf<LanguageChangeListener>()
@@ -48,8 +44,8 @@ class LanguageManager(private val context: Context) {
      * Load language preferences from SharedPreferences
      */
     private fun loadPreferences() {
-        currentLanguage = preferences.getString(KEY_CURRENT_LANGUAGE, "en") ?: "en"
-        enabledLanguages = preferences.getStringSet(KEY_ENABLED_LANGUAGES, setOf("en"))?.toMutableSet() ?: mutableSetOf("en")
+        currentLanguage = prefs.getString(KEY_CURRENT_LANGUAGE, "en") ?: "en"
+        enabledLanguages = prefs.getStringSet(KEY_ENABLED_LANGUAGES, setOf("en"))?.toMutableSet() ?: mutableSetOf("en")
         
         // Ensure current language is in enabled languages
         if (!enabledLanguages.contains(currentLanguage)) {
@@ -214,7 +210,7 @@ class LanguageManager(private val context: Context) {
      */
     fun setAppLanguage(packageName: String, languageCode: String) {
         if (isLanguageSupported(languageCode) && isLanguageEnabled(languageCode)) {
-            preferences.edit()
+            prefs.edit()
                 .putString(KEY_APP_PREFIX + packageName, languageCode)
                 .apply()
             LogUtil.d(TAG, "Set app language for $packageName: $languageCode")
@@ -225,14 +221,14 @@ class LanguageManager(private val context: Context) {
      * Get app-specific language preference
      */
     fun getAppLanguage(packageName: String): String? {
-        return preferences.getString(KEY_APP_PREFIX + packageName, null)
+        return prefs.getString(KEY_APP_PREFIX + packageName, null)
     }
     
     /**
      * Remove app-specific language preference
      */
     fun removeAppLanguage(packageName: String) {
-        preferences.edit()
+        prefs.edit()
             .remove(KEY_APP_PREFIX + packageName)
             .apply()
         LogUtil.d(TAG, "Removed app language for $packageName")
@@ -242,7 +238,7 @@ class LanguageManager(private val context: Context) {
      * Set auto-switch enabled
      */
     fun setAutoSwitchEnabled(enabled: Boolean) {
-        preferences.edit()
+        prefs.edit()
             .putBoolean(KEY_AUTO_SWITCH, enabled)
             .apply()
         LogUtil.d(TAG, "Auto-switch enabled: $enabled")
@@ -252,14 +248,14 @@ class LanguageManager(private val context: Context) {
      * Check if auto-switch is enabled
      */
     fun isAutoSwitchEnabled(): Boolean {
-        return preferences.getBoolean(KEY_AUTO_SWITCH, true)
+        return prefs.getBoolean(KEY_AUTO_SWITCH, true)
     }
     
     /**
      * Set tap behavior for language switch button
      */
     fun setTapBehavior(behavior: TapBehavior) {
-        preferences.edit()
+        prefs.edit()
             .putString(KEY_TAP_BEHAVIOR, behavior.name)
             .apply()
         LogUtil.d(TAG, "Tap behavior set to: $behavior")
@@ -269,7 +265,7 @@ class LanguageManager(private val context: Context) {
      * Get current tap behavior
      */
     fun getTapBehavior(): TapBehavior {
-        val behaviorName = preferences.getString(KEY_TAP_BEHAVIOR, TapBehavior.CYCLE.name)
+        val behaviorName = prefs.getString(KEY_TAP_BEHAVIOR, TapBehavior.CYCLE.name)
         return try {
             TapBehavior.valueOf(behaviorName ?: TapBehavior.CYCLE.name)
         } catch (e: IllegalArgumentException) {
@@ -332,7 +328,7 @@ class LanguageManager(private val context: Context) {
      * Save current language to preferences
      */
     private fun saveCurrentLanguage() {
-        preferences.edit()
+        prefs.edit()
             .putString(KEY_CURRENT_LANGUAGE, currentLanguage)
             .apply()
     }
@@ -341,7 +337,7 @@ class LanguageManager(private val context: Context) {
      * Save enabled languages to preferences
      */
     private fun saveEnabledLanguages() {
-        preferences.edit()
+        prefs.edit()
             .putStringSet(KEY_ENABLED_LANGUAGES, enabledLanguages)
             .apply()
     }
@@ -362,7 +358,7 @@ class LanguageManager(private val context: Context) {
     fun resetToDefaults() {
         currentLanguage = "en"
         enabledLanguages = mutableSetOf("en")
-        preferences.edit().clear().apply()
+        prefs.edit().clear().apply()
         saveCurrentLanguage()
         saveEnabledLanguages()
         LogUtil.d(TAG, "Reset to default language settings")

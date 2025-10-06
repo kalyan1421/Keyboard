@@ -2,9 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.SharedPreferences
-import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
+import com.example.ai_keyboard.managers.BaseManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
@@ -12,11 +10,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Manages clipboard history with automatic cleanup, persistence, and template support
  */
-class ClipboardHistoryManager(private val context: Context) {
+class ClipboardHistoryManager(context: Context) : BaseManager(context) {
     
     companion object {
-        private const val TAG = "ClipboardHistoryManager"
-        private const val PREFS_NAME = "clipboard_history"
         private const val KEY_HISTORY = "history_items"
         private const val KEY_TEMPLATES = "template_items"
         private const val KEY_MAX_HISTORY_SIZE = "max_history_size"
@@ -27,8 +23,9 @@ class ClipboardHistoryManager(private val context: Context) {
         private const val DEFAULT_EXPIRY_DURATION_MINUTES = 60L
     }
     
+    override fun getPreferencesName() = "clipboard_history"
+    
     private val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     
     // Thread-safe lists for concurrent access
     private val historyItems = CopyOnWriteArrayList<ClipboardItem>()

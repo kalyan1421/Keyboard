@@ -1,25 +1,21 @@
 package com.example.ai_keyboard
 
 import android.content.Context
-import android.content.SharedPreferences
-import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
+import com.example.ai_keyboard.managers.BaseManager
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * Custom Tone Manager for creating and managing user-defined tone templates
  */
-class CustomToneManager(private val context: Context) {
+class CustomToneManager(context: Context) : BaseManager(context) {
     
     companion object {
-        private const val TAG = "CustomToneManager"
-        private const val PREFS_NAME = "custom_tones"
         private const val KEY_CUSTOM_TONES = "custom_tones_json"
         private const val MAX_CUSTOM_TONES = 10
     }
     
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    override fun getPreferencesName() = "custom_tones"
     
     /**
      * Custom Tone data class
