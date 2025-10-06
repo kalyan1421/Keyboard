@@ -3,6 +3,7 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
@@ -42,7 +43,7 @@ class DictionaryManager(private val context: Context) {
      * Initialize the dictionary manager
      */
     fun initialize() {
-        Log.d(TAG, "Initializing DictionaryManager")
+        LogUtil.d(TAG, "Initializing DictionaryManager")
         
         // Load settings
         isEnabled = prefs.getBoolean(KEY_ENABLED, true)
@@ -56,7 +57,7 @@ class DictionaryManager(private val context: Context) {
         // Rebuild shortcut map with merged entries
         rebuildShortcutMap()
         
-        Log.d(TAG, "DictionaryManager initialized with ${entries.size} entries (enabled: $isEnabled)")
+        LogUtil.d(TAG, "DictionaryManager initialized with ${entries.size} entries (enabled: $isEnabled)")
     }
     
     /**
@@ -68,7 +69,7 @@ class DictionaryManager(private val context: Context) {
             val cleanExpansion = expansion.trim()
             
             if (cleanShortcut.isEmpty() || cleanExpansion.isEmpty()) {
-                Log.w(TAG, "Cannot add empty shortcut or expansion")
+                LogUtil.w(TAG, "Cannot add empty shortcut or expansion")
                 return false
             }
             
@@ -79,7 +80,7 @@ class DictionaryManager(private val context: Context) {
                 // Update existing entry
                 val existingEntry = entries[existingIndex]
                 entries[existingIndex] = existingEntry.copy(expansion = cleanExpansion)
-                Log.d(TAG, "Updated existing entry: $cleanShortcut -> $cleanExpansion")
+                LogUtil.d(TAG, "Updated existing entry: $cleanShortcut -> $cleanExpansion")
             } else {
                 // Add new entry
                 val newEntry = DictionaryEntry(
@@ -87,7 +88,7 @@ class DictionaryManager(private val context: Context) {
                     expansion = cleanExpansion
                 )
                 entries.add(newEntry)
-                Log.d(TAG, "Added new entry: $cleanShortcut -> $cleanExpansion")
+                LogUtil.d(TAG, "Added new entry: $cleanShortcut -> $cleanExpansion")
             }
             
             // Save and update cache
@@ -98,7 +99,7 @@ class DictionaryManager(private val context: Context) {
             return true
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error adding dictionary entry", e)
+            LogUtil.e(TAG, "Error adding dictionary entry", e)
             return false
         }
     }
@@ -112,7 +113,7 @@ class DictionaryManager(private val context: Context) {
             saveEntriesToPrefs()
             rebuildShortcutMap()
             notifyDictionaryUpdated()
-            Log.d(TAG, "Removed dictionary entry: $id")
+            LogUtil.d(TAG, "Removed dictionary entry: $id")
         }
         return removed
     }
@@ -139,7 +140,7 @@ class DictionaryManager(private val context: Context) {
         rebuildShortcutMap()
         notifyDictionaryUpdated()
         
-        Log.d(TAG, "Updated entry: $cleanShortcut -> $cleanExpansion")
+        LogUtil.d(TAG, "Updated entry: $cleanShortcut -> $cleanExpansion")
         return true
     }
     
@@ -184,7 +185,7 @@ class DictionaryManager(private val context: Context) {
             shortcutMap[cleanShortcut] = entries[index]
             saveEntriesToPrefs()
             
-            Log.d(TAG, "Incremented usage for $cleanShortcut: ${entries[index].usageCount}")
+            LogUtil.d(TAG, "Incremented usage for $cleanShortcut: ${entries[index].usageCount}")
             
             notifyExpansionTriggered(cleanShortcut, entry.expansion)
         }
@@ -214,7 +215,7 @@ class DictionaryManager(private val context: Context) {
         shortcutMap.clear()
         saveEntriesToPrefs()
         notifyDictionaryUpdated()
-        Log.d(TAG, "Cleared all dictionary entries")
+        LogUtil.d(TAG, "Cleared all dictionary entries")
     }
     
     /**
@@ -223,7 +224,7 @@ class DictionaryManager(private val context: Context) {
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
         prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
-        Log.d(TAG, "Dictionary enabled: $enabled")
+        LogUtil.d(TAG, "Dictionary enabled: $enabled")
     }
     
     fun isEnabled(): Boolean = isEnabled
@@ -257,10 +258,10 @@ class DictionaryManager(private val context: Context) {
      */
     suspend fun syncDictionaryWithFirestore(userId: String) {
         try {
-            Log.d(TAG, "📤 Syncing dictionary to Firestore for user: $userId")
-            Log.d(TAG, "✅ Dictionary sync initiated")
+            LogUtil.d(TAG, "📤 Syncing dictionary to Firestore for user: $userId")
+            LogUtil.d(TAG, "✅ Dictionary sync initiated")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error syncing with Firestore", e)
+            LogUtil.e(TAG, "❌ Error syncing with Firestore", e)
         }
     }
     
@@ -282,7 +283,7 @@ class DictionaryManager(private val context: Context) {
         val cleanWord = word.trim().lowercase()
         if (cleanWord.isEmpty() || cleanWord.length < 2) return
         addEntry(cleanWord, cleanWord)
-        Log.d(TAG, "📝 Learned word: $cleanWord")
+        LogUtil.d(TAG, "📝 Learned word: $cleanWord")
     }
     
     /**
@@ -300,7 +301,7 @@ class DictionaryManager(private val context: Context) {
         entries.forEach { entry ->
             shortcutMap[entry.shortcut] = entry
         }
-        Log.d(TAG, "Rebuilt shortcut map with ${shortcutMap.size} entries")
+        LogUtil.d(TAG, "Rebuilt shortcut map with ${shortcutMap.size} entries")
     }
     
     private fun loadEntriesFromPrefs() {
@@ -313,10 +314,10 @@ class DictionaryManager(private val context: Context) {
                     val entry = DictionaryEntry.fromJson(jsonArray.getJSONObject(i))
                     entries.add(entry)
                 }
-                Log.d(TAG, "Loaded ${entries.size} dictionary entries from preferences")
+                LogUtil.d(TAG, "Loaded ${entries.size} dictionary entries from preferences")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading dictionary entries from preferences", e)
+            LogUtil.e(TAG, "Error loading dictionary entries from preferences", e)
         }
     }
     
@@ -333,7 +334,7 @@ class DictionaryManager(private val context: Context) {
             // Also sync to Flutter SharedPreferences for UI display
             syncToFlutterPrefs()
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving dictionary entries to preferences", e)
+            LogUtil.e(TAG, "Error saving dictionary entries to preferences", e)
         }
     }
     
@@ -351,9 +352,9 @@ class DictionaryManager(private val context: Context) {
             flutterPrefs.edit()
                 .putString("flutter.dictionary_entries", jsonArray.toString())
                 .apply()
-            Log.d(TAG, "Synced ${entries.size} entries to Flutter SharedPreferences")
+            LogUtil.d(TAG, "Synced ${entries.size} entries to Flutter SharedPreferences")
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing to Flutter SharedPreferences", e)
+            LogUtil.e(TAG, "Error syncing to Flutter SharedPreferences", e)
         }
     }
     
@@ -366,7 +367,7 @@ class DictionaryManager(private val context: Context) {
             val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val jsonString = flutterPrefs.getString("flutter.dictionary_entries", null)
             if (jsonString.isNullOrEmpty()) {
-                Log.d(TAG, "No dictionary entries in Flutter prefs")
+                LogUtil.d(TAG, "No dictionary entries in Flutter prefs")
                 return
             }
             
@@ -384,11 +385,11 @@ class DictionaryManager(private val context: Context) {
                         flutterEntries.add(entry)
                     } else {
                         skippedCount++
-                        Log.w(TAG, "Skipped dictionary entry with empty fields at index $i")
+                        LogUtil.w(TAG, "Skipped dictionary entry with empty fields at index $i")
                     }
                 } catch (e: Exception) {
                     skippedCount++
-                    Log.w(TAG, "Failed to parse dictionary entry at index $i: ${e.message}")
+                    LogUtil.w(TAG, "Failed to parse dictionary entry at index $i: ${e.message}")
                 }
             }
             
@@ -397,7 +398,7 @@ class DictionaryManager(private val context: Context) {
             entries.addAll(flutterEntries)
             rebuildShortcutMap()
             
-            Log.d(TAG, "Loaded ${flutterEntries.size} entries from Flutter prefs (skipped: $skippedCount)")
+            LogUtil.d(TAG, "Loaded ${flutterEntries.size} entries from Flutter prefs (skipped: $skippedCount)")
             
             // Save cleaned list back to native prefs
             if (flutterEntries.isNotEmpty()) {
@@ -407,7 +408,7 @@ class DictionaryManager(private val context: Context) {
             // Notify listeners
             listeners.forEach { it.onDictionaryUpdated(entries.toList()) }
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading from Flutter prefs", e)
+            LogUtil.e(TAG, "Error loading from Flutter prefs", e)
         }
     }
 }

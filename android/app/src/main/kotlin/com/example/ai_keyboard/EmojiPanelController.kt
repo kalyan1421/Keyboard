@@ -12,6 +12,7 @@ import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -70,7 +71,7 @@ class EmojiPanelController(
     fun inflate(parent: ViewGroup): View {
         if (root != null) return root!!
         
-        Log.d(TAG, "Inflating emoji panel layout")
+        LogUtil.d(TAG, "Inflating emoji panel layout")
         root = LayoutInflater.from(context).inflate(R.layout.panel_emoji, parent, false)
         
         // Find views
@@ -96,9 +97,9 @@ class EmojiPanelController(
         applyTheme()
         
         val orientation = if (context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) "landscape" else "portrait"
-        Log.d(TAG, "✓ Emoji panel inflated with FIXED height: ${keyboardHeight}px ($orientation)")
-        Log.d(TAG, "  - Height calculation based on key_height, gaps, and padding from dimens.xml")
-        Log.d(TAG, "  - Grid will scroll inside this fixed panel (NOT fullscreen)")
+        LogUtil.d(TAG, "✓ Emoji panel inflated with FIXED height: ${keyboardHeight}px ($orientation)")
+        LogUtil.d(TAG, "  - Height calculation based on key_height, gaps, and padding from dimens.xml")
+        LogUtil.d(TAG, "  - Grid will scroll inside this fixed panel (NOT fullscreen)")
         return root!!
     }
     
@@ -120,19 +121,19 @@ class EmojiPanelController(
         val adapter = EmojiAdapter(::onEmojiClicked, ::onEmojiLongClicked)
         emojiGrid?.adapter = adapter
         
-        Log.d(TAG, "Emoji grid setup complete with ${SPAN_COUNT} columns")
+        LogUtil.d(TAG, "Emoji grid setup complete with ${SPAN_COUNT} columns")
     }
     
     private fun setupFooterButtons() {
         // ABC button - return to letters
         btnABC?.setOnClickListener {
-            Log.d(TAG, "ABC button clicked - returning to letters")
+            LogUtil.d(TAG, "ABC button clicked - returning to letters")
             onBackToLetters()
         }
         
         // Space button - insert space
         btnSpace?.setOnClickListener {
-            Log.d(TAG, "Space button clicked")
+            LogUtil.d(TAG, "Space button clicked")
             inputConnectionProvider()?.commitText(" ", 1)
         }
         
@@ -147,16 +148,16 @@ class EmojiPanelController(
                     val donePerformed = ic?.performEditorAction(EditorInfo.IME_ACTION_DONE) ?: false
                     if (!donePerformed) {
                         // Final fallback: insert newline
-                        Log.d(TAG, "Send button - inserting newline (fallback)")
+                        LogUtil.d(TAG, "Send button - inserting newline (fallback)")
                         ic?.commitText("\n", 1)
                     } else {
-                        Log.d(TAG, "Send button - performed DONE action")
+                        LogUtil.d(TAG, "Send button - performed DONE action")
                     }
                 } else {
-                    Log.d(TAG, "Send button - performed SEND action")
+                    LogUtil.d(TAG, "Send button - performed SEND action")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error performing send action", e)
+                LogUtil.e(TAG, "Error performing send action", e)
                 ic?.commitText("\n", 1)
             }
         }
@@ -182,7 +183,7 @@ class EmojiPanelController(
             }
         }
         
-        Log.d(TAG, "Footer buttons wired successfully (including Send/Done)")
+        LogUtil.d(TAG, "Footer buttons wired successfully (including Send/Done)")
     }
     
     private fun setupToolbar() {
@@ -203,14 +204,14 @@ class EmojiPanelController(
         
         // Skin tone button
         emojiToneBtn?.setOnClickListener {
-            Log.d(TAG, "Skin tone button clicked")
+            LogUtil.d(TAG, "Skin tone button clicked")
             showSkinToneBottomSheet()
         }
         
         // Setup category tabs
         setupCategories()
         
-        Log.d(TAG, "Toolbar setup complete")
+        LogUtil.d(TAG, "Toolbar setup complete")
     }
     
     private fun setupCategories() {
@@ -239,7 +240,7 @@ class EmojiPanelController(
                 tag = name  // Store category name for reference
                 alpha = if (index == 0) 1.0f else 0.6f  // First one selected
                 setOnClickListener {
-                    Log.d(TAG, "Category clicked: $name")
+                    LogUtil.d(TAG, "Category clicked: $name")
                     selectCategory(name, this)
                 }
             }
@@ -306,9 +307,9 @@ class EmojiPanelController(
             // 9. Apply category button theming
             applyCategoryTheme()
             
-            Log.d(TAG, "Theme applied successfully to emoji panel")
+            LogUtil.d(TAG, "Theme applied successfully to emoji panel")
         } catch (e: Exception) {
-            Log.e(TAG, "Error applying theme", e)
+            LogUtil.e(TAG, "Error applying theme", e)
         }
     }
     
@@ -338,7 +339,7 @@ class EmojiPanelController(
     }
     
     private fun onEmojiClicked(emoji: String) {
-        Log.d(TAG, "Emoji clicked: $emoji")
+        LogUtil.d(TAG, "Emoji clicked: $emoji")
         
         // Apply skin tone if supported
         val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
@@ -367,7 +368,7 @@ class EmojiPanelController(
             loadCategoryEmojis("Recent")
         }
         
-        Log.d(TAG, "Inserted emoji: $finalEmoji (base: $baseEmoji, tone: ${if (defaultTone != null) "default" else preferredTone})")
+        LogUtil.d(TAG, "Inserted emoji: $finalEmoji (base: $baseEmoji, tone: ${if (defaultTone != null) "default" else preferredTone})")
     }
     
     private fun getBaseEmoji(emojiWithTone: String): String {
@@ -397,7 +398,7 @@ class EmojiPanelController(
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error parsing default emoji tones: ${e.message}")
+            LogUtil.w(TAG, "Error parsing default emoji tones: ${e.message}")
         }
         return null
     }
@@ -434,9 +435,9 @@ class EmojiPanelController(
             val newHistoryJson = history.joinToString(",") { "\"$it\"" }
             prefs.edit().putString("emoji_history", "[$newHistoryJson]").apply()
             
-            Log.d(TAG, "Updated emoji history: added '$emoji' (total: ${history.size})")
+            LogUtil.d(TAG, "Updated emoji history: added '$emoji' (total: ${history.size})")
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating emoji history", e)
+            LogUtil.e(TAG, "Error updating emoji history", e)
         }
     }
     
@@ -498,7 +499,7 @@ class EmojiPanelController(
                     // Reload category to show updated defaults in grid
                     loadCategoryEmojis(currentCategory)
                     
-                    Log.d(TAG, "Set default tone for $baseEmoji to $variant")
+                    LogUtil.d(TAG, "Set default tone for $baseEmoji to $variant")
                 }
             }
             layout.addView(btn)
@@ -515,7 +516,7 @@ class EmojiPanelController(
         // Show popup above the emoji
         popup.showAsDropDown(anchorView, 0, -dpToPx(60))
         
-        Log.d(TAG, "Showing skin tone variants for: $baseEmoji (current default: $currentDefault)")
+        LogUtil.d(TAG, "Showing skin tone variants for: $baseEmoji (current default: $currentDefault)")
     }
     
     private fun saveDefaultEmojiTone(prefs: SharedPreferences, baseEmoji: String, toneVariant: String) {
@@ -540,9 +541,9 @@ class EmojiPanelController(
             val jsonString = defaultTones.entries.joinToString(", ") { "\"${it.key}\"=\"${it.value}\"" }
             prefs.edit().putString("default_emoji_tones", "{$jsonString}").apply()
             
-            Log.d(TAG, "Saved default tone for '$baseEmoji' → '$toneVariant'")
+            LogUtil.d(TAG, "Saved default tone for '$baseEmoji' → '$toneVariant'")
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving default emoji tone", e)
+            LogUtil.e(TAG, "Error saving default emoji tone", e)
         }
     }
     
@@ -573,19 +574,19 @@ class EmojiPanelController(
             }
         }
         mainHandler.postDelayed(deleteRepeatRunnable!!, DELETE_REPEAT_DELAY)
-        Log.d(TAG, "Delete repeat started")
+        LogUtil.d(TAG, "Delete repeat started")
     }
     
     private fun stopDeleteRepeat() {
         deleteRepeatRunnable?.let {
             mainHandler.removeCallbacks(it)
             deleteRepeatRunnable = null
-            Log.d(TAG, "Delete repeat stopped")
+            LogUtil.d(TAG, "Delete repeat stopped")
         }
     }
     
     private fun performEmojiSearch(query: String) {
-        Log.d(TAG, "Searching emojis: $query")
+        LogUtil.d(TAG, "Searching emojis: $query")
         val searchResults = EmojiSuggestionEngine.searchEmojis(query)
         updateEmojiGrid(searchResults)
     }
@@ -615,7 +616,7 @@ class EmojiPanelController(
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error loading emoji history", e)
+                    LogUtil.e(TAG, "Error loading emoji history", e)
                 }
                 
                 // If no history, show popular emojis with tone applied
@@ -678,13 +679,13 @@ class EmojiPanelController(
         // Calculate total keyboard height = suggestion bar + (rows × key height) + (rows-1 × gaps) + padding
         val calculatedHeight = suggestionBarHeight + (rows * keyHeight) + ((rows - 1) * verticalGap) + (padding * 2)
         
-        Log.d(TAG, "Keyboard height calculation:")
-        Log.d(TAG, "  - Key height: ${keyHeight}px")
-        Log.d(TAG, "  - Rows: $rows")
-        Log.d(TAG, "  - Vertical gap: ${verticalGap}px")
-        Log.d(TAG, "  - Padding: ${padding}px")
-        Log.d(TAG, "  - Suggestion bar: ${suggestionBarHeight}px")
-        Log.d(TAG, "  - Calculated: ${calculatedHeight}px")
+        LogUtil.d(TAG, "Keyboard height calculation:")
+        LogUtil.d(TAG, "  - Key height: ${keyHeight}px")
+        LogUtil.d(TAG, "  - Rows: $rows")
+        LogUtil.d(TAG, "  - Vertical gap: ${verticalGap}px")
+        LogUtil.d(TAG, "  - Padding: ${padding}px")
+        LogUtil.d(TAG, "  - Suggestion bar: ${suggestionBarHeight}px")
+        LogUtil.d(TAG, "  - Calculated: ${calculatedHeight}px")
         
         // Use calculated height or fallback to hardcoded values
         val finalHeight = if (isLandscape) {
@@ -693,7 +694,7 @@ class EmojiPanelController(
             calculatedHeight // Portrait: full height
         }
         
-        Log.d(TAG, "  - Final height (${if (isLandscape) "landscape" else "portrait"}): ${finalHeight}px")
+        LogUtil.d(TAG, "  - Final height (${if (isLandscape) "landscape" else "portrait"}): ${finalHeight}px")
         return finalHeight
     }
     
@@ -763,7 +764,7 @@ class EmojiPanelController(
                     
                     popup.dismiss()
                     
-                    Log.d(TAG, "Skin tone changed to: $modifier ($name)")
+                    LogUtil.d(TAG, "Skin tone changed to: $modifier ($name)")
                     
                     // Reload current category to show updated emojis
                     loadCategoryEmojis(currentCategory)
@@ -809,7 +810,7 @@ class EmojiPanelController(
             popup.showAsDropDown(btn, -dpToPx(120), -dpToPx(400))
         }
         
-        Log.d(TAG, "Skin tone selector opened")
+        LogUtil.d(TAG, "Skin tone selector opened")
     }
     
     /**
@@ -819,7 +820,7 @@ class EmojiPanelController(
         gboardEmojiPanel?.reloadEmojiSettings()
         loadCategoryEmojis(currentCategory)
         applyTheme()
-        Log.d(TAG, "Emoji settings reloaded")
+        LogUtil.d(TAG, "Emoji settings reloaded")
     }
     
     /**

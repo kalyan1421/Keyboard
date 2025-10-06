@@ -3,6 +3,7 @@ package com.example.ai_keyboard
 import android.content.res.AssetManager
 import android.graphics.Typeface
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * FontManager - Custom Noto font loader for Indic scripts
@@ -40,14 +41,14 @@ object FontManager {
         val typeface = if (fontPath != null) {
             try {
                 val tf = Typeface.createFromAsset(assets, fontPath)
-                Log.d(TAG, "✅ Loaded font for $language: $fontPath")
+                LogUtil.d(TAG, "✅ Loaded font for $language: $fontPath")
                 tf
             } catch (e: Exception) {
-                Log.w(TAG, "⚠️ Font not found for $language: $fontPath, using system font", e)
+                LogUtil.w(TAG, "⚠️ Font not found for $language: $fontPath, using system font", e)
                 null
             }
         } else {
-            Log.d(TAG, "Using default system font for $language")
+            LogUtil.d(TAG, "Using default system font for $language")
             null
         }
         
@@ -71,7 +72,7 @@ object FontManager {
             try {
                 Typeface.createFromAsset(assets, fontPath)
             } catch (e: Exception) {
-                Log.w(TAG, "⚠️ Bold font not found for $language", e)
+                LogUtil.w(TAG, "⚠️ Bold font not found for $language", e)
                 // Fallback to regular + fake bold
                 getTypefaceFor(language, assets)?.let {
                     Typeface.create(it, Typeface.BOLD)
@@ -87,7 +88,7 @@ object FontManager {
      */
     fun clearCache() {
         fontCache.clear()
-        Log.d(TAG, "Font cache cleared")
+        LogUtil.d(TAG, "Font cache cleared")
     }
     
     /**

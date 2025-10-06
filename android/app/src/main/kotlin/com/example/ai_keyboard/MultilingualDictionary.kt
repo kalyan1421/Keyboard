@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import kotlinx.coroutines.*
@@ -50,11 +51,11 @@ class MultilingualDictionary(private val context: Context) {
      */
     fun loadLanguage(language: String, scope: CoroutineScope) {
         if (isLoaded(language) || loadingJobs.containsKey(language)) {
-            Log.d(TAG, "Language $language already loaded or loading")
+            LogUtil.d(TAG, "Language $language already loaded or loading")
             return
         }
         
-        Log.d(TAG, "📚 Starting lazy load for language: $language")
+        LogUtil.d(TAG, "📚 Starting lazy load for language: $language")
         
         val job = scope.launch(Dispatchers.IO) {
             try {
@@ -71,10 +72,10 @@ class MultilingualDictionary(private val context: Context) {
                 withContext(Dispatchers.Main) {
                     loadedLanguages.add(language)
                     loadingJobs.remove(language)
-                    Log.d(TAG, "✅ Loaded $language: $wordCount words, $bigramCount bigrams (${duration}ms)")
+                    LogUtil.d(TAG, "✅ Loaded $language: $wordCount words, $bigramCount bigrams (${duration}ms)")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error loading language $language", e)
+                LogUtil.e(TAG, "❌ Error loading language $language", e)
                 loadingJobs.remove(language)
             }
         }
@@ -114,9 +115,9 @@ class MultilingualDictionary(private val context: Context) {
             }
             
             wordMaps[language] = wordMap
-            Log.d(TAG, "📖 Loaded $count words for $language")
+            LogUtil.d(TAG, "📖 Loaded $count words for $language")
         } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Could not load words for $language: ${e.message}")
+            LogUtil.w(TAG, "⚠️ Could not load words for $language: ${e.message}")
         }
         
         return count
@@ -171,9 +172,9 @@ class MultilingualDictionary(private val context: Context) {
         
         if (count > 0) {
             bigramMaps[language] = bigramMap
-            Log.d(TAG, "📊 Loaded $count bigrams for $language")
+            LogUtil.d(TAG, "📊 Loaded $count bigrams for $language")
         } else {
-            Log.w(TAG, "⚠️ Could not load bigrams for $language")
+            LogUtil.w(TAG, "⚠️ Could not load bigrams for $language")
         }
         
         return count
@@ -185,7 +186,7 @@ class MultilingualDictionary(private val context: Context) {
      */
     fun getCandidates(prefix: String, language: String, limit: Int = 64): List<String> {
         if (!isLoaded(language)) {
-            Log.w(TAG, "Language $language not loaded yet")
+            LogUtil.w(TAG, "Language $language not loaded yet")
             return emptyList()
         }
         
@@ -273,7 +274,7 @@ class MultilingualDictionary(private val context: Context) {
             loadedLanguages.remove(language)
         loadingJobs[language]?.cancel()
         loadingJobs.remove(language)
-        Log.d(TAG, "🗑️ Unloaded language: $language")
+        LogUtil.d(TAG, "🗑️ Unloaded language: $language")
     }
     
     /**
@@ -285,6 +286,6 @@ class MultilingualDictionary(private val context: Context) {
         loadedLanguages.clear()
         loadingJobs.values.forEach { it.cancel() }
         loadingJobs.clear()
-        Log.d(TAG, "🗑️ Cleared all dictionaries")
+        LogUtil.d(TAG, "🗑️ Cleared all dictionaries")
     }
 }

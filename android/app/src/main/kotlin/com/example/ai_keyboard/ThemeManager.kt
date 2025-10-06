@@ -6,6 +6,7 @@ import android.content.res.ColorStateList
 import android.graphics.*
 import android.graphics.drawable.*
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.util.LruCache
 import androidx.core.content.res.ResourcesCompat
 import com.example.ai_keyboard.themes.KeyboardThemeV2

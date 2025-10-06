@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -43,9 +44,9 @@ class UserDictionaryManager(private val context: Context) {
             json.keys().forEach { key ->
                 localMap[key] = json.getInt(key)
             }
-            Log.i(TAG, "✅ Loaded ${localMap.size} learned words from local cache.")
+            LogUtil.i(TAG, "✅ Loaded ${localMap.size} learned words from local cache.")
         } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Failed to load local cache: ${e.message}")
+            LogUtil.w(TAG, "⚠️ Failed to load local cache: ${e.message}")
         }
     }
 
@@ -55,9 +56,9 @@ class UserDictionaryManager(private val context: Context) {
             val json = JSONObject(localMap as Map<*, *>)
             localFile.writeText(json.toString())
             // Enhanced single-line logging
-            Log.d(TAG, "💾 Saved user dictionary (${localMap.size} entries)")
+            LogUtil.d(TAG, "💾 Saved user dictionary (${localMap.size} entries)")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to save cache: ${e.message}")
+            LogUtil.e(TAG, "❌ Failed to save cache: ${e.message}")
         }
     }
 
@@ -66,7 +67,7 @@ class UserDictionaryManager(private val context: Context) {
         if (word.length < 2 || word.any { it.isDigit() }) return
         val count = localMap.getOrDefault(word, 0) + 1
         localMap[word] = count
-        Log.d(TAG, "✨ Learned '$word' (count=$count)")
+        LogUtil.d(TAG, "✨ Learned '$word' (count=$count)")
         
         // Debounced save: only save once after 2 seconds of inactivity
         saveJob?.cancel()
@@ -80,7 +81,7 @@ class UserDictionaryManager(private val context: Context) {
     fun flush() {
         saveJob?.cancel()
         saveLocalCache()
-        Log.d(TAG, "🔄 User dictionary flushed to disk")
+        LogUtil.d(TAG, "🔄 User dictionary flushed to disk")
     }
 
     /** Push local dictionary to Firestore */
@@ -92,10 +93,10 @@ class UserDictionaryManager(private val context: Context) {
             .document("words")
             .set(mapOf("entries" to data))
             .addOnSuccessListener {
-                Log.i(TAG, "☁️ Synced ${localMap.size} user words to Firestore.")
+                LogUtil.i(TAG, "☁️ Synced ${localMap.size} user words to Firestore.")
             }
             .addOnFailureListener {
-                Log.w(TAG, "⚠️ Firestore sync failed: ${it.message}")
+                LogUtil.w(TAG, "⚠️ Firestore sync failed: ${it.message}")
             }
     }
 
@@ -114,10 +115,10 @@ class UserDictionaryManager(private val context: Context) {
                     localMap[w] = (localMap[w] ?: 0) + c
                 }
                 saveLocalCache()
-                Log.i(TAG, "🔄 Merged ${entries.size} cloud words into local cache.")
+                LogUtil.i(TAG, "🔄 Merged ${entries.size} cloud words into local cache.")
             }
             .addOnFailureListener {
-                Log.w(TAG, "⚠️ Firestore download failed: ${it.message}")
+                LogUtil.w(TAG, "⚠️ Firestore download failed: ${it.message}")
             }
     }
 
@@ -143,10 +144,10 @@ class UserDictionaryManager(private val context: Context) {
             .document("words")
             .delete()
             .addOnSuccessListener {
-                Log.i(TAG, "🗑️ Cleared all user words from cloud")
+                LogUtil.i(TAG, "🗑️ Cleared all user words from cloud")
             }
             .addOnFailureListener {
-                Log.w(TAG, "⚠️ Failed to clear cloud words: ${it.message}")
+                LogUtil.w(TAG, "⚠️ Failed to clear cloud words: ${it.message}")
             }
     }
 
@@ -165,7 +166,7 @@ class UserDictionaryManager(private val context: Context) {
     fun blacklistCorrection(original: String, corrected: String) {
         val pair = Pair(original.lowercase(), corrected.lowercase())
         rejectionBlacklist.add(pair)
-        Log.d(TAG, "🚫 Blacklisted correction '$original' → '$corrected'")
+        LogUtil.d(TAG, "🚫 Blacklisted correction '$original' → '$corrected'")
         saveBlacklist()
     }
     
@@ -190,9 +191,9 @@ class UserDictionaryManager(private val context: Context) {
                 json.put(obj)
             }
             prefs.edit().putString("rejection_blacklist", json.toString()).apply()
-            Log.d(TAG, "💾 Saved ${rejectionBlacklist.size} rejected corrections to prefs")
+            LogUtil.d(TAG, "💾 Saved ${rejectionBlacklist.size} rejected corrections to prefs")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to save blacklist: ${e.message}")
+            LogUtil.e(TAG, "❌ Failed to save blacklist: ${e.message}")
         }
     }
     
@@ -208,9 +209,9 @@ class UserDictionaryManager(private val context: Context) {
                 val obj = arr.getJSONObject(i)
                 rejectionBlacklist.add(Pair(obj.getString("o"), obj.getString("c")))
             }
-            Log.d(TAG, "🧠 Loaded ${rejectionBlacklist.size} rejected corrections from prefs")
+            LogUtil.d(TAG, "🧠 Loaded ${rejectionBlacklist.size} rejected corrections from prefs")
         } catch (e: Exception) {
-            Log.e(TAG, "⚠️ Error loading blacklist: ${e.message}")
+            LogUtil.e(TAG, "⚠️ Error loading blacklist: ${e.message}")
         }
     }
     
@@ -221,7 +222,7 @@ class UserDictionaryManager(private val context: Context) {
         rejectionBlacklist.clear()
         val prefs = context.getSharedPreferences("ai_keyboard_prefs", Context.MODE_PRIVATE)
         prefs.edit().remove("rejection_blacklist").apply()
-        Log.d(TAG, "🗑️ Cleared all rejected corrections")
+        LogUtil.d(TAG, "🗑️ Cleared all rejected corrections")
     }
     
     /**

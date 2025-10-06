@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.util.LruCache
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -56,11 +57,11 @@ class TransliterationEngine(
     
     init {
         if (!SUPPORTED_LANGUAGES.contains(language)) {
-            Log.w(TAG, "Unsupported language: $language")
+            LogUtil.w(TAG, "Unsupported language: $language")
         } else {
             loadPhonemeMap()
-            Log.d(TAG, "TransliterationEngine initialized for $language")
-            Log.d(TAG, "Loaded: ${vowelMap.size} vowels, ${consonantMap.size} consonants, ${matraMap.size} matras")
+            LogUtil.d(TAG, "TransliterationEngine initialized for $language")
+            LogUtil.d(TAG, "Loaded: ${vowelMap.size} vowels, ${consonantMap.size} consonants, ${matraMap.size} matras")
         }
     }
     
@@ -319,10 +320,10 @@ class TransliterationEngine(
                 }
             }
             
-            Log.d(TAG, "Successfully loaded transliteration map for $language")
+            LogUtil.d(TAG, "Successfully loaded transliteration map for $language")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading transliteration map for $language", e)
+            LogUtil.e(TAG, "Error loading transliteration map for $language", e)
         }
     }
     
@@ -345,7 +346,7 @@ class TransliterationEngine(
         reverseCache.evictAll()
         cacheHits = 0
         cacheMisses = 0
-        Log.d(TAG, "Cache cleared")
+        LogUtil.d(TAG, "Cache cleared")
     }
 }
 

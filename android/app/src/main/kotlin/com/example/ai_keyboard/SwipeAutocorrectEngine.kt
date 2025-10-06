@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import kotlinx.coroutines.*
 import kotlin.math.*
 import java.util.*
@@ -49,7 +50,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
      */
     fun setUnifiedEngine(engine: UnifiedAutocorrectEngine) {
         this.unifiedEngine = engine
-        Log.d(TAG, "✅ SwipeAutocorrectEngine integrated with UnifiedAutocorrectEngine")
+        LogUtil.d(TAG, "✅ SwipeAutocorrectEngine integrated with UnifiedAutocorrectEngine")
     }
     
     // QWERTY keyboard layout for proximity scoring
@@ -86,11 +87,11 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             loadUserDictionary()
             
             val loadTime = System.currentTimeMillis() - startTime
-            Log.d(TAG, "SwipeAutocorrectEngine initialized in ${loadTime}ms")
-            Log.d(TAG, "Loaded ${mainDictionary.size} words, ${userDictionary.size} user words, ${bigramFrequencies.size} bigrams")
+            LogUtil.d(TAG, "SwipeAutocorrectEngine initialized in ${loadTime}ms")
+            LogUtil.d(TAG, "Loaded ${mainDictionary.size} words, ${userDictionary.size} user words, ${bigramFrequencies.size} bigrams")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error initializing SwipeAutocorrectEngine", e)
+            LogUtil.e(TAG, "Error initializing SwipeAutocorrectEngine", e)
         }
     }
     
@@ -165,7 +166,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             
             val processingTime = System.currentTimeMillis() - startTime
             
-            Log.d(TAG, "Generated ${finalCandidates.size} unified candidates in ${processingTime}ms for '$swipeSequence'")
+            LogUtil.d(TAG, "Generated ${finalCandidates.size} unified candidates in ${processingTime}ms for '$swipeSequence'")
             
             return@withContext SwipeResult(
                 originalSequence = swipeSequence,
@@ -174,7 +175,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             )
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error generating candidates", e)
+            LogUtil.e(TAG, "Error generating candidates", e)
             return@withContext SwipeResult(
                 originalSequence = swipeSequence,
                 candidates = emptyList(),
@@ -193,13 +194,13 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             
             // If user consistently selects a word, increase its base score
             if ((userDictionary[selectedWord] ?: 0) > 3) {
-                Log.d(TAG, "Learning: '$originalSequence' → '$selectedWord' (usage: ${userDictionary[selectedWord]})")
+                LogUtil.d(TAG, "Learning: '$originalSequence' → '$selectedWord' (usage: ${userDictionary[selectedWord]})")
             }
             
             // TODO: Persist user dictionary to storage
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error learning from user selection", e)
+            LogUtil.e(TAG, "Error learning from user selection", e)
         }
     }
     
@@ -210,12 +211,12 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
         try {
             // Reduce confidence in this correction pair
             val key = "${originalSequence}->${rejectedWord}"
-            Log.d(TAG, "User rejected: $key")
+            LogUtil.d(TAG, "User rejected: $key")
             
             // TODO: Implement rejection learning
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording rejection", e)
+            LogUtil.e(TAG, "Error recording rejection", e)
         }
     }
     
@@ -256,7 +257,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             mainDictionary = words
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading dictionary", e)
+            LogUtil.e(TAG, "Error loading dictionary", e)
             // Fallback basic dictionary
             mainDictionary = setOf(
                 "the", "and", "to", "of", "in", "is", "it", "you", "that", "he", "was",
@@ -288,7 +289,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             wordFrequencies = frequencies
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading word frequencies", e)
+            LogUtil.e(TAG, "Error loading word frequencies", e)
             wordFrequencies = emptyMap()
         }
     }
@@ -313,7 +314,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             bigramFrequencies = commonBigrams
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading bigram frequencies", e)
+            LogUtil.e(TAG, "Error loading bigram frequencies", e)
             bigramFrequencies = emptyMap()
         }
     }
@@ -323,7 +324,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             // TODO: Load from persistent storage
             userDictionary = mutableMapOf()
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading user dictionary", e)
+            LogUtil.e(TAG, "Error loading user dictionary", e)
         }
     }
     
@@ -589,7 +590,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             word to pathScore
         }.sortedByDescending { it.second }
         
-        Log.d(TAG, "🔄 Swipe path decoded: ${scored.take(3).map { it.first }}")
+        LogUtil.d(TAG, "🔄 Swipe path decoded: ${scored.take(3).map { it.first }}")
         return scored.take(5).map { it.first }
     }
     
@@ -685,7 +686,7 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
             }.take(5 - merged.size).forEach { merged.add(it) }
         }
         
-        Log.d(TAG, "🔀 Merged predictions: $merged")
+        LogUtil.d(TAG, "🔀 Merged predictions: $merged")
         return merged.take(5).distinct()
     }
     
@@ -722,9 +723,9 @@ class SwipeAutocorrectEngine private constructor(private val context: Context) {
                 val unifiedWords = unified.map { it.word }
                 predictions.addAll(unifiedWords)
                 
-                Log.d(TAG, "🔀 Merged predictions: ${predictions.distinct().take(5)} for '$decodedWord'")
+                LogUtil.d(TAG, "🔀 Merged predictions: ${predictions.distinct().take(5)} for '$decodedWord'")
             } catch (e: Exception) {
-                Log.w(TAG, "Error getting unified predictions: ${e.message}")
+                LogUtil.w(TAG, "Error getting unified predictions: ${e.message}")
             }
         }
         

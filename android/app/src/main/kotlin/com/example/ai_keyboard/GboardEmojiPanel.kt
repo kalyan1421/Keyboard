@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -82,7 +83,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         // Load initial category
         loadCategory(EmojiCategory.RECENTLY_USED)
         
-        Log.d(TAG, "Gboard-style emoji panel initialized with skin tone preference: $preferredSkinTone")
+        LogUtil.d(TAG, "Gboard-style emoji panel initialized with skin tone preference: $preferredSkinTone")
     }
     
     private fun setupCategories() {
@@ -101,7 +102,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             EmojiCategoryData(EmojiCategory.FLAGS, "🏁", "Flags")
         ))
         
-        Log.d(TAG, "Categories setup complete with enhanced collection: ${categories.size} categories")
+        LogUtil.d(TAG, "Categories setup complete with enhanced collection: ${categories.size} categories")
     }
     
     private fun setupSearchBar() {
@@ -355,9 +356,9 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                     displayEmojis(emojis, category == EmojiCategory.RECENTLY_USED)
                 }
                 
-                Log.d(TAG, "Loaded ${emojis.size} emojis from EmojiCollection for category: $category")
+                LogUtil.d(TAG, "Loaded ${emojis.size} emojis from EmojiCollection for category: $category")
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading category: $category", e)
+                LogUtil.e(TAG, "Error loading category: $category", e)
             }
         }.start()
     }
@@ -379,18 +380,18 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                     displayEmojis(searchResults, false)
                 }
                 
-                Log.d(TAG, "Enhanced search found ${searchResults.size} emojis for query: $query")
+                LogUtil.d(TAG, "Enhanced search found ${searchResults.size} emojis for query: $query")
             } catch (e: Exception) {
-                Log.e(TAG, "Error in enhanced search for: $query", e)
+                LogUtil.e(TAG, "Error in enhanced search for: $query", e)
                 // Fallback to database search
                 try {
                     val fallbackResults = emojiDatabase.searchEmojis(query)
                     post {
                         displayEmojis(fallbackResults, false)
                     }
-                    Log.d(TAG, "Fallback search found ${fallbackResults.size} emojis for query: $query")
+                    LogUtil.d(TAG, "Fallback search found ${fallbackResults.size} emojis for query: $query")
                 } catch (fallbackError: Exception) {
-                    Log.e(TAG, "Fallback search also failed", fallbackError)
+                    LogUtil.e(TAG, "Fallback search also failed", fallbackError)
                 }
             }
         }.start()
@@ -448,14 +449,14 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             setBackgroundResource(R.drawable.emoji_touch_feedback)
             
             setOnClickListener {
-                Log.d(TAG, "Emoji clicked: ${emoji.unicode}")
+                LogUtil.d(TAG, "Emoji clicked: ${emoji.unicode}")
                 
                 // Apply default skin tone if one exists for this emoji
                 val baseEmoji = getBaseEmoji(emoji.unicode)
                 val defaultTone = getDefaultEmojiTone(baseEmoji)
                 val emojiToInsert = defaultTone ?: emoji.unicode
                 
-                Log.d(TAG, "Inserting emoji: '$emojiToInsert' (base: '$baseEmoji', default: '$defaultTone')")
+                LogUtil.d(TAG, "Inserting emoji: '$emojiToInsert' (base: '$baseEmoji', default: '$defaultTone')")
                 onEmojiSelected?.invoke(emojiToInsert)
                 emojiDatabase.recordEmojiUsage(emojiToInsert)
                 
@@ -469,7 +470,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
             }
             
             setOnLongClickListener { view ->
-                Log.d(TAG, "Long press detected on emoji: ${emoji.unicode} with ${emoji.skinToneVariants.size} variants")
+                LogUtil.d(TAG, "Long press detected on emoji: ${emoji.unicode} with ${emoji.skinToneVariants.size} variants")
                 if (emoji.skinToneVariants.isNotEmpty()) {
                     showSkinTonePopup(emoji, view)
                     true
@@ -478,7 +479,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                     val generatedVariants = generateSkinToneVariants(emoji.unicode)
                     if (generatedVariants.isNotEmpty()) {
                         val emojiWithVariants = emoji.copy(skinToneVariants = generatedVariants)
-                        Log.d(TAG, "Generated ${generatedVariants.size} skin tone variants for ${emoji.unicode}")
+                        LogUtil.d(TAG, "Generated ${generatedVariants.size} skin tone variants for ${emoji.unicode}")
                         showSkinTonePopup(emojiWithVariants, view)
                         true
                     } else {
@@ -566,7 +567,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         // Reload current category to apply new skin tone
         loadCategory(currentCategory)
         
-        Log.d(TAG, "Preferred skin tone set to: $skinTone")
+        LogUtil.d(TAG, "Preferred skin tone set to: $skinTone")
     }
     
     /**
@@ -575,7 +576,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     private fun loadPreferredSkinTone() {
         val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
         preferredSkinTone = prefs.getString("preferred_skin_tone", "🏽") ?: "🏽" // Default to medium
-        Log.d(TAG, "Loaded preferred skin tone: $preferredSkinTone")
+        LogUtil.d(TAG, "Loaded preferred skin tone: $preferredSkinTone")
     }
     
     /**
@@ -597,9 +598,9 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                     }
                 }
             }
-            Log.d(TAG, "Loaded ${emojiHistory.size} emojis from history")
+            LogUtil.d(TAG, "Loaded ${emojiHistory.size} emojis from history")
         } catch (e: Exception) {
-            Log.w(TAG, "Error loading emoji history: ${e.message}")
+            LogUtil.w(TAG, "Error loading emoji history: ${e.message}")
             emojiHistory.clear()
         }
     }
@@ -611,7 +612,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
         val jsonString = emojiHistory.joinToString(",") { "\"$it\"" }
         prefs.edit().putString("emoji_history", "[$jsonString]").apply()
-        Log.d(TAG, "Saved ${emojiHistory.size} emojis to history")
+        LogUtil.d(TAG, "Saved ${emojiHistory.size} emojis to history")
     }
     
     /**
@@ -620,7 +621,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
     private fun loadEmojiHistoryMaxSize() {
         val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
         emojiHistoryMaxSize = prefs.getInt("emoji_history_max_size", 90)
-        Log.d(TAG, "Loaded emoji history max size: $emojiHistoryMaxSize")
+        LogUtil.d(TAG, "Loaded emoji history max size: $emojiHistoryMaxSize")
     }
     
     /**
@@ -637,7 +638,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         }
         saveEmojiHistory()
         
-        Log.d(TAG, "Set emoji history max size to: $maxSize")
+        LogUtil.d(TAG, "Set emoji history max size to: $maxSize")
     }
     
     /**
@@ -658,7 +659,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         // Save to preferences
         saveEmojiHistory()
         
-        Log.d(TAG, "Added '$emoji' to history (total: ${emojiHistory.size})")
+        LogUtil.d(TAG, "Added '$emoji' to history (total: ${emojiHistory.size})")
     }
     
     /**
@@ -688,9 +689,9 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
                     }
                 }
             }
-            Log.d(TAG, "Loaded ${defaultEmojiTones.size} per-emoji default tones")
+            LogUtil.d(TAG, "Loaded ${defaultEmojiTones.size} per-emoji default tones")
         } catch (e: Exception) {
-            Log.w(TAG, "Error loading default emoji tones: ${e.message}")
+            LogUtil.w(TAG, "Error loading default emoji tones: ${e.message}")
             defaultEmojiTones.clear()
         }
     }
@@ -706,7 +707,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         val jsonString = defaultEmojiTones.entries.joinToString(", ") { "\"${it.key}\"=\"${it.value}\"" }
         prefs.edit().putString("default_emoji_tones", "{$jsonString}").apply()
         
-        Log.d(TAG, "Saved default tone for '$baseEmoji' → '$toneVariant'")
+        LogUtil.d(TAG, "Saved default tone for '$baseEmoji' → '$toneVariant'")
     }
     
     /**
@@ -748,7 +749,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         loadCategory(currentCategory)
         updateSkinToneButton()
         
-        Log.d(TAG, "Emoji settings reloaded from preferences")
+        LogUtil.d(TAG, "Emoji settings reloaded from preferences")
     }
     
     /**
@@ -758,9 +759,9 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         try {
             skinTonePopup?.dismiss()
             skinTonePopup = null
-            Log.d(TAG, "All popups dismissed")
+            LogUtil.d(TAG, "All popups dismissed")
         } catch (e: Exception) {
-            Log.e(TAG, "Error dismissing popups", e)
+            LogUtil.e(TAG, "Error dismissing popups", e)
         }
     }
     
@@ -827,7 +828,7 @@ class GboardEmojiPanel(context: Context) : LinearLayout(context) {
         }
         
         Toast.makeText(context, "🎨 Skin tone: $toneName", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "Cycled to skin tone: $toneName ($nextSkinTone)")
+        LogUtil.d(TAG, "Cycled to skin tone: $toneName ($nextSkinTone)")
     }
     
     private fun showSkinToneSelector() {
@@ -971,7 +972,7 @@ class SkinTonePopup(private val context: Context) {
     
     fun showForEmoji(emoji: EmojiData, anchorView: View, onEmojiSelected: (String) -> Unit) {
         try {
-            Log.d(TAG, "Showing skin tone popup for emoji: ${emoji.unicode} with ${emoji.skinToneVariants.size} variants")
+            LogUtil.d(TAG, "Showing skin tone popup for emoji: ${emoji.unicode} with ${emoji.skinToneVariants.size} variants")
             
             val popupLayout = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -992,7 +993,7 @@ class SkinTonePopup(private val context: Context) {
             
             // Add skin tone variants - highlight the current default
             emoji.skinToneVariants.forEach { variant ->
-                Log.d(TAG, "Adding skin tone variant: $variant")
+                LogUtil.d(TAG, "Adding skin tone variant: $variant")
                 val isDefault = (currentDefault == variant)
                 addEmojiVariant(popupLayout, variant, isDefault, onEmojiSelected) { selectedEmoji ->
                     emojiPanel?.saveEmojiDefaultTone(baseEmoji, selectedEmoji)
@@ -1020,18 +1021,18 @@ class SkinTonePopup(private val context: Context) {
                 val popupHeight = dpToPx(60)
                 val yOffset = -anchorView.height - popupHeight - dpToPx(4) // Extra margin
                 
-                Log.d(TAG, "Showing popup at offset: $yOffset")
+                LogUtil.d(TAG, "Showing popup at offset: $yOffset")
                 try {
                     showAsDropDown(anchorView, 0, yOffset)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error showing popup", e)
+                    LogUtil.e(TAG, "Error showing popup", e)
                     // Fallback: show as a toast instead
                     android.widget.Toast.makeText(context, "Skin tone variants: ${emoji.skinToneVariants.size + 1}", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error showing skin tone popup", e)
+            LogUtil.e(TAG, "Error showing skin tone popup", e)
             // Show a toast as fallback to indicate the issue
             android.widget.Toast.makeText(context, "Skin tone variants: ${emoji.skinToneVariants.size}", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -1056,7 +1057,7 @@ class SkinTonePopup(private val context: Context) {
             layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
             
             setOnClickListener {
-                Log.d(TAG, "Skin tone variant selected: $emoji (setting as default)")
+                LogUtil.d(TAG, "Skin tone variant selected: $emoji (setting as default)")
                 
                 // Set as new default for this emoji
                 onDefaultSet(emoji)
@@ -1097,9 +1098,9 @@ class SkinTonePopup(private val context: Context) {
         try {
             popupWindow?.dismiss()
             popupWindow = null
-            Log.d(TAG, "Skin tone popup dismissed")
+            LogUtil.d(TAG, "Skin tone popup dismissed")
         } catch (e: Exception) {
-            Log.e(TAG, "Error dismissing popup", e)
+            LogUtil.e(TAG, "Error dismissing popup", e)
         }
     }
     

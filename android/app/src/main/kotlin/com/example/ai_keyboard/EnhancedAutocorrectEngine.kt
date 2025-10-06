@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -82,7 +83,7 @@ class EnhancedAutocorrectEngine(
             .take(limit)
         
         val duration = System.currentTimeMillis() - startTime
-        Log.d(TAG, "suggest lang=$language typed='$typed' → ${finalSuggestions.size} candidates (ms=$duration)")
+        LogUtil.d(TAG, "suggest lang=$language typed='$typed' → ${finalSuggestions.size} candidates (ms=$duration)")
         
         return finalSuggestions
     }
@@ -146,7 +147,7 @@ class EnhancedAutocorrectEngine(
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error in transliteration suggestions", e)
+            LogUtil.e(TAG, "Error in transliteration suggestions", e)
         }
         
         return suggestions
@@ -163,7 +164,7 @@ class EnhancedAutocorrectEngine(
         val suggestions = mutableListOf<Suggestion>()
         
         if (!dictionary.isLoaded(language)) {
-            Log.w(TAG, "Dictionary not loaded for $language")
+            LogUtil.w(TAG, "Dictionary not loaded for $language")
             return suggestions
         }
         
@@ -236,7 +237,7 @@ class EnhancedAutocorrectEngine(
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error in dictionary suggestions", e)
+            LogUtil.e(TAG, "Error in dictionary suggestions", e)
         }
         
         return suggestions

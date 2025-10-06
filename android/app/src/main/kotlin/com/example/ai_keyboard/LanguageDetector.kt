@@ -1,6 +1,7 @@
 package com.example.ai_keyboard
 
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import kotlin.math.max
 
 /**
@@ -120,10 +121,10 @@ class LanguageDetector {
         val bestMatch = confidences.maxByOrNull { it.value }
         
         return if (bestMatch != null && bestMatch.value >= MIN_CONFIDENCE_THRESHOLD) {
-            Log.d(TAG, "Detected language: ${bestMatch.key} (confidence: ${bestMatch.value})")
+            LogUtil.d(TAG, "Detected language: ${bestMatch.key} (confidence: ${bestMatch.value})")
             bestMatch.key
         } else {
-            Log.d(TAG, "No confident language detection, defaulting to English")
+            LogUtil.d(TAG, "No confident language detection, defaulting to English")
             "en"
         }
     }
@@ -202,7 +203,7 @@ class LanguageDetector {
         val confidence = getLanguageConfidences(recentText)[detectedLanguage] ?: 0.0
         
         return if (detectedLanguage != currentLanguage && confidence > MIN_CONFIDENCE_THRESHOLD * 1.2) {
-            Log.d(TAG, "Context suggests language switch from $currentLanguage to $detectedLanguage")
+            LogUtil.d(TAG, "Context suggests language switch from $currentLanguage to $detectedLanguage")
             detectedLanguage
         } else {
             null

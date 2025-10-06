@@ -1,6 +1,7 @@
 package com.example.ai_keyboard
 
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 import kotlin.math.min
 
 /**
@@ -309,13 +310,13 @@ class IndicScriptHelper {
      */
     fun logGraphemeBreakdown(text: String) {
         val graphemes = toGraphemeList(text)
-        Log.d(TAG, "Text: '$text' (${text.length} chars)")
-        Log.d(TAG, "Graphemes: ${graphemes.size}")
+        LogUtil.d(TAG, "Text: '$text' (${text.length} chars)")
+        LogUtil.d(TAG, "Graphemes: ${graphemes.size}")
         graphemes.forEachIndexed { index, grapheme ->
             val base = getBaseCharacter(grapheme)
             val marks = getCombiningMarks(grapheme)
             val codes = grapheme.map { "U+${it.code.toString(16).uppercase()}" }.joinToString(" ")
-            Log.d(TAG, "  [$index] '$grapheme' = base:'$base' + marks:$marks ($codes)")
+            LogUtil.d(TAG, "  [$index] '$grapheme' = base:'$base' + marks:$marks ($codes)")
         }
     }
 }

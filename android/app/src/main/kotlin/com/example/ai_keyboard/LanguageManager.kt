@@ -3,6 +3,7 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * Manages language switching, preferences, and app-specific language settings
@@ -39,7 +40,7 @@ class LanguageManager(private val context: Context) {
         if (enabledLanguages.size == 1 && enabledLanguages.contains("en")) {
             enabledLanguages.addAll(setOf("es", "fr", "de", "hi"))
             saveEnabledLanguages()
-            Log.d(TAG, "Enabled multiple languages by default: $enabledLanguages")
+            LogUtil.d(TAG, "Enabled multiple languages by default: $enabledLanguages")
         }
     }
     
@@ -56,7 +57,7 @@ class LanguageManager(private val context: Context) {
             saveEnabledLanguages()
         }
         
-        Log.d(TAG, "Loaded preferences - Current: $currentLanguage, Enabled: $enabledLanguages")
+        LogUtil.d(TAG, "Loaded preferences - Current: $currentLanguage, Enabled: $enabledLanguages")
     }
     
     /**
@@ -65,7 +66,7 @@ class LanguageManager(private val context: Context) {
     fun switchToNextLanguage() {
         val enabledList = enabledLanguages.toList().sorted()
         if (enabledList.size <= 1) {
-            Log.d(TAG, "Only one language enabled, no switching needed")
+            LogUtil.d(TAG, "Only one language enabled, no switching needed")
             return
         }
         
@@ -81,17 +82,17 @@ class LanguageManager(private val context: Context) {
      */
     fun switchToLanguage(languageCode: String) {
         if (!isLanguageSupported(languageCode)) {
-            Log.w(TAG, "Language $languageCode is not supported")
+            LogUtil.w(TAG, "Language $languageCode is not supported")
             return
         }
         
         if (!enabledLanguages.contains(languageCode)) {
-            Log.w(TAG, "Language $languageCode is not enabled")
+            LogUtil.w(TAG, "Language $languageCode is not enabled")
             return
         }
         
         if (currentLanguage == languageCode) {
-            Log.d(TAG, "Already using language $languageCode")
+            LogUtil.d(TAG, "Already using language $languageCode")
             return
         }
         
@@ -99,14 +100,14 @@ class LanguageManager(private val context: Context) {
         currentLanguage = languageCode
         saveCurrentLanguage()
         
-        Log.d(TAG, "Switched language from $oldLanguage to $currentLanguage")
+        LogUtil.d(TAG, "Switched language from $oldLanguage to $currentLanguage")
         
         // Notify listeners
         languageChangeListeners.forEach { listener ->
             try {
                 listener.onLanguageChanged(oldLanguage, currentLanguage)
             } catch (e: Exception) {
-                Log.e(TAG, "Error notifying language change listener", e)
+                LogUtil.e(TAG, "Error notifying language change listener", e)
             }
         }
     }
@@ -154,14 +155,14 @@ class LanguageManager(private val context: Context) {
             switchToLanguage(enabledLanguages.first())
         }
         
-        Log.d(TAG, "Updated enabled languages: $enabledLanguages")
+        LogUtil.d(TAG, "Updated enabled languages: $enabledLanguages")
         
         // Notify listeners
         languageChangeListeners.forEach { listener ->
             try {
                 listener.onEnabledLanguagesChanged(enabledLanguages)
             } catch (e: Exception) {
-                Log.e(TAG, "Error notifying enabled languages change listener", e)
+                LogUtil.e(TAG, "Error notifying enabled languages change listener", e)
             }
         }
     }
@@ -173,7 +174,7 @@ class LanguageManager(private val context: Context) {
         if (isLanguageSupported(languageCode) && !enabledLanguages.contains(languageCode)) {
             enabledLanguages.add(languageCode)
             saveEnabledLanguages()
-            Log.d(TAG, "Enabled language: $languageCode")
+            LogUtil.d(TAG, "Enabled language: $languageCode")
         }
     }
     
@@ -190,7 +191,7 @@ class LanguageManager(private val context: Context) {
                 switchToLanguage(enabledLanguages.first())
             }
             
-            Log.d(TAG, "Disabled language: $languageCode")
+            LogUtil.d(TAG, "Disabled language: $languageCode")
         }
     }
     
@@ -216,7 +217,7 @@ class LanguageManager(private val context: Context) {
             preferences.edit()
                 .putString(KEY_APP_PREFIX + packageName, languageCode)
                 .apply()
-            Log.d(TAG, "Set app language for $packageName: $languageCode")
+            LogUtil.d(TAG, "Set app language for $packageName: $languageCode")
         }
     }
     
@@ -234,7 +235,7 @@ class LanguageManager(private val context: Context) {
         preferences.edit()
             .remove(KEY_APP_PREFIX + packageName)
             .apply()
-        Log.d(TAG, "Removed app language for $packageName")
+        LogUtil.d(TAG, "Removed app language for $packageName")
     }
     
     /**
@@ -244,7 +245,7 @@ class LanguageManager(private val context: Context) {
         preferences.edit()
             .putBoolean(KEY_AUTO_SWITCH, enabled)
             .apply()
-        Log.d(TAG, "Auto-switch enabled: $enabled")
+        LogUtil.d(TAG, "Auto-switch enabled: $enabled")
     }
     
     /**
@@ -261,7 +262,7 @@ class LanguageManager(private val context: Context) {
         preferences.edit()
             .putString(KEY_TAP_BEHAVIOR, behavior.name)
             .apply()
-        Log.d(TAG, "Tap behavior set to: $behavior")
+        LogUtil.d(TAG, "Tap behavior set to: $behavior")
     }
     
     /**
@@ -272,7 +273,7 @@ class LanguageManager(private val context: Context) {
         return try {
             TapBehavior.valueOf(behaviorName ?: TapBehavior.CYCLE.name)
         } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "Invalid tap behavior: $behaviorName, using default")
+            LogUtil.w(TAG, "Invalid tap behavior: $behaviorName, using default")
             TapBehavior.CYCLE
         }
     }
@@ -287,7 +288,7 @@ class LanguageManager(private val context: Context) {
             TapBehavior.POPUP -> TapBehavior.CYCLE
         }
         setTapBehavior(newBehavior)
-        Log.d(TAG, "Toggled tap behavior from $currentBehavior to $newBehavior")
+        LogUtil.d(TAG, "Toggled tap behavior from $currentBehavior to $newBehavior")
     }
     
     /**
@@ -315,7 +316,7 @@ class LanguageManager(private val context: Context) {
     fun addLanguageChangeListener(listener: LanguageChangeListener) {
         if (!languageChangeListeners.contains(listener)) {
             languageChangeListeners.add(listener)
-            Log.d(TAG, "Added language change listener")
+            LogUtil.d(TAG, "Added language change listener")
         }
     }
     
@@ -324,7 +325,7 @@ class LanguageManager(private val context: Context) {
      */
     fun removeLanguageChangeListener(listener: LanguageChangeListener) {
         languageChangeListeners.remove(listener)
-        Log.d(TAG, "Removed language change listener")
+        LogUtil.d(TAG, "Removed language change listener")
     }
     
     /**
@@ -364,6 +365,6 @@ class LanguageManager(private val context: Context) {
         preferences.edit().clear().apply()
         saveCurrentLanguage()
         saveEnabledLanguages()
-        Log.d(TAG, "Reset to default language settings")
+        LogUtil.d(TAG, "Reset to default language settings")
     }
 }
