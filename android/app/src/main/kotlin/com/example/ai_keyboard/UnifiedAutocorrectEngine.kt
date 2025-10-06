@@ -441,7 +441,7 @@ class UnifiedAutocorrectEngine(
      * Clear suggestion cache (for memory management)
      */
     fun clearCache() {
-        suggestionCache.clear()
+        suggestionCache.evictAll()
         LogUtil.d(TAG, "Suggestion cache cleared")
     }
 
@@ -457,7 +457,7 @@ class UnifiedAutocorrectEngine(
         val userWordCount = 0
         
         return mapOf(
-            "cacheSize" to suggestionCache.size,
+            "cacheSize" to suggestionCache.size(),
             "loadedLanguages" to loadedLangs,
             "totalWords" to totalWords,
             "userWords" to userWordCount,
