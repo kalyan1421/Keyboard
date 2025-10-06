@@ -1,6 +1,7 @@
 package com.example.ai_keyboard
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.*
 import android.graphics.drawable.*

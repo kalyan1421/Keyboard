@@ -145,7 +145,7 @@ class CustomToneManager(context: Context) : BaseManager(context) {
             customTones.sortedWith(compareByDescending<CustomTone> { it.usageCount }.thenByDescending { it.createdAt })
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading custom tones", e)
+            logE( "Error loading custom tones", e)
             emptyList()
         }
     }
@@ -177,11 +177,11 @@ class CustomToneManager(context: Context) : BaseManager(context) {
                 .putString(KEY_CUSTOM_TONES, jsonArray.toString())
                 .apply()
             
-            Log.d(TAG, "Custom tone saved: ${customTone.name}")
+            logD( "Custom tone saved: ${customTone.name}")
             true
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving custom tone", e)
+            logE( "Error saving custom tone", e)
             false
         }
     }
@@ -210,11 +210,11 @@ class CustomToneManager(context: Context) : BaseManager(context) {
                     .putString(KEY_CUSTOM_TONES, jsonArray.toString())
                     .apply()
                 
-                Log.d(TAG, "Incremented usage for tone: ${updatedTone.name}")
+                logD( "Incremented usage for tone: ${updatedTone.name}")
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error incrementing tone usage", e)
+            logE( "Error incrementing tone usage", e)
         }
     }
     
@@ -239,14 +239,14 @@ class CustomToneManager(context: Context) : BaseManager(context) {
                     .putString(KEY_CUSTOM_TONES, jsonArray.toString())
                     .apply()
                 
-                Log.d(TAG, "Deleted custom tone: ${toneToRemove.name}")
+                logD( "Deleted custom tone: ${toneToRemove.name}")
                 true
             } else {
                 false
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting custom tone", e)
+            logE( "Error deleting custom tone", e)
             false
         }
     }
@@ -402,7 +402,7 @@ class CustomToneManager(context: Context) : BaseManager(context) {
             ImportResult(true, "Successfully imported ${importedTones.size} custom tones")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error importing custom tones", e)
+            logE( "Error importing custom tones", e)
             ImportResult(false, "Import failed: ${e.message}")
         }
     }

@@ -38,8 +38,8 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     /**
      * Initialize the dictionary manager
      */
-    fun initialize() {
-        LogUtil.d(TAG, "Initializing DictionaryManager")
+    override fun initialize() {
+        logD( "Initializing DictionaryManager")
         
         // Load settings
         isEnabled = prefs.getBoolean(KEY_ENABLED, true)
@@ -53,7 +53,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         // Rebuild shortcut map with merged entries
         rebuildShortcutMap()
         
-        LogUtil.d(TAG, "DictionaryManager initialized with ${entries.size} entries (enabled: $isEnabled)")
+        logD( "DictionaryManager initialized with ${entries.size} entries (enabled: $isEnabled)")
     }
     
     /**
@@ -76,7 +76,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
                 // Update existing entry
                 val existingEntry = entries[existingIndex]
                 entries[existingIndex] = existingEntry.copy(expansion = cleanExpansion)
-                LogUtil.d(TAG, "Updated existing entry: $cleanShortcut -> $cleanExpansion")
+                logD( "Updated existing entry: $cleanShortcut -> $cleanExpansion")
             } else {
                 // Add new entry
                 val newEntry = DictionaryEntry(
@@ -84,7 +84,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
                     expansion = cleanExpansion
                 )
                 entries.add(newEntry)
-                LogUtil.d(TAG, "Added new entry: $cleanShortcut -> $cleanExpansion")
+                logD( "Added new entry: $cleanShortcut -> $cleanExpansion")
             }
             
             // Save and update cache
@@ -95,7 +95,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             return true
             
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error adding dictionary entry", e)
+            logE( "Error adding dictionary entry", e)
             return false
         }
     }
@@ -109,7 +109,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             saveEntriesToPrefs()
             rebuildShortcutMap()
             notifyDictionaryUpdated()
-            LogUtil.d(TAG, "Removed dictionary entry: $id")
+            logD( "Removed dictionary entry: $id")
         }
         return removed
     }
@@ -136,7 +136,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         rebuildShortcutMap()
         notifyDictionaryUpdated()
         
-        LogUtil.d(TAG, "Updated entry: $cleanShortcut -> $cleanExpansion")
+        logD( "Updated entry: $cleanShortcut -> $cleanExpansion")
         return true
     }
     
@@ -181,7 +181,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             shortcutMap[cleanShortcut] = entries[index]
             saveEntriesToPrefs()
             
-            LogUtil.d(TAG, "Incremented usage for $cleanShortcut: ${entries[index].usageCount}")
+            logD( "Incremented usage for $cleanShortcut: ${entries[index].usageCount}")
             
             notifyExpansionTriggered(cleanShortcut, entry.expansion)
         }
@@ -211,7 +211,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         shortcutMap.clear()
         saveEntriesToPrefs()
         notifyDictionaryUpdated()
-        LogUtil.d(TAG, "Cleared all dictionary entries")
+        logD( "Cleared all dictionary entries")
     }
     
     /**
@@ -220,7 +220,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
         prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
-        LogUtil.d(TAG, "Dictionary enabled: $enabled")
+        logD( "Dictionary enabled: $enabled")
     }
     
     fun isEnabled(): Boolean = isEnabled
@@ -254,10 +254,10 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      */
     suspend fun syncDictionaryWithFirestore(userId: String) {
         try {
-            LogUtil.d(TAG, "📤 Syncing dictionary to Firestore for user: $userId")
-            LogUtil.d(TAG, "✅ Dictionary sync initiated")
+            logD( "📤 Syncing dictionary to Firestore for user: $userId")
+            logD( "✅ Dictionary sync initiated")
         } catch (e: Exception) {
-            LogUtil.e(TAG, "❌ Error syncing with Firestore", e)
+            logE( "❌ Error syncing with Firestore", e)
         }
     }
     
@@ -279,7 +279,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         val cleanWord = word.trim().lowercase()
         if (cleanWord.isEmpty() || cleanWord.length < 2) return
         addEntry(cleanWord, cleanWord)
-        LogUtil.d(TAG, "📝 Learned word: $cleanWord")
+        logD( "📝 Learned word: $cleanWord")
     }
     
     /**
@@ -297,7 +297,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         entries.forEach { entry ->
             shortcutMap[entry.shortcut] = entry
         }
-        LogUtil.d(TAG, "Rebuilt shortcut map with ${shortcutMap.size} entries")
+        logD( "Rebuilt shortcut map with ${shortcutMap.size} entries")
     }
     
     private fun loadEntriesFromPrefs() {
@@ -310,10 +310,10 @@ class DictionaryManager(context: Context) : BaseManager(context) {
                     val entry = DictionaryEntry.fromJson(jsonArray.getJSONObject(i))
                     entries.add(entry)
                 }
-                LogUtil.d(TAG, "Loaded ${entries.size} dictionary entries from preferences")
+                logD( "Loaded ${entries.size} dictionary entries from preferences")
             }
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error loading dictionary entries from preferences", e)
+            logE( "Error loading dictionary entries from preferences", e)
         }
     }
     
@@ -330,7 +330,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             // Also sync to Flutter SharedPreferences for UI display
             syncToFlutterPrefs()
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error saving dictionary entries to preferences", e)
+            logE( "Error saving dictionary entries to preferences", e)
         }
     }
     
@@ -348,9 +348,9 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             flutterPrefs.edit()
                 .putString("flutter.dictionary_entries", jsonArray.toString())
                 .apply()
-            LogUtil.d(TAG, "Synced ${entries.size} entries to Flutter SharedPreferences")
+            logD( "Synced ${entries.size} entries to Flutter SharedPreferences")
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error syncing to Flutter SharedPreferences", e)
+            logE( "Error syncing to Flutter SharedPreferences", e)
         }
     }
     
@@ -363,7 +363,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val jsonString = flutterPrefs.getString("flutter.dictionary_entries", null)
             if (jsonString.isNullOrEmpty()) {
-                LogUtil.d(TAG, "No dictionary entries in Flutter prefs")
+                logD( "No dictionary entries in Flutter prefs")
                 return
             }
             
@@ -394,7 +394,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             entries.addAll(flutterEntries)
             rebuildShortcutMap()
             
-            LogUtil.d(TAG, "Loaded ${flutterEntries.size} entries from Flutter prefs (skipped: $skippedCount)")
+            logD( "Loaded ${flutterEntries.size} entries from Flutter prefs (skipped: $skippedCount)")
             
             // Save cleaned list back to native prefs
             if (flutterEntries.isNotEmpty()) {
@@ -404,7 +404,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             // Notify listeners
             listeners.forEach { it.onDictionaryUpdated(entries.toList()) }
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error loading from Flutter prefs", e)
+            logE( "Error loading from Flutter prefs", e)
         }
     }
 }

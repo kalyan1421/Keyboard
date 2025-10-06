@@ -36,7 +36,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
         if (enabledLanguages.size == 1 && enabledLanguages.contains("en")) {
             enabledLanguages.addAll(setOf("es", "fr", "de", "hi"))
             saveEnabledLanguages()
-            LogUtil.d(TAG, "Enabled multiple languages by default: $enabledLanguages")
+            logD( "Enabled multiple languages by default: $enabledLanguages")
         }
     }
     
@@ -53,7 +53,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
             saveEnabledLanguages()
         }
         
-        LogUtil.d(TAG, "Loaded preferences - Current: $currentLanguage, Enabled: $enabledLanguages")
+        logD( "Loaded preferences - Current: $currentLanguage, Enabled: $enabledLanguages")
     }
     
     /**
@@ -62,7 +62,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
     fun switchToNextLanguage() {
         val enabledList = enabledLanguages.toList().sorted()
         if (enabledList.size <= 1) {
-            LogUtil.d(TAG, "Only one language enabled, no switching needed")
+            logD( "Only one language enabled, no switching needed")
             return
         }
         
@@ -88,7 +88,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
         }
         
         if (currentLanguage == languageCode) {
-            LogUtil.d(TAG, "Already using language $languageCode")
+            logD( "Already using language $languageCode")
             return
         }
         
@@ -96,14 +96,14 @@ class LanguageManager(context: Context) : BaseManager(context) {
         currentLanguage = languageCode
         saveCurrentLanguage()
         
-        LogUtil.d(TAG, "Switched language from $oldLanguage to $currentLanguage")
+        logD( "Switched language from $oldLanguage to $currentLanguage")
         
         // Notify listeners
         languageChangeListeners.forEach { listener ->
             try {
                 listener.onLanguageChanged(oldLanguage, currentLanguage)
             } catch (e: Exception) {
-                LogUtil.e(TAG, "Error notifying language change listener", e)
+                logE( "Error notifying language change listener", e)
             }
         }
     }
@@ -151,14 +151,14 @@ class LanguageManager(context: Context) : BaseManager(context) {
             switchToLanguage(enabledLanguages.first())
         }
         
-        LogUtil.d(TAG, "Updated enabled languages: $enabledLanguages")
+        logD( "Updated enabled languages: $enabledLanguages")
         
         // Notify listeners
         languageChangeListeners.forEach { listener ->
             try {
                 listener.onEnabledLanguagesChanged(enabledLanguages)
             } catch (e: Exception) {
-                LogUtil.e(TAG, "Error notifying enabled languages change listener", e)
+                logE( "Error notifying enabled languages change listener", e)
             }
         }
     }
@@ -170,7 +170,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
         if (isLanguageSupported(languageCode) && !enabledLanguages.contains(languageCode)) {
             enabledLanguages.add(languageCode)
             saveEnabledLanguages()
-            LogUtil.d(TAG, "Enabled language: $languageCode")
+            logD( "Enabled language: $languageCode")
         }
     }
     
@@ -187,7 +187,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
                 switchToLanguage(enabledLanguages.first())
             }
             
-            LogUtil.d(TAG, "Disabled language: $languageCode")
+            logD( "Disabled language: $languageCode")
         }
     }
     
@@ -213,7 +213,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
             prefs.edit()
                 .putString(KEY_APP_PREFIX + packageName, languageCode)
                 .apply()
-            LogUtil.d(TAG, "Set app language for $packageName: $languageCode")
+            logD( "Set app language for $packageName: $languageCode")
         }
     }
     
@@ -231,7 +231,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
         prefs.edit()
             .remove(KEY_APP_PREFIX + packageName)
             .apply()
-        LogUtil.d(TAG, "Removed app language for $packageName")
+        logD( "Removed app language for $packageName")
     }
     
     /**
@@ -241,7 +241,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
         prefs.edit()
             .putBoolean(KEY_AUTO_SWITCH, enabled)
             .apply()
-        LogUtil.d(TAG, "Auto-switch enabled: $enabled")
+        logD( "Auto-switch enabled: $enabled")
     }
     
     /**
@@ -258,7 +258,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
         prefs.edit()
             .putString(KEY_TAP_BEHAVIOR, behavior.name)
             .apply()
-        LogUtil.d(TAG, "Tap behavior set to: $behavior")
+        logD( "Tap behavior set to: $behavior")
     }
     
     /**
@@ -284,7 +284,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
             TapBehavior.POPUP -> TapBehavior.CYCLE
         }
         setTapBehavior(newBehavior)
-        LogUtil.d(TAG, "Toggled tap behavior from $currentBehavior to $newBehavior")
+        logD( "Toggled tap behavior from $currentBehavior to $newBehavior")
     }
     
     /**
@@ -312,7 +312,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
     fun addLanguageChangeListener(listener: LanguageChangeListener) {
         if (!languageChangeListeners.contains(listener)) {
             languageChangeListeners.add(listener)
-            LogUtil.d(TAG, "Added language change listener")
+            logD( "Added language change listener")
         }
     }
     
@@ -321,7 +321,7 @@ class LanguageManager(context: Context) : BaseManager(context) {
      */
     fun removeLanguageChangeListener(listener: LanguageChangeListener) {
         languageChangeListeners.remove(listener)
-        LogUtil.d(TAG, "Removed language change listener")
+        logD( "Removed language change listener")
     }
     
     /**
@@ -361,6 +361,6 @@ class LanguageManager(context: Context) : BaseManager(context) {
         prefs.edit().clear().apply()
         saveCurrentLanguage()
         saveEnabledLanguages()
-        LogUtil.d(TAG, "Reset to default language settings")
+        logD( "Reset to default language settings")
     }
 }
