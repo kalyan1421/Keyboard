@@ -2,12 +2,14 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.util.Log
+import android.util.LruCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * UnifiedAutocorrectEngine - Single engine for all languages (English + Indic)
@@ -32,8 +34,8 @@ class UnifiedAutocorrectEngine(
         private val INDIC_LANGUAGES = listOf("hi", "te", "ta", "ml", "bn", "gu", "kn", "pa", "ur")
     }
 
-    // Cache for suggestions to improve performance
-    private val suggestionCache = ConcurrentHashMap<String, List<Suggestion>>()
+    // LRU cache for suggestions to improve performance (max 500 entries)
+    private val suggestionCache = object : LruCache<String, List<Suggestion>>(500) {}
     private val coroutineScope = CoroutineScope(Dispatchers.Default)
     
     // Corrections map loaded from corrections.json
@@ -60,7 +62,7 @@ class UnifiedAutocorrectEngine(
         languages.forEach { lang ->
             if (!dictionary.isLoaded(lang)) {
                 dictionary.loadLanguage(lang, coroutineScope)
-                Log.d(TAG, "Preloaded dictionary for $lang")
+                LogUtil.d(TAG, "Preloaded dictionary for $lang")
             }
         }
     }
@@ -79,7 +81,7 @@ class UnifiedAutocorrectEngine(
     fun isReady(): Boolean {
         val ready = correctionsMap.isNotEmpty() && dictionary.getLoadedLanguages().isNotEmpty()
         if (!ready) {
-            Log.w(TAG, "⚠️ Engine not ready: corrections=${correctionsMap.size}, langs=${dictionary.getLoadedLanguages()}")
+            LogUtil.w(TAG, "⚠️ Engine not ready: corrections=${correctionsMap.size}, langs=${dictionary.getLoadedLanguages()}")
         }
         return ready
     }
@@ -96,7 +98,7 @@ class UnifiedAutocorrectEngine(
         if (word.isBlank()) return emptyList()
         
         val cacheKey = "$word:$language:${context.joinToString(",")}"
-        suggestionCache[cacheKey]?.let { return it }
+        suggestionCache.get(cacheKey)?.let { return it }
 
         val suggestions = if (language in INDIC_LANGUAGES) {
             getIndicCorrections(word, language, context)
@@ -105,7 +107,7 @@ class UnifiedAutocorrectEngine(
         }
 
         // Cache results for performance
-        suggestionCache[cacheKey] = suggestions
+        suggestionCache.put(cacheKey, suggestions)
         return suggestions
     }
 
@@ -138,10 +140,10 @@ class UnifiedAutocorrectEngine(
         correctionsMap[normalized]?.let { suggestion ->
             // Check if this correction was previously rejected by user
             if (userDictionaryManager?.isBlacklisted(normalized, suggestion.lowercase()) == true) {
-                Log.d(TAG, "🚫 Skipping blacklisted correction '$input' → '$suggestion'")
+                LogUtil.d(TAG, "🚫 Skipping blacklisted correction '$input' → '$suggestion'")
                 return null
             }
-            Log.d(TAG, "✨ Found correction in corrections.json: '$input' → '$suggestion'")
+            LogUtil.d(TAG, "✨ Found correction in corrections.json: '$input' → '$suggestion'")
             return suggestion 
         }
         
@@ -151,69 +153,14 @@ class UnifiedAutocorrectEngine(
             val bestSuggestion = suggestions.first()
             // Check if this suggestion was previously rejected by user
             if (userDictionaryManager?.isBlacklisted(normalized, bestSuggestion.lowercase()) == true) {
-                Log.d(TAG, "🚫 Skipping blacklisted dictionary suggestion '$input' → '$bestSuggestion'")
+                LogUtil.d(TAG, "🚫 Skipping blacklisted dictionary suggestion '$input' → '$bestSuggestion'")
                 return null
             }
             return bestSuggestion
         }
         
-        // PRIORITY 3: Fallback to hardcoded common typo corrections (for backwards compatibility)
-        if (language == "en") {
-            return getCommonTypoCorrection(normalized)
-        }
-        
+        // No fallback needed - all corrections are in corrections.json
         return null
-    }
-    
-    /**
-     * Common typo corrections as a fallback
-     */
-    private fun getCommonTypoCorrection(word: String): String? {
-        return when (word) {
-            "teh" -> "the"
-            "hte" -> "the"
-            "adn" -> "and"
-            "nad" -> "and"
-            "taht" -> "that"
-            "thta" -> "that"
-            "waht" -> "what"
-            "wnat" -> "want"
-            "tiem" -> "time"
-            "thier" -> "their"
-            "thier" -> "their"
-            "recieve" -> "receive"
-            "recive" -> "receive"
-            "seperate" -> "separate"
-            "definately" -> "definitely"
-            "occured" -> "occurred"
-            "begining" -> "beginning"
-            "wich" -> "which"
-            "whcih" -> "which"
-            "freind" -> "friend"
-            "frined" -> "friend"
-            "becuase" -> "because"
-            "becasue" -> "because"
-            "coudl" -> "could"
-            "woudl" -> "would"
-            "shoudl" -> "should"
-            "dont" -> "don't"
-            "cant" -> "can't"
-            "wont" -> "won't"
-            "didnt" -> "didn't"
-            "doesnt" -> "doesn't"
-            "isnt" -> "isn't"
-            "arent" -> "aren't"
-            "wasnt" -> "wasn't"
-            "werent" -> "weren't"
-            "hasnt" -> "hasn't"
-            "havent" -> "haven't"
-            "hadnt" -> "hadn't"
-            "youre" -> "you're"
-            "theyre" -> "they're"
-            "were" -> "we're"
-            "its" -> "it's"  // Only when clearly a contraction
-            else -> null
-        }
     }
 
     /**
@@ -227,7 +174,7 @@ class UnifiedAutocorrectEngine(
             // Path A: Roman input → transliterate → find candidates
             if (transliterationEngine != null && indicScriptHelper?.detectScript(typed) == IndicScriptHelper.Script.LATIN) {
                 val nativeText = transliterationEngine.transliterate(typed)
-                Log.d(TAG, "Transliterating '$typed' → '$nativeText'")
+                LogUtil.d(TAG, "Transliterating '$typed' → '$nativeText'")
 
                 val candidates = dictionary.getCandidates(nativeText, language, 20)
                 candidates.forEach { candidate ->
@@ -248,7 +195,7 @@ class UnifiedAutocorrectEngine(
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting Indic corrections for $typed", e)
+            LogUtil.e(TAG, "Error getting Indic corrections for $typed", e)
         }
 
         return suggestions.distinctBy { it.word.lowercase() }
@@ -322,7 +269,7 @@ class UnifiedAutocorrectEngine(
                 // Base boost of 0.8 + additional 0.05 per usage (capped at +0.5)
                 val usageBoost = kotlin.math.min(usageCount * 0.05, 0.5)
                 score += (0.8 + usageBoost)
-                Log.d(TAG, "👤 User dictionary boost for '$candidate': +${0.8 + usageBoost} (used $usageCount times)")
+                LogUtil.d(TAG, "👤 User dictionary boost for '$candidate': +${0.8 + usageBoost} (used $usageCount times)")
             }
         }
 
@@ -354,7 +301,7 @@ class UnifiedAutocorrectEngine(
             // Return bigram candidates for now
             bigramCandidates.take(limit)
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting next word predictions for '$previousWord'", e)
+            LogUtil.e(TAG, "Error getting next word predictions for '$previousWord'", e)
             emptyList()
         }
     }
@@ -365,7 +312,7 @@ class UnifiedAutocorrectEngine(
     fun addUserWord(word: String, language: String = "en", frequency: Int = 1) {
         try {
             if (word.isBlank() || word.length < 2) {
-                Log.w(TAG, "⚠️ Word too short to add: '$word'")
+                LogUtil.w(TAG, "⚠️ Word too short to add: '$word'")
                 return
             }
             
@@ -375,9 +322,9 @@ class UnifiedAutocorrectEngine(
             // Clear cache to ensure new word appears in suggestions
             clearCache()
             
-            Log.d(TAG, "✅ Added user word: '$word' ($language)")
+            LogUtil.d(TAG, "✅ Added user word: '$word' ($language)")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error adding user word '$word'", e)
+            LogUtil.e(TAG, "❌ Error adding user word '$word'", e)
         }
     }
 
@@ -399,9 +346,9 @@ class UnifiedAutocorrectEngine(
                 correctionsMap[originalWord.lowercase()] = correctedWord.lowercase()
             }
             
-            Log.d(TAG, "✨ Learned: '$originalWord' → '$correctedWord' for $language")
+            LogUtil.d(TAG, "✨ Learned: '$originalWord' → '$correctedWord' for $language")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error learning correction", e)
+            LogUtil.e(TAG, "❌ Error learning correction", e)
         }
     }
 
@@ -433,14 +380,14 @@ class UnifiedAutocorrectEngine(
      */
     fun processBoundary(context: List<String>, language: String = "en") {
         // Update context for next predictions
-        Log.d(TAG, "Processing boundary with context: ${context.takeLast(2)}")
+        LogUtil.d(TAG, "Processing boundary with context: ${context.takeLast(2)}")
     }
 
     /**
      * Set locale for the engine
      */
     fun setLocale(language: String) {
-        Log.d(TAG, "Locale set to: $language")
+        LogUtil.d(TAG, "Locale set to: $language")
         if (!isLanguageLoaded(language)) {
             dictionary.loadLanguage(language, coroutineScope)
         }
@@ -479,7 +426,7 @@ class UnifiedAutocorrectEngine(
         return try {
             getCorrections(input, language, emptyList()).take(3).map { it.word }
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting swipe suggestions for '$input'", e)
+            LogUtil.e(TAG, "Error getting swipe suggestions for '$input'", e)
             emptyList()
         }
     }
@@ -496,7 +443,7 @@ class UnifiedAutocorrectEngine(
      */
     fun clearCache() {
         suggestionCache.clear()
-        Log.d(TAG, "Suggestion cache cleared")
+        LogUtil.d(TAG, "Suggestion cache cleared")
     }
 
     /**
@@ -615,11 +562,11 @@ class UnifiedAutocorrectEngine(
                 }
                 
                 withContext(Dispatchers.Main) {
-                    Log.d(TAG, "✅ Loaded $count corrections from corrections.json")
-                    Log.d(TAG, "✅ Engine ready [corrections=$count, langs=${dictionary.getLoadedLanguages()}]")
+                    LogUtil.d(TAG, "✅ Loaded $count corrections from corrections.json")
+                    LogUtil.d(TAG, "✅ Engine ready [corrections=$count, langs=${dictionary.getLoadedLanguages()}]")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to load corrections.json", e)
+                LogUtil.e(TAG, "❌ Failed to load corrections.json", e)
             }
         }
     }
@@ -638,9 +585,9 @@ class UnifiedAutocorrectEngine(
                 learnFromUser(originalWord, acceptedWord, language)
             }
             
-            Log.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord'")
+            LogUtil.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord'")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error processing accepted correction", e)
+            LogUtil.e(TAG, "❌ Error processing accepted correction", e)
         }
     }
 }
