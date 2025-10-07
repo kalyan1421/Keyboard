@@ -10,7 +10,7 @@
     <LinearLayout
         android:id="@+id/emojiToolbar"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="56dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="12dp"
@@ -18,40 +18,48 @@
 
         <ImageView
             android:id="@+id/emojiSearchBtn"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center_vertical"
             android:contentDescription="@string/emoji_search"
-            android:src="@android:drawable/ic_menu_search"/>
+            android:src="@android:drawable/ic_menu_search"
+            android:padding="2dp"/>
 
         <EditText
             android:id="@+id/emojiSearchInput"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+            android:layout_gravity="center_vertical"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
             android:hint="@string/search_emojis"
-            android:textSize="14sp"
+            android:textSize="15sp"
             android:background="@null"
             android:inputType="text"
             android:imeOptions="actionSearch"
             android:maxLines="1"/>
 
-        <!-- Tone chip entry point -->
+        <!-- Skin tone button -->
         <ImageView
             android:id="@+id/emojiToneBtn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center_vertical"
             android:contentDescription="@string/emoji_skin_tone"
             android:src="@android:drawable/ic_menu_edit"
-            android:padding="4dp"/>
+            android:padding="4dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackgroundBorderless"/>
     </LinearLayout>
 
     <!-- Categories (fixed under toolbar) -->
     <HorizontalScrollView
         android:id="@+id/emojiCategoriesScroll"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="48dp"
         android:fillViewport="false"
         android:overScrollMode="never"
         android:scrollbars="none">
@@ -61,8 +69,10 @@
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:orientation="horizontal"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
             android:gravity="center_vertical"/>
     </HorizontalScrollView>
 
@@ -78,59 +88,52 @@
         android:paddingTop="4dp"
         android:clipToPadding="false"/>
 
-    <!-- Minimal footer: ABC | Space | Send | Delete -->
+    <!-- Simplified footer: ABC (left) | Delete (right) -->
     <LinearLayout
         android:id="@+id/emojiFooter"
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:orientation="horizontal"
-        android:gravity="center"
+        android:gravity="center_vertical"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
-        android:paddingTop="4dp">
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
 
+        <!-- ABC Button - Left side, transparent background -->
         <TextView
             android:id="@+id/btnEmojiToABC"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:text="@string/abc"
+            android:minWidth="80dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="ABC"
             android:gravity="center"
-            android:textSize="16sp"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true"
             android:contentDescription="@string/abc"/>
 
-        <TextView
-            android:id="@+id/btnEmojiSpace"
+        <!-- Spacer to push Delete button to the right -->
+        <View
             android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="2"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
-            android:text="@string/space"
-            android:gravity="center"
-            android:textSize="16sp"
-            android:contentDescription="@string/space"/>
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
 
-        <ImageView
-            android:id="@+id/btnEmojiSend"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
-            android:padding="10dp"
-            android:src="@android:drawable/ic_menu_send"
-            android:contentDescription="@string/send"/>
-
+        <!-- Delete Button - Right side -->
         <ImageView
             android:id="@+id/btnEmojiDelete"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:padding="10dp"
+            android:minWidth="60dp"
+            android:padding="12dp"
             android:src="@android:drawable/ic_input_delete"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/delete"/>
     </LinearLayout>
 </LinearLayout>

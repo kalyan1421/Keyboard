@@ -217,7 +217,6 @@ class CapsShiftManager(
         if (currentState != STATE_NORMAL) {
             currentState = STATE_NORMAL
             onStateChangedListener?.invoke(currentState)
-            Log.d(TAG, "Shift state reset to normal")
         }
     }
     

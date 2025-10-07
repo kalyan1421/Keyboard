@@ -116,6 +116,26 @@ class MainActivity : FlutterActivity() {
                                 }
                                 result.success(true)
                             }
+                            "updateTheme" -> {
+                                // Unified theme update from Flutter with specific color values
+                                val keyboardBg = call.argument<String>("keyboard_theme_bg")
+                                val keyColor = call.argument<String>("keyboard_key_color")
+                                
+                                LogUtil.d("MainActivity", "🎨 updateTheme called: bg=$keyboardBg, key=$keyColor")
+                                
+                                withContext(Dispatchers.IO) {
+                                    val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+                                    prefs.edit().apply {
+                                        keyboardBg?.let { putString("keyboard_theme_bg", it) }
+                                        keyColor?.let { putString("keyboard_key_color", it) }
+                                        apply()
+                                    }
+                                    
+                                    // Notify keyboard service to apply theme to panels
+                                    notifyKeyboardServiceThemeChanged()
+                                }
+                                result.success(true)
+                            }
                             "settingsChanged" -> {
                                 LogUtil.d("MainActivity", "Settings changed broadcast requested")
                                 withContext(Dispatchers.IO) {

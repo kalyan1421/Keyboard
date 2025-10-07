@@ -36,6 +36,9 @@ class ClipboardPanel(
         try {
             val contentView = createContentView(items)
             
+            // Use unified theme color from ThemeManager
+            val bgColor = themeManager.getKeyboardBackgroundColor()
+            
             popupWindow = PopupWindow(
                 contentView,
                 (context.resources.displayMetrics.widthPixels * 0.9).toInt(),
@@ -48,7 +51,7 @@ class ClipboardPanel(
                 // Set other properties  
                 isOutsideTouchable = true
                 isFocusable = false  // Don't steal focus from keyboard
-                setBackgroundDrawable(themeManager.createKeyboardBackground())
+                setBackgroundDrawable(android.graphics.drawable.ColorDrawable(bgColor))
                 elevation = 8f
                 
                 // Show above the anchor view
@@ -95,11 +98,13 @@ class ClipboardPanel(
     }
     
     private fun createContentView(items: List<ClipboardItem>): View {
-        val palette = themeManager.getCurrentPalette()
+        // Use unified theme colors from ThemeManager
+        val bgColor = themeManager.getKeyboardBackgroundColor()
+        val textColor = themeManager.getTextColor()
         
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(palette.keyboardBg)
+            setBackgroundColor(bgColor)
             setPadding(16, 16, 16, 16)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -111,7 +116,7 @@ class ClipboardPanel(
         val header = TextView(context).apply {
             text = "Clipboard History"
             textSize = 18f
-            setTextColor(palette.keyText)
+            setTextColor(textColor)
             setPadding(0, 0, 0, 16)
             gravity = android.view.Gravity.CENTER
         }
@@ -122,7 +127,7 @@ class ClipboardPanel(
             val emptyText = TextView(context).apply {
                 text = "No clipboard history yet.\nCopy some text to get started!"
                 textSize = 14f
-                setTextColor(palette.keyText)
+                setTextColor(textColor)
                 gravity = android.view.Gravity.CENTER
                 setPadding(32, 32, 32, 32)
             }
@@ -142,7 +147,7 @@ class ClipboardPanel(
             
             // Add items (limit to first 8 for performance)
             items.take(8).forEachIndexed { index, item ->
-                val itemView = createItemView(item, palette)
+                val itemView = createItemView(item, textColor)
                 itemsContainer.addView(itemView)
                 
                 // Add divider between items
@@ -151,7 +156,14 @@ class ClipboardPanel(
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT, 1
                         )
-                        setBackgroundColor(android.graphics.Color.GRAY)
+                        // Use semi-transparent text color for subtle divider
+                        val dividerColor = android.graphics.Color.argb(
+                            32, 
+                            android.graphics.Color.red(textColor), 
+                            android.graphics.Color.green(textColor), 
+                            android.graphics.Color.blue(textColor)
+                        )
+                        setBackgroundColor(dividerColor)
                     }
                     itemsContainer.addView(divider)
                 }
@@ -164,7 +176,7 @@ class ClipboardPanel(
         return container
     }
     
-    private fun createItemView(item: ClipboardItem, palette: com.example.ai_keyboard.themes.ThemePaletteV2): View {
+    private fun createItemView(item: ClipboardItem, textColor: Int): View {
         val itemLayout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(12, 12, 12, 12)
@@ -186,7 +198,7 @@ class ClipboardPanel(
             val prefix = if (item.isOTP()) "🔢 OTP: " else "📋 "
             text = "$prefix${item.getPreview(40)}"
             textSize = 14f
-            setTextColor(palette.keyText)
+            setTextColor(textColor)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(

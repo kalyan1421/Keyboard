@@ -518,8 +518,17 @@ class FlutterThemeManager extends ChangeNotifier {
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const platform = MethodChannel('ai_keyboard/config');
-        await platform.invokeMethod('notifyConfigChange'); // Use unified method
-        debugPrint('✓ Successfully notified Android of theme change (attempt $attempt)');
+        
+        // Send unified theme update with specific color values for panels
+        await platform.invokeMethod('updateTheme', {
+          'keyboard_theme_bg': '#${_currentTheme.backgroundColor.value.toRadixString(16).padLeft(8, '0')}',
+          'keyboard_key_color': '#${_currentTheme.keyBackgroundColor.value.toRadixString(16).padLeft(8, '0')}',
+        });
+        
+        // Also send general config change notification for other components
+        await platform.invokeMethod('notifyConfigChange');
+        
+        debugPrint('✓ Successfully notified Android of theme change with unified colors (attempt $attempt)');
         return; // Success, exit retry loop
       } catch (e) {
         debugPrint('⚠ Failed to notify theme change (attempt $attempt): $e');

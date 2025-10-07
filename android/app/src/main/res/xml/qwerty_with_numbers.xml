@@ -74,17 +74,17 @@
              android:isModifier="true" 
              android:isSticky="true" 
              android:keyEdgeFlags="left"/>
-        <Key android:codes="122" android:keyLabel="z" android:keyWidth="8.5%p"/>
-        <Key android:codes="120" android:keyLabel="x" android:keyWidth="8.5%p"/>
-        <Key android:codes="99" android:keyLabel="c" android:keyWidth="8.5%p" 
+        <Key android:codes="122" android:keyLabel="z" android:keyWidth="10%p"/>
+               <Key android:codes="120" android:keyLabel="x" android:keyWidth="10%p"/>
+        <Key android:codes="99" android:keyLabel="c" android:keyWidth="10%p" 
              android:popupCharacters="çćčĉ©"/>
-        <Key android:codes="118" android:keyLabel="v" android:keyWidth="8.5%p"
+        <Key android:codes="118" android:keyLabel="v" android:keyWidth="10%p"
              android:popupCharacters="ν"/>
-        <Key android:codes="98" android:keyLabel="b" android:keyWidth="8.5%p"
+        <Key android:codes="98" android:keyLabel="b" android:keyWidth="10%p"
              android:popupCharacters="β"/>
-        <Key android:codes="110" android:keyLabel="n" android:keyWidth="8.5%p" 
+          <Key android:codes="110" android:keyLabel="n" android:keyWidth="10%p" 
              android:popupCharacters="ñńņňŋη"/>
-        <Key android:codes="109" android:keyLabel="m" android:keyWidth="8.5%p"
+        <Key android:codes="109" android:keyLabel="m" android:keyWidth="10%p"
              android:popupCharacters="μ"/>
         <Key android:codes="-5" 
              android:keyIcon="@drawable/sym_keyboard_delete" 

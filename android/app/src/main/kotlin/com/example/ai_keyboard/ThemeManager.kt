@@ -707,6 +707,52 @@ class ThemeManager(context: Context) : BaseManager(context) {
             listeners.clear()
     }
     
+    // ===== UNIFIED THEME COLOR ACCESSORS FOR PANELS =====
+    
+    /**
+     * Get keyboard background color for panels to match main keyboard
+     * Single source of truth for all panel backgrounds
+     */
+    fun getKeyboardBackgroundColor(): Int {
+        val theme = getCurrentTheme()
+        return theme.background.color ?: getCurrentPalette().keyboardBg
+    }
+    
+    /**
+     * Get key background color for panel UI elements
+     */
+    fun getKeyColor(): Int {
+        return getCurrentPalette().keyBg
+    }
+    
+    /**
+     * Get text color for panel content
+     */
+    fun getTextColor(): Int {
+        return getCurrentPalette().keyText
+    }
+    
+    /**
+     * Get pressed/accent color for panel interactions
+     */
+    fun getAccentColor(): Int {
+        return getCurrentPalette().specialAccent
+    }
+    
+    /**
+     * Get toolbar background color
+     */
+    fun getToolbarBackgroundColor(): Int {
+        return getCurrentPalette().toolbarBg
+    }
+    
+    /**
+     * Get suggestion bar background color
+     */
+    fun getSuggestionBackgroundColor(): Int {
+        return getCurrentPalette().suggestionBg
+    }
+    
     // ===== LEGACY COMPATIBILITY =====
     
 }

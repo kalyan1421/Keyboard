@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="8dp">
+
+    <!-- Tone Chips -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+        
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <Button
+                android:id="@+id/btnFunny"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="😄 Funny"
+                android:textSize="14sp"
+                android:paddingHorizontal="16dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/action_button_background"/>
+
+            <Button
+                android:id="@+id/btnPoetic"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="✨ Poetic"
+                android:textSize="14sp"
+                android:paddingHorizontal="16dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/action_button_background"/>
+
+            <Button
+                android:id="@+id/btnShorten"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="📝 Shorten"
+                android:textSize="14sp"
+                android:paddingHorizontal="16dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/action_button_background"/>
+
+            <Button
+                android:id="@+id/btnSarcastic"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="😏 Sarcastic"
+                android:textSize="14sp"
+                android:paddingHorizontal="16dp"
+                android:background="@drawable/action_button_background"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Result Output -->
+    <TextView
+        android:id="@+id/toneOutput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="80dp"
+        android:hint="Tone-adjusted text will appear here..."
+        android:textColorHint="@color/kb_text_secondary"
+        android:textColor="@color/kb_text_primary"
+        android:textSize="16sp"
+        android:padding="12dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/input_text_background"/>
+
+    <!-- Replace Button -->
+    <Button
+        android:id="@+id/btnReplaceToneText"
+        android:text="Replace Text"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:layout_gravity="end"
+        android:layout_marginTop="12dp"
+        android:paddingHorizontal="24dp"
+        android:background="@drawable/action_button_background"/>
+
+</LinearLayout>
+

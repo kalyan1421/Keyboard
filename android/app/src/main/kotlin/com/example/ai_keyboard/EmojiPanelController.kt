@@ -51,12 +51,9 @@ class EmojiPanelController(
     private var root: View? = null
     private var emojiGrid: RecyclerView? = null
     private var btnABC: TextView? = null
-    private var btnSpace: TextView? = null
-    private var btnSend: ImageView? = null
     private var btnDelete: ImageView? = null
     private var emojiSearchInput: EditText? = null
     private var emojiCategories: LinearLayout? = null
-    private var emojiToneBtn: ImageView? = null
     
     private val mainHandler = Handler(Looper.getMainLooper())
     private var deleteRepeatRunnable: Runnable? = null
@@ -77,12 +74,10 @@ class EmojiPanelController(
         // Find views
         emojiGrid = root!!.findViewById(R.id.emojiGrid)
         btnABC = root!!.findViewById(R.id.btnEmojiToABC)
-        btnSpace = root!!.findViewById(R.id.btnEmojiSpace)
-        btnSend = root!!.findViewById(R.id.btnEmojiSend)
         btnDelete = root!!.findViewById(R.id.btnEmojiDelete)
         emojiSearchInput = root!!.findViewById(R.id.emojiSearchInput)
         emojiCategories = root!!.findViewById(R.id.emojiCategories)
-        emojiToneBtn = root!!.findViewById(R.id.emojiToneBtn)
+        
         
         // Set keyboard height to match normal keyboard
         val keyboardHeight = getKeyboardHeight()
@@ -125,62 +120,33 @@ class EmojiPanelController(
     }
     
     private fun setupFooterButtons() {
-        // ABC button - return to letters
+        // ABC button - return to normal keyboard (transparent background)
         btnABC?.setOnClickListener {
             LogUtil.d(TAG, "ABC button clicked - returning to letters")
             onBackToLetters()
         }
         
-        // Space button - insert space
-        btnSpace?.setOnClickListener {
-            LogUtil.d(TAG, "Space button clicked")
-            inputConnectionProvider()?.commitText(" ", 1)
-        }
-        
-        // Send/Done button - context-aware action
-        btnSend?.setOnClickListener {
-            val ic = inputConnectionProvider()
-            try {
-                // Try to perform editor action (Send/Done)
-                val performed = ic?.performEditorAction(EditorInfo.IME_ACTION_SEND) ?: false
-                if (!performed) {
-                    // Fallback: try DONE action
-                    val donePerformed = ic?.performEditorAction(EditorInfo.IME_ACTION_DONE) ?: false
-                    if (!donePerformed) {
-                        // Final fallback: insert newline
-                        LogUtil.d(TAG, "Send button - inserting newline (fallback)")
-                        ic?.commitText("\n", 1)
-                    } else {
-                        LogUtil.d(TAG, "Send button - performed DONE action")
-                    }
-                } else {
-                    LogUtil.d(TAG, "Send button - performed SEND action")
-                }
-            } catch (e: Exception) {
-                LogUtil.e(TAG, "Error performing send action", e)
-                ic?.commitText("\n", 1)
-            }
-        }
-        
         // Delete button - backspace with long-press repeat
-        btnDelete?.setOnClickListener {
-            backspaceOnce()
-        }
-        
-        btnDelete?.setOnLongClickListener {
-            startDeleteRepeat()
-            true
-        }
-        
         btnDelete?.setOnTouchListener { view, event ->
             when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    LogUtil.d(TAG, "🗑️ Delete button touched")
+                    backspaceOnce() // Delete once immediately
+                    false // Allow long press to be detected
+                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    LogUtil.d(TAG, "🗑️ Delete button released")
                     stopDeleteRepeat()
-                    view.performClick()
                     false
                 }
                 else -> false
             }
+        }
+        
+        btnDelete?.setOnLongClickListener {
+            LogUtil.d(TAG, "🗑️ Delete button long-pressed - starting repeat")
+            startDeleteRepeat()
+            true // Consume the long press event
         }
         
         LogUtil.d(TAG, "Footer buttons wired successfully (including Send/Done)")
@@ -202,11 +168,7 @@ class EmojiPanelController(
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
         
-        // Skin tone button
-        emojiToneBtn?.setOnClickListener {
-            LogUtil.d(TAG, "Skin tone button clicked")
-            showSkinToneBottomSheet()
-        }
+        
         
         // Setup category tabs
         setupCategories()
@@ -231,11 +193,11 @@ class EmojiPanelController(
         categories.forEachIndexed { index, (icon, name) ->
             val categoryBtn = TextView(context).apply {
                 text = icon
-                textSize = 20f
+                textSize = 24f
                 gravity = Gravity.CENTER
-                val size = dpToPx(32)
+                val size = dpToPx(40)
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                    setMargins(dpToPx(4), 0, dpToPx(4), 0)
+                    setMargins(dpToPx(6), 0, dpToPx(6), 0)
                 }
                 tag = name  // Store category name for reference
                 alpha = if (index == 0) 1.0f else 0.6f  // First one selected
@@ -286,20 +248,11 @@ class EmojiPanelController(
             
             // 5. Apply icon tints
             root?.findViewById<ImageView>(R.id.emojiSearchBtn)?.setColorFilter(palette.keyText)
-            emojiToneBtn?.setColorFilter(palette.keyText)
-            btnSend?.setColorFilter(palette.keyText)
+            
             btnDelete?.setColorFilter(palette.keyText)
             
-            // 6. Apply button backgrounds using ThemeManager
-            val keyDrawable = themeManager.createKeyDrawable()
-            btnABC?.background = keyDrawable.constantState?.newDrawable()?.mutate()
-            btnSpace?.background = keyDrawable.constantState?.newDrawable()?.mutate()
-            btnSend?.background = keyDrawable.constantState?.newDrawable()?.mutate()
-            btnDelete?.background = keyDrawable.constantState?.newDrawable()?.mutate()
-            
-            // 7. Apply button text colors
+            // 6. Apply button text colors (ABC button has transparent background)
             btnABC?.setTextColor(palette.keyText)
-            btnSpace?.setTextColor(palette.keyText)
             
             // 8. Apply footer background
             root?.findViewById<View>(R.id.emojiFooter)?.setBackgroundColor(palette.keyboardBg)
@@ -358,7 +311,20 @@ class EmojiPanelController(
             else -> emoji
         }
         
-        inputConnectionProvider()?.commitText(finalEmoji, 1)
+        // Log detailed emoji information for debugging
+        LogUtil.d(TAG, "About to insert emoji: '$finalEmoji'")
+        LogUtil.d(TAG, "  - Emoji length: ${finalEmoji.length}")
+        LogUtil.d(TAG, "  - Emoji codepoints: ${finalEmoji.codePoints().toArray().joinToString(",") { "U+${it.toString(16).uppercase()}" }}")
+        LogUtil.d(TAG, "  - Emoji bytes: ${finalEmoji.toByteArray(Charsets.UTF_8).joinToString(",") { it.toString() }}")
+        
+        val ic = inputConnectionProvider()
+        if (ic != null) {
+            // Commit as CharSequence to ensure proper encoding
+            ic.commitText(finalEmoji as CharSequence, 1)
+            LogUtil.d(TAG, "✅ Successfully committed emoji via InputConnection")
+        } else {
+            LogUtil.e(TAG, "❌ InputConnection is null, cannot insert emoji")
+        }
         
         // Update emoji history (LRU)
         updateEmojiHistory(prefs, finalEmoji)
@@ -563,7 +529,17 @@ class EmojiPanelController(
     }
     
     private fun backspaceOnce() {
-        inputConnectionProvider()?.deleteSurroundingText(1, 0)
+        try {
+            val ic = inputConnectionProvider()
+            if (ic != null) {
+                ic.deleteSurroundingText(1, 0)
+                LogUtil.d(TAG, "✅ Deleted 1 character via inputConnection")
+            } else {
+                LogUtil.e(TAG, "❌ InputConnection is null, cannot delete")
+            }
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "❌ Error deleting character: ${e.message}")
+        }
     }
     
     private fun startDeleteRepeat() {
@@ -670,20 +646,21 @@ class EmojiPanelController(
         // Match the letters keyboard height exactly
         // Letters keyboard: 5 rows (or 6 with number row) × 50dp key_height + gaps + padding
         val isLandscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val keyHeight = context.resources.getDimensionPixelSize(R.dimen.key_height) // 50dp
+        val keyHeight = context.resources.getDimensionPixelSize(R.dimen.key_height)
         val rows = 5 // Standard: 4 letter rows + 1 bottom row
-        val verticalGap = context.resources.getDimensionPixelSize(R.dimen.keyboard_vertical_gap) // 2dp
-        val padding = context.resources.getDimensionPixelSize(R.dimen.keyboard_padding) // 4dp
-        val suggestionBarHeight = context.resources.getDimensionPixelSize(R.dimen.suggestion_bar_height) // 36dp
+        val verticalGap = context.resources.getDimensionPixelSize(R.dimen.keyboard_vertical_gap)
+        val paddingTop = context.resources.getDimensionPixelSize(R.dimen.keyboard_padding_top)
+        val paddingBottom = context.resources.getDimensionPixelSize(R.dimen.keyboard_padding_bottom)
+        val suggestionBarHeight = context.resources.getDimensionPixelSize(R.dimen.suggestion_bar_height)
         
         // Calculate total keyboard height = suggestion bar + (rows × key height) + (rows-1 × gaps) + padding
-        val calculatedHeight = suggestionBarHeight + (rows * keyHeight) + ((rows - 1) * verticalGap) + (padding * 2)
+        val calculatedHeight = suggestionBarHeight + (rows * keyHeight) + ((rows - 1) * verticalGap) + paddingTop + paddingBottom
         
         LogUtil.d(TAG, "Keyboard height calculation:")
         LogUtil.d(TAG, "  - Key height: ${keyHeight}px")
         LogUtil.d(TAG, "  - Rows: $rows")
         LogUtil.d(TAG, "  - Vertical gap: ${verticalGap}px")
-        LogUtil.d(TAG, "  - Padding: ${padding}px")
+        LogUtil.d(TAG, "  - Padding top: ${paddingTop}px, bottom: ${paddingBottom}px")
         LogUtil.d(TAG, "  - Suggestion bar: ${suggestionBarHeight}px")
         LogUtil.d(TAG, "  - Calculated: ${calculatedHeight}px")
         
@@ -805,10 +782,7 @@ class EmojiPanelController(
         popup.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         popup.elevation = dpToPx(8).toFloat()
         
-        // Show popup above the tone button
-        emojiToneBtn?.let { btn ->
-            popup.showAsDropDown(btn, -dpToPx(120), -dpToPx(400))
-        }
+        
         
         LogUtil.d(TAG, "Skin tone selector opened")
     }
@@ -850,6 +824,12 @@ class EmojiPanelController(
                 gravity = Gravity.CENTER
                 val size = (parent.context.resources.displayMetrics.density * 40).toInt()
                 layoutParams = ViewGroup.LayoutParams(size, size)
+                
+                // Explicitly use system emoji font
+                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
+                
+                // Enable emoji rendering optimizations
+                includeFontPadding = false
             }
             return EmojiViewHolder(textView)
         }

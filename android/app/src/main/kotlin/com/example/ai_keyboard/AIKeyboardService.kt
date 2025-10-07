@@ -224,6 +224,11 @@ class AIKeyboardService : InputMethodService(),
     private var isAIPanelVisible = false
     private var currentAIOriginalText = ""
     
+    // Track panel views for theme updates
+    private var currentGrammarPanelView: View? = null
+    private var currentTonePanelView: View? = null
+    private var currentAIAssistantPanelView: View? = null
+    
     // Keyboard state
     private var caps = false
     private var lastShiftTime = 0L
@@ -1522,11 +1527,11 @@ class AIKeyboardService : InputMethodService(),
         // Create 3 equal-weight text suggestions (CleverType style)
         repeat(3) { index ->
             val suggestion = TextView(this).apply {
-                setTextColor(palette.suggestionText)
+                setTextColor(palette.keyText) // Use keyText for better visibility
                 textSize = 14f
                 setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
                 gravity = Gravity.CENTER
-                setBackgroundColor(Color.TRANSPARENT) // NO chip background
+                setBackgroundColor(Color.TRANSPARENT) // Intentionally transparent for text-only suggestions
                 isClickable = true
                 isFocusable = true
                 ellipsize = TextUtils.TruncateAt.END // Handle long text
@@ -1712,7 +1717,7 @@ class AIKeyboardService : InputMethodService(),
             aiReplaceButton = android.widget.Button(this).apply {
                 text = "Replace Text"
                 textSize = 16f
-                setTextColor(Color.WHITE)
+                setTextColor(themeManager.getTextColor())
                 setTypeface(null, Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1773,10 +1778,8 @@ class AIKeyboardService : InputMethodService(),
             context = this,
             themeManager = themeManager,
             onBackToLetters = {
-                // Return to letters layout
-                if (isEmojiPanelVisible) {
-                    toggleEmojiPanel()
-                }
+                // Return to normal keyboard (same as other panels)
+                restoreKeyboardFromPanel()
             },
             inputConnectionProvider = { currentInputConnection }
         )
@@ -2445,6 +2448,7 @@ class AIKeyboardService : InputMethodService(),
         keyboardView?.let { view ->
             // Apply theme using comprehensive ThemeManager
             val theme = themeManager.getCurrentTheme()
+            val palette = themeManager.getCurrentPalette()
             
             // Set keyboard background
             val backgroundDrawable = themeManager.createKeyboardBackground()
@@ -2453,14 +2457,21 @@ class AIKeyboardService : InputMethodService(),
             // The SwipeKeyboardView will request paint objects from ThemeManager
             if (view is SwipeKeyboardView) {
                 view.setThemeManager(themeManager)
+                view.refreshTheme()
+                // Explicitly set background color to ensure consistency
+                view.setBackgroundColor(palette.keyboardBg)
+                Log.d(TAG, "[AIKeyboard] Theme applied to keyboard and swipe view - Keyboard BG: ${Integer.toHexString(palette.keyboardBg)}")
             }
             
             // Force redraw with new theme
             view.invalidateAllKeys()
             view.invalidate()
+            view.requestLayout()
             
             // Streamlined theme application log
             Log.d(TAG, "Applied theme: ${theme.name} (${theme.id})")
+        } ?: run {
+            Log.w(TAG, "[AIKeyboard] keyboardView is null, cannot apply theme")
         }
     }
 
@@ -2481,6 +2492,8 @@ class AIKeyboardService : InputMethodService(),
                 if (view is SwipeKeyboardView) {
                     view.setThemeManager(themeManager)
                     view.refreshTheme()
+                    // Explicitly set background color to ensure consistency
+                    view.setBackgroundColor(palette.keyboardBg)
                     
                     // Force complete repaint of all keys
                     view.invalidateAllKeys()
@@ -2494,7 +2507,7 @@ class AIKeyboardService : InputMethodService(),
                     }, 50)
                 }
                 
-                Log.d(TAG, "✅ Keyboard view themed with V2 system")
+                Log.d(TAG, "✅ Keyboard view themed with V2 system - Keyboard BG: ${Integer.toHexString(palette.keyboardBg)}")
             }
             
             // 2. Update suggestion bar with V2 theming (SIMPLIFIED: text-only)
@@ -2507,8 +2520,8 @@ class AIKeyboardService : InputMethodService(),
                 for (i in 0 until container.childCount) {
                     val child = container.getChildAt(i)
                     if (child is TextView) {
-                        // Only update text color - auto-contrast
-                        child.setTextColor(palette.suggestionText)
+                        // Use keyText color for better visibility
+                        child.setTextColor(palette.keyText)
                         child.setBackgroundColor(Color.TRANSPARENT)
                     }
                 }
@@ -2562,6 +2575,9 @@ class AIKeyboardService : InputMethodService(),
             
             // 7. Update keyboard container background
             keyboardContainer?.background = themeManager.createKeyboardBackground()
+            
+            // 8. Update AI feature panels to match keyboard theme
+            applyThemeToPanels()
             
             Log.d(TAG, "🎨 Complete theme application finished successfully")
             
@@ -2695,6 +2711,103 @@ class AIKeyboardService : InputMethodService(),
             textView.setTextColor(toColor)
         }
     }
+    
+    /**
+     * Apply unified theme colors to all AI feature panels
+     * Called when theme changes to ensure panels match keyboard background
+     */
+    private fun applyThemeToPanels() {
+        try {
+            // Get unified colors from ThemeManager
+            val bgColor = themeManager.getKeyboardBackgroundColor()
+            val textColor = themeManager.getTextColor()
+            val keyColor = themeManager.getKeyColor()
+            val strokeColor = Color.argb(50, Color.red(textColor), Color.green(textColor), Color.blue(textColor))
+            
+            // Update Grammar Panel if visible
+            currentGrammarPanelView?.let { view ->
+                view.setBackgroundColor(bgColor)
+                view.findViewById<TextView>(R.id.grammarOutput)?.apply {
+                    setTextColor(textColor)
+                    setHintTextColor(Color.argb(128, Color.red(textColor), Color.green(textColor), Color.blue(textColor)))
+                    background = createRoundedTextAreaDrawable(keyColor, strokeColor)
+                }
+                
+                // Style all buttons with rounded corners
+                listOf(
+                    R.id.btnRephrase,
+                    R.id.btnGrammarFix,
+                    R.id.btnAddEmojis,
+                    R.id.btnReplaceText
+                ).forEach { buttonId ->
+                    view.findViewById<Button>(buttonId)?.apply {
+                        setTextColor(textColor)
+                        background = createRoundedButtonDrawable(keyColor, strokeColor)
+                    }
+                }
+                Log.d(TAG, "✅ Grammar panel themed with unified colors")
+            }
+            
+            // Update Tone Panel if visible
+            currentTonePanelView?.let { view ->
+                view.setBackgroundColor(bgColor)
+                view.findViewById<TextView>(R.id.toneOutput)?.apply {
+                    setTextColor(textColor)
+                    setHintTextColor(Color.argb(128, Color.red(textColor), Color.green(textColor), Color.blue(textColor)))
+                    background = createRoundedTextAreaDrawable(keyColor, strokeColor)
+                }
+                
+                // Style all buttons with rounded corners
+                listOf(
+                    R.id.btnFunny,
+                    R.id.btnPoetic,
+                    R.id.btnShorten,
+                    R.id.btnSarcastic,
+                    R.id.btnReplaceToneText
+                ).forEach { buttonId ->
+                    view.findViewById<Button>(buttonId)?.apply {
+                        setTextColor(textColor)
+                        background = createRoundedButtonDrawable(keyColor, strokeColor)
+                    }
+                }
+                Log.d(TAG, "✅ Tone panel themed with unified colors")
+            }
+            
+            // Update AI Assistant Panel if visible
+            currentAIAssistantPanelView?.let { view ->
+                view.setBackgroundColor(bgColor)
+                view.findViewById<TextView>(R.id.aiOutput)?.apply {
+                    setTextColor(textColor)
+                    setHintTextColor(Color.argb(128, Color.red(textColor), Color.green(textColor), Color.blue(textColor)))
+                    background = createRoundedTextAreaDrawable(keyColor, strokeColor)
+                }
+                
+                // Style all buttons with rounded corners
+                listOf(
+                    R.id.btnChatGPT,
+                    R.id.btnHumanize,
+                    R.id.btnReply,
+                    R.id.btnIdioms,
+                    R.id.btnReplaceAIText
+                ).forEach { buttonId ->
+                    view.findViewById<Button>(buttonId)?.apply {
+                        setTextColor(textColor)
+                        background = createRoundedButtonDrawable(keyColor, strokeColor)
+                    }
+                }
+                Log.d(TAG, "✅ AI Assistant panel themed with unified colors")
+            }
+            
+            // Update ClipboardPanel if it exists
+            clipboardPanel?.let {
+                // ClipboardPanel will fetch theme colors from ThemeManager when shown
+                Log.d(TAG, "✅ Clipboard panel will use unified theme on next show")
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying theme to panels", e)
+        }
+    }
 
     // Add visual confirmation of theme change
     private fun showThemeChangeConfirmation() {
@@ -2788,7 +2901,7 @@ class AIKeyboardService : InputMethodService(),
             for (i in 0 until container.childCount) {
                 val child = container.getChildAt(i)
                 if (child is TextView) {
-                    child.setTextColor(palette.suggestionText)
+                    child.setTextColor(palette.keyText)
                     child.setBackgroundColor(Color.TRANSPARENT)
                 }
             }
@@ -2810,7 +2923,7 @@ class AIKeyboardService : InputMethodService(),
                 firstSuggestion?.apply {
                     val themeName = themeManager.getCurrentTheme().name
                     text = "✨ Theme: $themeName"
-                    setTextColor(Color.parseColor("#4CAF50"))
+                    setTextColor(themeManager.getAccentColor()) // Use theme accent for success message
                     visibility = View.VISIBLE
                 }
                 
@@ -2824,8 +2937,12 @@ class AIKeyboardService : InputMethodService(),
     
     
     private fun getThemeTextColor(): Int {
-        // Return default text color
-        return Color.BLACK
+        // Return theme text color or fallback to black
+        return try {
+            themeManager.getTextColor()
+        } catch (e: Exception) {
+            Color.BLACK // Ultimate fallback
+        }
     }
     
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
@@ -3729,8 +3846,6 @@ class AIKeyboardService : InputMethodService(),
         // Maintain backward compatibility with existing caps variable
         caps = (shiftState != SHIFT_OFF)
         isShifted = caps
-        
-        Log.d(TAG, "Shift state changed to: ${getShiftStateName()}")
     }
     
     private fun updateShiftVisualState() {
@@ -3738,25 +3853,7 @@ class AIKeyboardService : InputMethodService(),
             // Update the shift key visual state
             view.isShifted = (shiftState != SHIFT_OFF)
             
-            // Enhanced visual feedback based on shift state
-            when (shiftState) {
-                SHIFT_OFF -> {
-                    // Normal state - no special highlighting
-                    view.setShiftKeyHighlight(false, false)
-                }
-                SHIFT_ON -> {
-                    // Temporary shift - light highlighting
-                    view.setShiftKeyHighlight(true, false)
-                }
-                SHIFT_CAPS -> {
-                    // Caps lock - strong highlighting with caps indicator
-                    view.setShiftKeyHighlight(true, true)
-                    Log.d(TAG, "Caps lock activated - visual feedback should show uppercase letters")
-                }
-            }
-            
             // Key labels are now handled by SwipeKeyboardView drawing override
-            
             view.invalidateAllKeys()
         }
     }
@@ -5720,8 +5817,8 @@ class AIKeyboardService : InputMethodService(),
             val previewView = TextView(this).apply {
                 text = previewText
                 textSize = 24f
-                setTextColor(Color.BLACK)
-                setBackgroundColor(Color.WHITE)
+                setTextColor(themeManager.getTextColor())
+                setBackgroundColor(themeManager.getKeyColor()) // Use theme key background
                 setPadding(16, 8, 16, 8)
             }
             
@@ -5782,7 +5879,7 @@ class AIKeyboardService : InputMethodService(),
             
             val container = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setBackgroundColor(Color.WHITE)
+                setBackgroundColor(themeManager.getKeyboardBackgroundColor()) // Use theme background
                 setPadding(8, 8, 8, 8)
             }
             
@@ -5809,7 +5906,7 @@ class AIKeyboardService : InputMethodService(),
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setBackgroundDrawable(ColorDrawable(Color.WHITE))
+                setBackgroundDrawable(ColorDrawable(themeManager.getKeyboardBackgroundColor())) // Use theme background
                 
                 // Critical: Prevent focus stealing that causes keyboard to close
                 isFocusable = false  // Changed from true to false
@@ -5856,20 +5953,20 @@ class AIKeyboardService : InputMethodService(),
         val textView = TextView(this).apply {
             text = accent
             textSize = 20f
-            setTextColor(Color.BLACK)
+            setTextColor(themeManager.getTextColor())
             setPadding(16, 12, 16, 12)
-            setBackgroundColor(Color.LTGRAY)
+            setBackgroundColor(themeManager.getKeyColor()) // Use theme key color for buttons
             
             // Use touch listener instead of click listener for better control
             setOnTouchListener { _, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
-                        setBackgroundColor(Color.GRAY) // Visual feedback
+                        setBackgroundColor(themeManager.getAccentColor()) // Visual feedback with accent
                         performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                         true
                     }
                     android.view.MotionEvent.ACTION_UP -> {
-                        setBackgroundColor(Color.LTGRAY) // Reset background
+                        setBackgroundColor(themeManager.getKeyColor()) // Reset to theme key color
                         
                         // Insert the selected accent
                         try {
@@ -5986,23 +6083,6 @@ class AIKeyboardService : InputMethodService(),
         keyboardView?.let { view ->
             // Update the shift key visual state
             view.isShifted = (newState != CapsShiftManager.STATE_NORMAL)
-            
-            // Enhanced visual feedback based on shift state
-            when (newState) {
-                CapsShiftManager.STATE_NORMAL -> {
-                    // Normal state - no special highlighting
-                    view.setShiftKeyHighlight(false, false)
-                }
-                CapsShiftManager.STATE_SHIFT -> {
-                    // Temporary shift - light highlighting
-                    view.setShiftKeyHighlight(true, false)
-                }
-                CapsShiftManager.STATE_CAPS_LOCK -> {
-                    // Caps lock - strong highlighting with caps indicator
-                    view.setShiftKeyHighlight(true, true)
-                    Log.d(TAG, "Caps lock activated - visual feedback should show uppercase letters")
-                }
-            }
             
             view.invalidateAllKeys()
         }
@@ -7084,7 +7164,7 @@ class AIKeyboardService : InputMethodService(),
                 // Fallback: Create colored circle as placeholder
                 val drawable = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(Color.parseColor("#FF6B35"))
+                    setColor(themeManager.getAccentColor()) // Use theme accent for notification dot
                     setSize(iconSize / 4, iconSize / 4)
                 }
                 setImageDrawable(drawable)
@@ -7194,7 +7274,7 @@ class AIKeyboardService : InputMethodService(),
                 setMargins(dpToPx(4), 0, dpToPx(4), 0)
             }
             setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
-            background = createToolbarButtonBackground(Color.parseColor("#ffffff"))
+            background = createToolbarButtonBackground(themeManager.getKeyColor()) // Use theme key color
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
@@ -7204,7 +7284,7 @@ class AIKeyboardService : InputMethodService(),
             this.text = text
             textSize = 13f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#1a73e8"))
+            setTextColor(themeManager.getAccentColor()) // Use theme accent for action text
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -7215,7 +7295,8 @@ class AIKeyboardService : InputMethodService(),
         val descText = TextView(this).apply {
             this.text = description
             textSize = 10f
-            setTextColor(Color.parseColor("#5f6368"))
+            val textColor = themeManager.getTextColor()
+            setTextColor(Color.argb(153, Color.red(textColor), Color.green(textColor), Color.blue(textColor))) // 60% opacity for caption
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -7662,7 +7743,7 @@ class AIKeyboardService : InputMethodService(),
                 val firstSuggestion = container.getChildAt(0) as? TextView
                 firstSuggestion?.apply {
                     text = message
-                    setTextColor(Color.parseColor("#4CAF50"))
+                    setTextColor(themeManager.getAccentColor()) // Use theme accent for confirmation
                     visibility = View.VISIBLE
                 }
             }
@@ -7802,14 +7883,14 @@ class AIKeyboardService : InputMethodService(),
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(8))
-            setBackgroundColor(Color.parseColor("#f8f9fa"))
+            setBackgroundColor(themeManager.getKeyboardBackgroundColor()) // Use theme background
         }
         
         val title = TextView(this).apply {
             text = "✍️ Grammar Correction"
             textSize = 18f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#202124"))
+            setTextColor(themeManager.getTextColor()) // Use theme text color
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
         }
@@ -8424,12 +8505,15 @@ class AIKeyboardService : InputMethodService(),
             val title = featurePanel.findViewById<TextView>(R.id.panelTitle)
             val rightContainer = featurePanel.findViewById<FrameLayout>(R.id.panelRightContainer)
             val body = featurePanel.findViewById<FrameLayout>(R.id.panelBody)
+            val backButton = featurePanel.findViewById<TextView>(R.id.btnBack)
             
             // Apply theme colors
             val palette = themeManager.getCurrentPalette()
             featurePanel.setBackgroundColor(palette.keyboardBg)
             featurePanel.findViewById<LinearLayout>(R.id.panelHeader)?.setBackgroundColor(palette.toolbarBg)
             title?.setTextColor(palette.keyText)
+            backButton?.setTextColor(palette.keyText)
+            body?.setBackgroundColor(palette.keyboardBg)
             
             // Configure panel based on type
             when (type) {
@@ -8474,8 +8558,9 @@ class AIKeyboardService : InputMethodService(),
             keyboardContainer?.removeAllViews()
             keyboardContainer?.addView(featurePanel)
             
-            // Hide suggestions
+            // Hide suggestions and toolbar
             suggestionContainer?.visibility = View.GONE
+            cleverTypeToolbar?.visibility = View.GONE
             
             Log.d(TAG, "✅ Feature panel displayed: $type")
             
@@ -8486,23 +8571,72 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
+     * Create rounded button drawable with theme colors
+     */
+    private fun createRoundedButtonDrawable(fillColor: Int, strokeColor: Int): android.graphics.drawable.GradientDrawable {
+        return android.graphics.drawable.GradientDrawable().apply {
+            setColor(fillColor)
+            cornerRadius = 60f * resources.displayMetrics.density // 60dp radius for pill shape
+            setStroke(
+                (1 * resources.displayMetrics.density).toInt(),
+                strokeColor
+            )
+        }
+    }
+    
+    /**
+     * Create rounded text area drawable with theme colors
+     */
+    private fun createRoundedTextAreaDrawable(fillColor: Int, strokeColor: Int): android.graphics.drawable.GradientDrawable {
+        return android.graphics.drawable.GradientDrawable().apply {
+            setColor(fillColor)
+            cornerRadius = 8f * resources.displayMetrics.density // 8dp radius for text areas
+            setStroke(
+                (1 * resources.displayMetrics.density).toInt(),
+                strokeColor
+            )
+        }
+    }
+    
+    /**
      * Inflate grammar panel body with AI integration
      */
     private fun inflateGrammarBody(container: FrameLayout?) {
         val view = layoutInflater.inflate(R.layout.panel_body_grammar, container, false)
         container?.addView(view)
         
-        // Apply theme colors
-        val palette = themeManager.getCurrentPalette()
-        view.setBackgroundColor(palette.keyboardBg)
+        // Store view reference for theme updates
+        currentGrammarPanelView = view
+        
+        // Apply unified theme colors from ThemeManager
+        val bgColor = themeManager.getKeyboardBackgroundColor()
+        val textColor = themeManager.getTextColor()
+        val keyColor = themeManager.getKeyColor()
+        
+        view.setBackgroundColor(bgColor)
         
         val grammarOutput = view.findViewById<TextView>(R.id.grammarOutput)
         val replaceButton = view.findViewById<Button>(R.id.btnReplaceText)
         
-        // Style output text area
+        // Style output text area with rounded corners
+        val strokeColor = Color.argb(50, Color.red(textColor), Color.green(textColor), Color.blue(textColor))
         grammarOutput?.apply {
-            setTextColor(palette.keyText)
-            setHintTextColor(Color.argb(128, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText)))
+            setTextColor(textColor)
+            setHintTextColor(Color.argb(128, Color.red(textColor), Color.green(textColor), Color.blue(textColor)))
+            background = createRoundedTextAreaDrawable(keyColor, strokeColor)
+        }
+        
+        // Style all action buttons with rounded corners (pill shape)
+        listOf(
+            R.id.btnRephrase,
+            R.id.btnGrammarFix,
+            R.id.btnAddEmojis,
+            R.id.btnReplaceText
+        ).forEach { buttonId ->
+            view.findViewById<Button>(buttonId)?.apply {
+                setTextColor(textColor)
+                background = createRoundedButtonDrawable(keyColor, strokeColor)
+            }
         }
         
         // ✅ FIX GRAMMAR BUTTON
@@ -8635,17 +8769,39 @@ class AIKeyboardService : InputMethodService(),
         val view = layoutInflater.inflate(R.layout.panel_body_tone, container, false)
         container?.addView(view)
         
-        // Apply theme colors
-        val palette = themeManager.getCurrentPalette()
-        view.setBackgroundColor(palette.keyboardBg)
+        // Store view reference for theme updates
+        currentTonePanelView = view
+        
+        // Apply unified theme colors from ThemeManager
+        val bgColor = themeManager.getKeyboardBackgroundColor()
+        val textColor = themeManager.getTextColor()
+        val keyColor = themeManager.getKeyColor()
+        
+        view.setBackgroundColor(bgColor)
         
         val toneOutput = view.findViewById<TextView>(R.id.toneOutput)
         val replaceButton = view.findViewById<Button>(R.id.btnReplaceToneText)
         
-        // Style output text area
+        // Style output text area with rounded corners
+        val strokeColor = Color.argb(50, Color.red(textColor), Color.green(textColor), Color.blue(textColor))
         toneOutput?.apply {
-            setTextColor(palette.keyText)
-            setHintTextColor(Color.argb(128, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText)))
+            setTextColor(textColor)
+            setHintTextColor(Color.argb(128, Color.red(textColor), Color.green(textColor), Color.blue(textColor)))
+            background = createRoundedTextAreaDrawable(keyColor, strokeColor)
+        }
+        
+        // Style all action buttons with rounded corners (pill shape)
+        listOf(
+            R.id.btnFunny,
+            R.id.btnPoetic,
+            R.id.btnShorten,
+            R.id.btnSarcastic,
+            R.id.btnReplaceToneText
+        ).forEach { buttonId ->
+            view.findViewById<Button>(buttonId)?.apply {
+                setTextColor(textColor)
+                background = createRoundedButtonDrawable(keyColor, strokeColor)
+            }
         }
         
         // 😄 FUNNY TONE
@@ -8814,17 +8970,39 @@ class AIKeyboardService : InputMethodService(),
         val view = layoutInflater.inflate(R.layout.panel_body_ai_assistant, container, false)
         container?.addView(view)
         
-        // Apply theme colors
-        val palette = themeManager.getCurrentPalette()
-        view.setBackgroundColor(palette.keyboardBg)
+        // Store view reference for theme updates
+        currentAIAssistantPanelView = view
+        
+        // Apply unified theme colors from ThemeManager
+        val bgColor = themeManager.getKeyboardBackgroundColor()
+        val textColor = themeManager.getTextColor()
+        val keyColor = themeManager.getKeyColor()
+        
+        view.setBackgroundColor(bgColor)
         
         val aiOutput = view.findViewById<TextView>(R.id.aiOutput)
         val replaceButton = view.findViewById<Button>(R.id.btnReplaceAIText)
         
-        // Style output text area
+        // Style output text area with rounded corners
+        val strokeColor = Color.argb(50, Color.red(textColor), Color.green(textColor), Color.blue(textColor))
         aiOutput?.apply {
-            setTextColor(palette.keyText)
-            setHintTextColor(Color.argb(128, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText)))
+            setTextColor(textColor)
+            setHintTextColor(Color.argb(128, Color.red(textColor), Color.green(textColor), Color.blue(textColor)))
+            background = createRoundedTextAreaDrawable(keyColor, strokeColor)
+        }
+        
+        // Style all action buttons with rounded corners (pill shape)
+        listOf(
+            R.id.btnChatGPT,
+            R.id.btnHumanize,
+            R.id.btnReply,
+            R.id.btnIdioms,
+            R.id.btnReplaceAIText
+        ).forEach { buttonId ->
+            view.findViewById<Button>(buttonId)?.apply {
+                setTextColor(textColor)
+                background = createRoundedButtonDrawable(keyColor, strokeColor)
+            }
         }
         
         // 💬 CHATGPT - General AI assistance
@@ -9008,10 +9186,18 @@ class AIKeyboardService : InputMethodService(),
         val palette = themeManager.getCurrentPalette()
         view.setBackgroundColor(palette.keyboardBg)
         
-        // Style clipboard items with theme colors
+        // Style header title
+        view.findViewById<TextView>(R.id.clipboardHeaderTitle)?.apply {
+            setTextColor(palette.keyText)
+        }
+        
+        // Create stroke color for clipboard items
+        val strokeColor = Color.argb(50, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText))
+        
+        // Style clipboard items with rounded corners
         view.findViewById<TextView>(R.id.clipItem1)?.apply {
             setTextColor(palette.keyText)
-            setBackgroundColor(palette.keyBg)
+            background = createRoundedTextAreaDrawable(palette.keyBg, strokeColor)
             setOnClickListener {
                 val text = (it as TextView).text.toString()
                 currentInputConnection?.commitText(text, 1)
@@ -9021,7 +9207,7 @@ class AIKeyboardService : InputMethodService(),
         
         view.findViewById<TextView>(R.id.clipItem2)?.apply {
             setTextColor(palette.keyText)
-            setBackgroundColor(palette.keyBg)
+            background = createRoundedTextAreaDrawable(palette.keyBg, strokeColor)
             setOnClickListener {
                 val text = (it as TextView).text.toString()
                 currentInputConnection?.commitText(text, 1)
@@ -9031,17 +9217,12 @@ class AIKeyboardService : InputMethodService(),
         
         view.findViewById<TextView>(R.id.clipItem3)?.apply {
             setTextColor(palette.keyText)
-            setBackgroundColor(palette.keyBg)
+            background = createRoundedTextAreaDrawable(palette.keyBg, strokeColor)
             setOnClickListener {
                 val text = (it as TextView).text.toString()
                 currentInputConnection?.commitText(text, 1)
                 restoreKeyboardFromPanel()
             }
-        }
-        
-        // Style "Recent Clips" header
-        view.findViewById<TextView>(R.id.clipboardHeaderTitle)?.apply {
-            setTextColor(palette.keyText)
         }
     }
     
@@ -9107,6 +9288,45 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
+     * Show emoji panel (similar to feature panels)
+     */
+    private fun showEmojiPanel() {
+        try {
+            val container = keyboardContainer ?: return
+            
+            Log.d(TAG, "Opening emoji panel")
+            
+            // Remove current keyboard
+            container.removeAllViews()
+            
+            // Hide toolbar and suggestions
+            cleverTypeToolbar?.visibility = View.GONE
+            suggestionContainer?.visibility = View.GONE
+            
+            // Inflate emoji panel
+            val emojiView = emojiPanelController?.inflate(container)
+            if (emojiView != null) {
+                container.addView(emojiView)
+                emojiPanelView = emojiView
+                isEmojiPanelVisible = true
+                
+                // Apply theme
+                emojiPanelController?.applyTheme()
+                
+                Log.d(TAG, "✅ Emoji panel displayed")
+            } else {
+                Log.e(TAG, "Failed to inflate emoji panel")
+                restoreKeyboardFromPanel()
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing emoji panel", e)
+            Toast.makeText(this, "Error opening emoji panel", Toast.LENGTH_SHORT).show()
+            restoreKeyboardFromPanel()
+        }
+    }
+    
+    /**
      * Restore keyboard from feature panel
      */
     private fun restoreKeyboardFromPanel() {
@@ -9116,12 +9336,19 @@ class AIKeyboardService : InputMethodService(),
             // Remove panel
             container.removeAllViews()
             
+            // Hide emoji panel if visible
+            if (isEmojiPanelVisible) {
+                isEmojiPanelVisible = false
+                emojiPanelView = null
+            }
+            
             // Restore keyboard
             keyboardView?.visibility = View.VISIBLE
             keyboardView?.let { container.addView(it) }
             
-            // Show suggestions
+            // Show suggestions and toolbar
             suggestionContainer?.visibility = View.VISIBLE
+            cleverTypeToolbar?.visibility = View.VISIBLE
             
             Log.d(TAG, "✅ Keyboard restored from panel")
             
@@ -9135,17 +9362,47 @@ class AIKeyboardService : InputMethodService(),
      * Alternative to the complex CleverType toolbar
      */
     private fun createSimplifiedToolbar(): LinearLayout {
-        val toolbarView = layoutInflater.inflate(R.layout.keyboard_toolbar_simple, null) as LinearLayout
-        
-        // Apply theme colors
-        val palette = themeManager.getCurrentPalette()
-        toolbarView.setBackgroundColor(palette.toolbarBg)
-        
-        // Setup button listeners
-        setupSimplifiedToolbarListeners(toolbarView, palette)
-        
-        Log.d(TAG, "✅ Simplified toolbar created with 6 buttons")
-        return toolbarView
+        return try {
+            val toolbarView = layoutInflater.inflate(R.layout.keyboard_toolbar_simple, null) as LinearLayout
+            
+            // Apply theme colors
+            val palette = themeManager.getCurrentPalette()
+            toolbarView.setBackgroundColor(palette.toolbarBg)
+            
+            // Setup button listeners
+            setupSimplifiedToolbarListeners(toolbarView, palette)
+            
+            Log.d(TAG, "✅ Simplified toolbar created with 6 buttons")
+            toolbarView
+        } catch (e: Exception) {
+            Log.w(TAG, "Toolbar inflate failed, creating fallback toolbar", e)
+            createFallbackToolbar()
+        }
+    }
+    
+    /**
+     * Create fallback toolbar if main toolbar fails to inflate
+     */
+    private fun createFallbackToolbar(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                resources.getDimensionPixelSize(android.R.dimen.app_icon_size)
+            )
+            setPadding(16, 8, 16, 8)
+            
+            // Add minimal text button as fallback
+            addView(TextView(this@AIKeyboardService).apply {
+                text = "Keyboard Ready"
+                gravity = android.view.Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    1.0f
+                )
+            })
+        }
     }
     
     /**
@@ -9188,6 +9445,15 @@ class AIKeyboardService : InputMethodService(),
             }
         }
         
+        // Emoji Button (😊) - Opens emoji panel
+        toolbar.findViewById<TextView>(R.id.btn_emoji)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "Emoji button tapped")
+                showEmojiPanel()
+            }
+        }
+        
         // More Actions Button (⋮) - Opens Quick Settings panel
         toolbar.findViewById<TextView>(R.id.btn_more_actions)?.apply {
             setTextColor(palette.keyText)
@@ -9222,6 +9488,10 @@ class AIKeyboardService : InputMethodService(),
             
             // Hide current keyboard view (removes ALL views including AI panel)
             container.removeAllViews()
+            
+            // Hide toolbar and suggestions
+            cleverTypeToolbar?.visibility = View.GONE
+            suggestionContainer?.visibility = View.GONE
             
             // Inflate mini settings sheet
             val settingsSheet = layoutInflater.inflate(R.layout.mini_settings_sheet, container, false)
@@ -9348,6 +9618,10 @@ class AIKeyboardService : InputMethodService(),
                 // Just restore existing keyboard view
                 keyboardView?.let { container.addView(it) }
             }
+            
+            // Show toolbar and suggestions again
+            cleverTypeToolbar?.visibility = View.VISIBLE
+            suggestionContainer?.visibility = View.VISIBLE
             
             isMiniSettingsVisible = false
             Log.d(TAG, "✅ Keyboard restored from settings sheet")

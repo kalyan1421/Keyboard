@@ -87,25 +87,13 @@ class SwipeKeyboardView @JvmOverloads constructor(
     
     // Theme change listener removed - using static default colors
     
-    // Advanced shift state visual feedback
-    private var isShiftHighlighted = false
-    private var isCapsLockActive = false
-    private val shiftHighlightPaint = Paint().apply {
-        isAntiAlias = true
-        style = Paint.Style.FILL
-    }
-    private val capsLockPaint = Paint().apply {
-        isAntiAlias = true
-        style = Paint.Style.FILL
-    }
-    
     // Enhanced special key state tracking
     private var isVoiceKeyActive = false
     private var isEmojiKeyActive = false
     private var specialKeyHighlightPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
-        color = Color.parseColor("#1A73E8") // Will be updated by theme
+        color = Color.parseColor("#1A73E8") // Default, will be updated by refreshTheme()
     }
     
     // Enhanced gesture recognition
@@ -156,6 +144,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
     fun refreshTheme() {
         initializeFromTheme()
         updateSwipePaint()
+        
+        // Explicitly update background color from current palette
+        val manager = themeManager
+        if (manager != null) {
+            val palette = manager.getCurrentPalette()
+            this.setBackgroundColor(palette.keyboardBg)
+            android.util.Log.d("SwipeKeyboardView", "[AIKeyboard] Swipe background updated with current palette color: ${Integer.toHexString(palette.keyboardBg)}")
+        }
+        
         invalidateAllKeys()
         invalidate()
         requestLayout()
@@ -347,7 +344,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private fun initializeFromTheme() {
         val manager = themeManager
         if (manager == null) {
-            // Fallback to default theme
+            // Fallback to default theme color (light gray)
             setBackgroundColor(Color.parseColor("#F5F5F5"))
             return
         }
@@ -359,8 +356,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
         suggestionTextPaint = manager.createSuggestionTextPaint() 
         spaceLabelPaint = manager.createSpaceLabelPaint()
         
-        // Set background from theme
-        background = manager.createKeyboardBackground()
+        // Set background from theme - use solid color for consistency
+        setBackgroundColor(palette.keyboardBg)
         
         // Update swipe trail paint
         updateSwipePaint()
@@ -379,9 +376,9 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 alpha = (palette.rippleAlpha * 255 * 2).toInt() // Make swipe trail more visible
             }
         } else {
-            // Fallback to default
+            // Fallback to default blue
             swipePaint.apply {
-                color = Color.parseColor("#2196F3")
+                color = Color.parseColor("#2196F3") // Default blue for swipe trail
                 strokeWidth = 8f * context.resources.displayMetrics.density
                 alpha = 180
             }
@@ -398,13 +395,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     // Theme application methods removed - using single default theme only
-    
-    fun setShiftKeyHighlight(highlighted: Boolean, capsLock: Boolean) {
-        isShiftHighlighted = highlighted
-        isCapsLockActive = capsLock
-        android.util.Log.d("SwipeKeyboardView", "Shift highlight updated - highlighted: $highlighted, capsLock: $capsLock")
-        invalidate()
-    }
     
     /**
      * Set voice key active state for visual feedback
@@ -495,8 +485,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         // Get appropriate drawable from factory
         val keyDrawable = when {
-            keyType == "shift" && isCapsLockActive -> manager.createSpecialKeyDrawable()
-            keyType == "shift" && isShiftHighlighted -> manager.createSpecialKeyDrawable()
             keyType == "enter" && manager.shouldUseAccentForEnter() -> manager.createSpecialKeyDrawable()
             keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
             manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
@@ -557,7 +545,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Apply tint based on key type and state
             val tintColor = when {
             keyType == "space" -> palette.spaceLabelColor
-            manager.shouldUseAccentForKey(keyType) -> Color.WHITE // White text on accent background
+            manager.shouldUseAccentForKey(keyType) -> Color.WHITE // Intentional: White text for contrast on accent background
             else -> palette.keyText
         }
         
@@ -589,11 +577,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         // Override text color for special keys with accent background
         if (manager.shouldUseAccentForKey(keyType) || 
-            (keyType == "shift" && (isShiftHighlighted || isCapsLockActive)) ||
             (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
             isKeyActive(keyType)) {
-            basePaint.color = Color.WHITE // White text on accent background
-                        } else {
+            basePaint.color = Color.WHITE // Intentional: Ensures readability on accent background
+        } else {
             basePaint.color = palette.keyText
         }
         
@@ -604,10 +591,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
             } else {
                 "" // Don't show any label
             }
-        } else if (isCapsLockActive && key.label != null && key.label.length == 1) {
-            // Show uppercase when caps lock active
-            key.label[0].uppercaseChar().toString()
-            } else {
+        } else {
             key.label?.toString() ?: ""
         }
         
@@ -640,14 +624,14 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val fillPaint = Paint().apply {
                     isAntiAlias = true
                     style = Paint.Style.FILL
-                    color = Color.WHITE
+                    color = Color.WHITE // Intentional: Fallback white for swipe dots visibility
                 }
         
         val textPaint = Paint().apply {
                     isAntiAlias = true
             textAlign = Paint.Align.CENTER
             textSize = 18f * context.resources.displayMetrics.scaledDensity
-            color = Color.BLACK
+            color = Color.BLACK // Intentional: Fallback default for debugging text
         }
         
         canvas.drawRoundRect(keyRect, 8f, 8f, fillPaint)
@@ -1215,7 +1199,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
             
             // Draw back button text
             val backTextPaint = Paint().apply {
-                color = Color.WHITE
+                color = Color.WHITE // Intentional: White text for delete key icon contrast
                 textSize = palette.keyFontSize * 1.2f
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
