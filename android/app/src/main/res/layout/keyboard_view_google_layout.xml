@@ -1,19 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- CleverType-optimized keyboard layout - allows full theme system control -->
 <com.example.ai_keyboard.SwipeKeyboardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/keyboard_view"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:fitsSystemWindows="true"
-    android:keyBackground="@drawable/key_background_stable"
+    android:layout_height="match_parent"
+    android:layout_gravity="bottom"
+    android:fitsSystemWindows="false"
+    android:clipToPadding="false"
+    android:background="@android:color/transparent"
+    android:keyBackground="@drawable/key_background_transparent"
     android:keyPreviewLayout="@layout/keyboard_key_preview"
     android:keyPreviewOffset="-12dp"
     android:keyPreviewHeight="@dimen/key_preview_height"
     android:keyTextSize="@dimen/key_text_size"
-    android:keyTextColor="@android:color/black"
     android:labelTextSize="@dimen/key_label_text_size"
     android:popupLayout="@layout/keyboard_popup_keyboard"
-    android:verticalCorrection="-10dp"
+    android:verticalCorrection="0dp"
     android:shadowColor="@android:color/transparent"
-    android:shadowRadius="0"
-    />
+    android:shadowRadius="0" />
+    <!-- ✅ USES: transparent keyBackground - placeholder for KeyboardView initialization -->
+    <!-- ✅ ThemeManager overrides this in SwipeKeyboardView.drawThemedKey() -->
+    <!-- ✅ REMOVED: android:keyTextColor - allows theme-based text coloring -->

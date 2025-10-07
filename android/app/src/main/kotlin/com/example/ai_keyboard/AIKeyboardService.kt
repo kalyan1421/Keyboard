@@ -32,6 +32,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.PopupWindow
+import android.widget.FrameLayout
+import android.widget.Button
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.graphics.drawable.ColorDrawable
@@ -98,6 +100,18 @@ class AIKeyboardService : InputMethodService(),
         NUMBERS,
         SYMBOLS,
         EMOJI
+    }
+    
+    /**
+     * Unified feature panel types
+     * Single dynamic panel for all toolbar features
+     */
+    enum class PanelType {
+        GRAMMAR_FIX,
+        WORD_TONE,
+        AI_ASSISTANT,
+        CLIPBOARD,
+        QUICK_SETTINGS
     }
     
     /**
@@ -192,8 +206,10 @@ class AIKeyboardService : InputMethodService(),
     private var emojiPanelController: EmojiPanelController? = null // New XML-based controller
     private var emojiPanelView: View? = null // Inflated emoji panel
     private var keyboardContainer: LinearLayout? = null
+    private var mainKeyboardLayout: LinearLayout? = null // Main layout containing toolbar + keyboard
     private var isMediaPanelVisible = false
     private var isEmojiPanelVisible = false
+    private var isMiniSettingsVisible = false
     
     // Enhancements: Suggestion queue and settings debouncing
     private val suggestionQueue = SuggestionQueue()
@@ -315,6 +331,11 @@ class AIKeyboardService : InputMethodService(),
     
     // AI suggestion debouncing
     private var lastAISuggestionUpdate = 0L
+    
+    // PERFORMANCE: Debounced suggestion updates with caching
+    private var suggestionUpdateJob: Job? = null
+    private val suggestionDebounceMs = 100L
+    private val suggestionCache = mutableMapOf<String, List<String>>()
     
     // Swipe typing state
     private var swipeMode = false
@@ -642,6 +663,15 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "OpenAI configuration initialized successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing OpenAI configuration", e)
+        }
+        
+        // Initialize Advanced AI Service for toolbar panels
+        try {
+            advancedAIService = AdvancedAIService(this)
+            advancedAIService.preloadWarmup()
+            Log.d(TAG, "✅ AdvancedAIService initialized and warmed up")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing AdvancedAIService", e)
         }
         
         // Initialize settings and theme
@@ -1280,33 +1310,33 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Handle language change
      */
+    // STREAMLINED: Language change handling with proper logging
     private fun handleLanguageChange(oldLanguage: String, newLanguage: String) {
         try {
-            Log.d(TAG, "Language changed from $oldLanguage to $newLanguage")
+            Log.i(TAG, "[AIKeyboard] Language: $oldLanguage → $newLanguage")
             
             // Update keyboard layout
             keyboardLayoutManager.updateCurrentLanguage(newLanguage)
             
-            // Update autocorrect engine
-            // Language update handled by UnifiedAutocorrectEngine.setLocale()
-            
-            // Update enhanced autocorrect engine locale
+            // Update unified autocorrect engine locale
             autocorrectEngine.setLocale(newLanguage)
             
-            // Update keyboard view if available
+            // Update keyboard view with new layout
             keyboardView?.let { kv ->
                 val mode = when (currentKeyboard) {
                     KEYBOARD_LETTERS -> "letters"
-                    KEYBOARD_SYMBOLS -> "symbols"
+                    KEYBOARD_SYMBOLS -> "symbols" 
                     KEYBOARD_NUMBERS -> "numbers"
                     else -> "letters"
                 }
+                
                 val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(mode)
                 if (newKeyboard != null) {
                     keyboard = newKeyboard
                     kv.keyboard = keyboard
                     kv.invalidateAllKeys()
-                    // NOTE: Rebind listener after keyboard reassignment
+                    
+                    // Rebind listener after keyboard reassignment
                     rebindKeyboardListener()
                 }
             }
@@ -1318,7 +1348,7 @@ class AIKeyboardService : InputMethodService(),
             currentWord = ""
             updateAISuggestions()
             
-            // Show language change notification
+            // Show confirmation toast
             Toast.makeText(this, "Language: ${languageManager.getLanguageDisplayName(newLanguage)}", Toast.LENGTH_SHORT).show()
             
         } catch (e: Exception) {
@@ -1352,105 +1382,81 @@ class AIKeyboardService : InputMethodService(),
     }
     
     override fun onCreateInputView(): View {
-        // Create the main keyboard container with system insets handling
+        // Create main container with proper WindowInsets handling
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = themeManager.createKeyboardBackground()
-            fitsSystemWindows = true
+            fitsSystemWindows = false // CRITICAL: manual insets handling
+            clipToPadding = false
         }
         
-        // Handle system insets for navigation bar
+        mainKeyboardLayout = mainLayout
+        
+        // CRITICAL FIX: Single WindowInsets listener - navigation bar detection
         ViewCompat.setOnApplyWindowInsetsListener(mainLayout) { view, insets ->
-            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
-            val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val navInsets = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+            val systemBarsInsets = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.navigationBars())
             
-            // Adjust padding so keyboard stays above nav buttons
-            // On devices with nav buttons → navInsets.bottom > 0
-            // On gesture devices → it's usually 0
-            view.setPadding(0, 0, 0, navInsets.bottom)
-            Log.d(TAG, "System insets applied - nav bar height: ${navInsets.bottom}px")
+            // Detect navigation bar presence and apply proper padding
+            val bottomPadding = maxOf(navInsets.bottom, systemBarsInsets.bottom)
             
+            view.setPadding(
+                navInsets.left,
+                0, // No top padding for IME
+                navInsets.right,
+                bottomPadding
+            )
+            
+            Log.d(TAG, "[AIKeyboard] Nav bar padding: ${bottomPadding}px")
             insets
         }
         
-        // Create CleverType toolbar (first row)
-        cleverTypeToolbar = createCleverTypeToolbar()
-        mainLayout.addView(cleverTypeToolbar)
-        
-        // Create suggestion bar container and bar (second row)
-        createSuggestionBarContainer(mainLayout)
-        createSuggestionBar(suggestionContainer!!)
-        
-        // Create keyboard view container that will hold either keyboard or media panel
-        val keyboardContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+        // Create toolbar AFTER layout inflation to prevent "main layout not found"
+        mainLayout.post {
+            cleverTypeToolbar = createSimplifiedToolbar()
+            mainLayout.addView(cleverTypeToolbar, 0) // Add at top
         }
         
-        // Create keyboard view with Google layout and swipe support
-        try {
-            keyboardView = layoutInflater.inflate(R.layout.keyboard_view_google_layout, null) as SwipeKeyboardView
+        // MERGED: Single suggestion bar creation method
+        createUnifiedSuggestionBar(mainLayout)
+        
+        // Create adaptive keyboard container with dynamic height (40% screen - nav bar, min 400px)
+        val keyboardContainer = createAdaptiveKeyboardContainer()
+        
+        // Initialize keyboard view without additional WindowInsets handling
+        keyboardView = try {
+            layoutInflater.inflate(R.layout.keyboard_view_google_layout, null) as SwipeKeyboardView
         } catch (e: Exception) {
-            // Fallback: create programmatically with minimal setup
-            keyboardView = SwipeKeyboardView(this, null, 0)
+            SwipeKeyboardView(this, null, 0)
         }
         
         keyboardView?.apply {
-            // Choose keyboard layout based on language and number row setting
-            val keyboardResource = getKeyboardResourceForLanguage(
-                currentLanguage.uppercase(), 
-                showNumberRow
-            )
-            
+            val keyboardResource = getKeyboardResourceForLanguage(currentLanguage.uppercase(), showNumberRow)
             keyboard = Keyboard(this@AIKeyboardService, keyboardResource)
             setKeyboard(keyboard)
             setOnKeyboardActionListener(this@AIKeyboardService)
             setSwipeListener(this@AIKeyboardService)
             setSwipeEnabled(swipeTypingEnabled)
             isPreviewEnabled = keyPreviewEnabled
-            
-            Log.d(TAG, "✅ Initial keyboard listener bound in onCreateInputView")
-            
-            // Set keyboard service reference for clipboard functionality
             setKeyboardService(this@AIKeyboardService)
+            // NO additional WindowInsets here - handled by parent
             
-            // Apply system insets to keyboard view as well
-            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
-                val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                // Add extra padding for the keyboard view itself
-                view.setPadding(0, 0, 0, navInsets.bottom / 2)
-                Log.d(TAG, "Keyboard view insets applied - padding: ${navInsets.bottom / 2}px")
-                insets
-            }
-            
-            Log.d(TAG, "Initial keyboard loaded - Language: $currentLanguage, NumberRow: $showNumberRow, Resource: $keyboardResource")
+            Log.d(TAG, "[AIKeyboard] Initialized: lang=$currentLanguage, numberRow=$showNumberRow")
         }
         
-        // Create media panel manager (but don't add to layout yet)
+        // Create other panels
         createMediaPanel()
-        
-        // Create comprehensive emoji panel
-        createEmojiPanel()
-        
-        // Create AI panel (CleverType-style)
+        createEmojiPanel()  
         createAIPanel()
         
-        // Initially show keyboard
         keyboardView?.let { keyboardContainer.addView(it) }
         mainLayout.addView(keyboardContainer)
-        
-        // Store reference to container for switching views
         this.keyboardContainer = keyboardContainer
         
-        // Apply theme
+        // Apply theme and handle pending updates
         applyTheme()
-        
-        // After creating keyboard view, check for pending theme update
         if (pendingThemeUpdate) {
-            mainHandler.postDelayed({
+            mainLayout.postDelayed({
                 applyThemeFromBroadcast()
                 pendingThemeUpdate = false
             }, 100)
@@ -1459,120 +1465,93 @@ class AIKeyboardService : InputMethodService(),
         return mainLayout
     }
     
-    private fun createSuggestionBarContainer(parent: LinearLayout) {
-        Log.d(TAG, "Creating suggestion bar container")
+    /**
+     * Create adaptive keyboard container with CleverType-optimized height
+     * Height = 35% of screen height minus navigation bar, range 320-380dp
+     * CleverType spec: More compact than standard 40% for better screen utilization
+     */
+    private fun createAdaptiveKeyboardContainer(): LinearLayout {
+        val metrics = resources.displayMetrics
+        val screenHeight = metrics.heightPixels
+        val navBarHeight = getNavigationBarHeight()
         
-        // Create container for suggestions only (language switch moved to global button)
-        topContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            background = themeManager.createToolbarBackground()
-            setPadding(4, 4, 4, 4)
+        // CleverType specification: 35% screen height with defined range
+        val cleverTypeMinHeight = (320 * metrics.density).toInt()
+        val cleverTypeMaxHeight = (380 * metrics.density).toInt()
+        val cleverTypeHeight = ((screenHeight * 0.35f) - navBarHeight).toInt()
+        
+        // Constrain to CleverType range for consistent UX across devices
+        val finalHeight = cleverTypeHeight.coerceIn(cleverTypeMinHeight, cleverTypeMaxHeight)
+        
+        Log.d(TAG, "[AIKeyboard] CleverType height: ${finalHeight}px (${finalHeight/metrics.density}dp, range: 320-380dp)")
+        
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                finalHeight
             )
         }
-        
-        // Language switch removed - now using global button instead
-        
-        // Create suggestions container (now takes full width)
-        suggestionContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-        
-        // Add suggestions container to top container
-        topContainer!!.addView(suggestionContainer)
-        
-        // Add to parent
-        parent.addView(topContainer)
-        
-        // STEP 2: Trigger first UI update after keyboard inflation
-        mainHandler.postDelayed({
-            Log.d(TAG, "✅ SuggestionStrip bound after layout inflation")
-            updateAISuggestions()
-        }, 300)
-        
-        Log.d(TAG, "✅ SuggestionContainer initialized safely in onCreateInputView")
-        
-        // Suggestion bar will be populated by the second method
     }
     
-    private fun createSuggestionBar(parent: LinearLayout) {
-        Log.d(TAG, "Creating suggestion bar - SIMPLIFIED: text-only, no chip backgrounds")
-        
+    /**
+     * Get navigation bar height from system resources
+     */
+    private fun getNavigationBarHeight(): Int {
+        val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+    }
+    
+    // MERGED: Unified suggestion bar creation (replaces both createSuggestionBarContainer + createSuggestionBar)
+    private fun createUnifiedSuggestionBar(parent: LinearLayout) {
         val palette = themeManager.getCurrentPalette()
         
+        // Single container for suggestions
         suggestionContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = themeManager.createSuggestionBarBackground() // Matches keyboard bg
-            setPadding(dpToPx(12), dpToPx(4), dpToPx(12), dpToPx(4)) // Reduced padding for compact bar
+            background = themeManager.createSuggestionBarBackground()
+            setPadding(dpToPx(12), dpToPx(4), dpToPx(12), dpToPx(4))
             visibility = View.VISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            elevation = 0f // No shadow - seamless with keyboard
-            tag = "suggestion_container"
+            elevation = 0f
         }
         
-        // Create 3 plain text suggestions (CleverType/Gboard style)
+        // Create 3 equal-weight text suggestions (CleverType style)
         repeat(3) { index ->
             val suggestion = TextView(this).apply {
-                // Text-only styling - NO CHIP BACKGROUND
-                setTextColor(palette.suggestionText)  // Auto-contrast
-                textSize = 14f  // Smaller for compact bar
-                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))  // Reduced padding
+                setTextColor(palette.suggestionText)
+                textSize = 14f
+                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
                 gravity = Gravity.CENTER
-                
-                // NO BACKGROUND - completely transparent
-                setBackgroundColor(Color.TRANSPARENT)
-                
+                setBackgroundColor(Color.TRANSPARENT) // NO chip background
                 isClickable = true
                 isFocusable = true
-                text = ""
-                visibility = View.VISIBLE
+                ellipsize = TextUtils.TruncateAt.END // Handle long text
+                maxLines = 1
                 
-                // Simple click handling
                 setOnClickListener { view ->
                     val suggestionText = (view as TextView).text.toString()
-                    Log.d(TAG, "Suggestion clicked: '$suggestionText'")
                     if (suggestionText.isNotEmpty()) {
                         applySuggestion(suggestionText)
                     }
                 }
                 
-                tag = "suggestion_text_$index"
+                // Equal weight distribution
+                val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+                layoutParams = params
             }
-            
-            val params = LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f
-            ).apply {
-                setMargins(dpToPx(4), 0, dpToPx(4), 0)  // Minimal spacing
-            }
-            suggestion.layoutParams = params
-            
             suggestionContainer?.addView(suggestion)
         }
         
-        suggestionContainer?.let { 
-            parent.addView(it)
-            Log.d(TAG, "Suggestion bar added to parent with ${it.childCount} children")
-        }
+        parent.addView(suggestionContainer)
         
-        // Show initial suggestions immediately
-        updateSuggestionUI(listOf("I", "The", "And", "Hello", "How"))
-        
-        // Test suggestions after a short delay
-        coroutineScope.launch {
-            delay(2000)
-            withContext(Dispatchers.Main) {
-                updateSuggestionUI(listOf("Hello", "World", "Test", "✓ Correct", "Predict"))
-                Log.d(TAG, "Test suggestions updated with autocorrect example")
-            }
-        }
+        // Initialize with default suggestions
+        mainHandler.postDelayed({
+            updateSuggestionUI(listOf("I", "The", "And"))
+        }, 300)
     }
     
     /**
@@ -2422,39 +2401,7 @@ class AIKeyboardService : InputMethodService(),
      * @deprecated Use applyLoadedSettings(settingsManager.loadAll()) instead
      * Kept for compatibility during refactoring
      */
-    @Deprecated("Use unified settings loader")
-    private fun loadSettings() {
-        try {
-        currentTheme = settings.getString("keyboard_theme", "default") ?: "default"
-        // Using default theme only - theme management removed
-        aiSuggestionsEnabled = settings.getBoolean("ai_suggestions", true)
-        swipeTypingEnabled = settings.getBoolean("swipe_typing", true)
-        keyPreviewEnabled = settings.getBoolean("key_preview_enabled", false)
-            
-            // Load new keyboard settings
-            showNumberRow = settings.getBoolean("show_number_row", false)
-            swipeEnabled = settings.getBoolean("swipe_enabled", true)
-            vibrationEnabled = settings.getBoolean("vibration_enabled", true)
-            soundEnabled = settings.getBoolean("sound_enabled", true)
-            
-            // Current language index is now managed by loadLanguagePreferences()
-            
-            // Legacy log removed - now using unified "Settings loaded" in applyLoadedSettings()
-        
-        // Load advanced feedback settings
-        hapticIntensity = settings.getInt("haptic_intensity", 2) // medium by default
-        soundIntensity = settings.getInt("sound_intensity", 1) // light by default
-        visualIntensity = settings.getInt("visual_intensity", 2) // medium by default
-        soundVolume = settings.getFloat("sound_volume", 0.3f)
-            
-            // Load custom AI prompts
-            loadCustomPrompts()
-            
-            // Legacy duplicate log removed - unified logging now in applyLoadedSettings()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading settings", e)
-        }
-    }
+    // REMOVED: Deprecated loadSettings() method - now using unified settings loader
     
     private fun loadCustomPrompts() {
         try {
@@ -3965,11 +3912,7 @@ class AIKeyboardService : InputMethodService(),
         switchKeyboardMode(KeyboardMode.LETTERS)
     }
     
-    // DEPRECATED - kept for backward compatibility
-    @Deprecated("Use switchKeyboardMode() instead", ReplaceWith("switchKeyboardMode(KeyboardMode.SYMBOLS)"))
-    private fun switchToSymbols() {
-        switchKeyboardMode(KeyboardMode.SYMBOLS)
-    }
+    // REMOVED: Deprecated switchToSymbols() - use switchKeyboardMode(KeyboardMode.SYMBOLS) instead
     
     /**
      * Get the appropriate keyboard resource ID for a given language and number row setting
@@ -3987,15 +3930,7 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    @Deprecated("Use switchKeyboardMode() instead", ReplaceWith("switchKeyboardMode(KeyboardMode.LETTERS)"))
-    private fun switchToLetters() {
-        switchKeyboardMode(KeyboardMode.LETTERS)
-    }
-    
-    @Deprecated("Use switchKeyboardMode() instead", ReplaceWith("switchKeyboardMode(KeyboardMode.NUMBERS)"))
-    private fun switchToNumbers() {
-        switchKeyboardMode(KeyboardMode.NUMBERS)
-    }
+    // REMOVED: Deprecated switchToLetters() and switchToNumbers() - use switchKeyboardMode() instead
     
     private fun handleLanguageSwitch() {
         try {
@@ -4007,9 +3942,9 @@ class AIKeyboardService : InputMethodService(),
             settings.edit().putInt("current_language_index", currentLanguageIndex).apply()
             
             // Reload keyboard layout to reflect language change
-            switchToLetters()
+            switchKeyboardMode(KeyboardMode.LETTERS)
             
-            // switchToLetters() → switchKeyboardMode() already calls rebindKeyboardListener()
+            // switchKeyboardMode() already calls rebindKeyboardListener()
             
             // Show language change feedback
             Toast.makeText(this, "🌐 $currentLanguage", Toast.LENGTH_SHORT).show()
@@ -4102,15 +4037,32 @@ class AIKeyboardService : InputMethodService(),
     }
     
     
+    // PERFORMANCE: Debounced wrapper for suggestion updates
     private fun updateAISuggestions() {
+        // Guard: Check if suggestion container is ready
+        if (suggestionContainer == null) {
+            Log.w(TAG, "Suggestion container not ready, skipping update")
+            return
+        }
+        
+        if (!shouldUpdateAISuggestions()) return
+        
+        // Cancel previous job to debounce
+        suggestionUpdateJob?.cancel()
+        suggestionUpdateJob = coroutineScope.launch {
+            delay(suggestionDebounceMs)
+            if (isActive) {
+                updateAISuggestionsImmediate()
+            }
+        }
+    }
+    
+    private fun updateAISuggestionsImmediate() {
         // Guard: Check if aiBridge is initialized before use
         if (!::aiBridge.isInitialized) {
             Log.w(TAG, "⚠️ AI Bridge not initialized yet, skipping AI suggestions for '$currentWord'")
             return
         }
-        
-        // STEP 1: Add debounce guard to prevent duplicate calls
-        if (!shouldUpdateAISuggestions()) return
         
         Log.d(TAG, "updateAISuggestions called - aiSuggestionsEnabled: $aiSuggestionsEnabled, isAIReady: $isAIReady, currentWord: '$currentWord'")
         
@@ -4145,7 +4097,14 @@ class AIKeyboardService : InputMethodService(),
         
         val word = currentWord.trim()
         if (word.isEmpty()) {
-            updateSuggestionUI(emptyList())
+            clearSuggestions()
+            return
+        }
+        
+        // Check cache first for instant performance
+        val cachedSuggestions = suggestionCache[word]
+        if (cachedSuggestions != null) {
+            updateSuggestionUI(cachedSuggestions)
             return
         }
         
@@ -4194,12 +4153,13 @@ class AIKeyboardService : InputMethodService(),
                             
                             // Update UI on main thread
                             coroutineScope.launch(Dispatchers.Main) {
-                                if (suggestionTexts.isNotEmpty()) {
-                                    updateSuggestionUI(suggestionTexts)
-                                } else {
-                                    // AI returned empty, use fallback
-                                    updateSuggestionUI(fallbackSuggestions)
-                                }
+                                val finalSuggestions = if (suggestionTexts.isNotEmpty()) suggestionTexts else fallbackSuggestions
+                                
+                                // Cache with size limit to prevent memory bloat
+                                if (suggestionCache.size > 50) suggestionCache.clear()
+                                suggestionCache[word] = finalSuggestions
+                                
+                                updateSuggestionUI(finalSuggestions)
                             }
                         }
                         
@@ -4509,26 +4469,23 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
+    // OPTIMIZED: Fast suggestion UI update
     private fun updateSuggestionUI(suggestions: List<String>) {
-        Log.d(TAG, "updateSuggestionUI called with suggestions: $suggestions")
-        Log.d(TAG, "suggestionContainer is null: ${suggestionContainer == null}")
-        
         suggestionContainer?.let { container ->
-            Log.d(TAG, "Container child count: ${container.childCount}")
-            for (i in 0 until minOf(container.childCount, 5)) {
-                val suggestionView = container.getChildAt(i) as TextView
-                if (i < suggestions.size) {
-                    suggestionView.text = suggestions[i]
-                    suggestionView.visibility = View.VISIBLE
-                    Log.d(TAG, "Set suggestion $i: ${suggestions[i]}")
-                } else {
-                    suggestionView.visibility = View.INVISIBLE
-                }
+            val childCount = minOf(container.childCount, 3)
+            
+            for (i in 0 until childCount) {
+                val suggestionView = container.getChildAt(i) as? TextView
+                suggestionView?.text = suggestions.getOrNull(i) ?: ""
             }
-            container.visibility = View.VISIBLE
-            Log.d(TAG, "Suggestion container made visible")
-        } ?: run {
-            Log.e(TAG, "suggestionContainer is null - cannot update suggestions")
+        }
+    }
+    
+    private fun clearSuggestions() {
+        suggestionContainer?.let { container ->
+            for (i in 0 until container.childCount) {
+                (container.getChildAt(i) as? TextView)?.text = ""
+            }
         }
     }
     
@@ -5430,16 +5387,7 @@ class AIKeyboardService : InputMethodService(),
         clearSuggestions()
     }
     
-    private fun clearSuggestions() {
-        currentSuggestions.clear()
-        suggestionContainer?.let { container ->
-            mainHandler.post {
-                for (i in 0 until container.childCount) {
-                    container.getChildAt(i).visibility = View.INVISIBLE
-                }
-            }
-        }
-    }
+    // REMOVED: Duplicate clearSuggestions() - using optimized version from line 4458
     
     // Method to update settings from Flutter
     fun updateSettings(
@@ -5483,6 +5431,19 @@ class AIKeyboardService : InputMethodService(),
     
     override fun onDestroy() {
         super.onDestroy()
+        
+        // Cleanup AI service
+        try {
+            if (::advancedAIService.isInitialized) {
+                advancedAIService.cleanup()
+                Log.d(TAG, "AI service cleaned up")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up AI service", e)
+        }
+        
+        // Cancel coroutine scope
+        coroutineScope.cancel()
         
         // Unregister broadcast receiver
         try {
@@ -5555,7 +5516,7 @@ class AIKeyboardService : InputMethodService(),
             
             // Reload keyboard layout if needed (for number row changes)
             if (currentKeyboard == KEYBOARD_LETTERS) {
-                switchToLetters()  // This will apply number row and language changes
+                switchKeyboardMode(KeyboardMode.LETTERS)  // This will apply number row and language changes
                 Log.d(TAG, "Keyboard layout reloaded - NumberRow: $showNumberRow, Language: $currentLanguage")
             }
             
@@ -5660,8 +5621,8 @@ class AIKeyboardService : InputMethodService(),
                 val oldNumberRow = showNumberRow
                 val oldLanguageIndex = currentLanguageIndex
                 
-                // Reload settings
-                loadSettings()
+                // Reload settings using unified settings loader
+                applyLoadedSettings(settingsManager.loadAll())
                 
                 // Check if any settings changed
                 val settingsChanged = oldTheme != currentTheme ||
@@ -6113,9 +6074,9 @@ class AIKeyboardService : InputMethodService(),
             "alternate_layout" -> {
                 // Switch to alternate keyboard layout (symbols/numbers)
                 when (currentKeyboard) {
-                    KEYBOARD_LETTERS -> switchToSymbols()
-                    KEYBOARD_SYMBOLS -> switchToNumbers()
-                    KEYBOARD_NUMBERS -> switchToLetters()
+                    KEYBOARD_LETTERS -> switchKeyboardMode(KeyboardMode.SYMBOLS)
+                    KEYBOARD_SYMBOLS -> switchKeyboardMode(KeyboardMode.NUMBERS)
+                    KEYBOARD_NUMBERS -> switchKeyboardMode(KeyboardMode.LETTERS)
                 }
             }
             "language_switch" -> {
@@ -6647,10 +6608,17 @@ class AIKeyboardService : InputMethodService(),
                 return
             }
             
-            // Hide keyboard and suggestion bar, show AI panel
+            // CRITICAL: Close mini settings sheet if open
+            if (isMiniSettingsVisible) {
+                isMiniSettingsVisible = false
+            }
+            
+            // Remove ALL views from container first (includes keyboard, emoji, settings, etc.)
+            keyboardContainer?.removeAllViews()
+            
+            // Hide keyboard and emoji panel views
             keyboardView?.visibility = View.GONE
             emojiPanelView?.visibility = View.GONE
-            mediaPanelManager?.let { keyboardContainer?.removeView(it) }
             
             // Hide suggestion bar when AI panel is open
             suggestionContainer?.visibility = View.GONE
@@ -6686,8 +6654,14 @@ class AIKeyboardService : InputMethodService(),
         try {
             Log.d(TAG, "Closing AI Panel")
             
+            // Remove AI panel from container
+            keyboardContainer?.removeView(aiPanel)
             aiPanel?.visibility = View.GONE
+            
+            // Restore keyboard view
             keyboardView?.visibility = View.VISIBLE
+            keyboardView?.let { keyboardContainer?.addView(it) }
+            
             isAIPanelVisible = false
             
             // Show suggestion bar again
@@ -6897,7 +6871,7 @@ class AIKeyboardService : InputMethodService(),
             }
             
             // Create new toolbar with updated prompts
-            cleverTypeToolbar = createCleverTypeToolbar()
+            cleverTypeToolbar = createSimplifiedToolbar()
             
             // Add new toolbar at the top (index 0)
             mainLayout.addView(cleverTypeToolbar, 0)
@@ -8327,12 +8301,1075 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Handle settings access
+     * Handle settings access - Show mini settings sheet
      */
     private fun handleSettingsAccess() {
-        Log.d(TAG, "Settings access requested")
-        Toast.makeText(this, "Opening keyboard settings", Toast.LENGTH_SHORT).show()
-        // TODO: Open keyboard settings activity
+        Log.d(TAG, "Mini settings sheet requested")
+        showMiniSettingsSheet()
+    }
+    
+    /**
+     * Delete full word before cursor (smart backspace)
+     */
+    private fun deleteFullWord() {
+        try {
+            val ic = currentInputConnection ?: return
+            
+            // Get text before cursor
+            val textBeforeCursor = ic.getTextBeforeCursor(100, 0)?.toString() ?: ""
+            
+            if (textBeforeCursor.isEmpty()) {
+                Log.d(TAG, "No text before cursor to delete")
+                return
+            }
+            
+            // Find the last word (sequence of non-whitespace characters)
+            val trimmed = textBeforeCursor.trimEnd()
+            val lastSpaceIndex = trimmed.lastIndexOf(' ')
+            val lastWord = if (lastSpaceIndex >= 0) {
+                trimmed.substring(lastSpaceIndex + 1)
+            } else {
+                trimmed
+            }
+            
+            if (lastWord.isNotEmpty()) {
+                // Delete the word
+                ic.deleteSurroundingText(lastWord.length, 0)
+                Log.d(TAG, "Deleted word: '$lastWord' (${lastWord.length} characters)")
+                
+                // Provide haptic feedback
+                performAdvancedHapticFeedback(Keyboard.KEYCODE_DELETE)
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting full word", e)
+        }
+    }
+    
+    // ========================================
+    // AI HELPER FUNCTIONS
+    // ========================================
+    
+    /**
+     * Replace current text with AI-generated text
+     */
+    private fun replaceWithAIText(newText: String) {
+        val ic = currentInputConnection ?: return
+        try {
+            // Get text length to delete
+            val textBefore = ic.getTextBeforeCursor(10000, 0)?.toString() ?: ""
+            
+            // Delete current text
+            if (textBefore.isNotEmpty()) {
+                ic.deleteSurroundingText(textBefore.length, 0)
+            }
+            
+            // Insert new text
+            ic.commitText(newText, 1)
+            
+            Log.d(TAG, "✅ Text replaced successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error replacing text", e)
+            Toast.makeText(this, "Error replacing text", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Show AI processing error
+     */
+    private fun showAIError(result: AdvancedAIService.AIResult, outputView: TextView?) {
+        when {
+            result.error?.contains("network", ignoreCase = true) == true -> {
+                outputView?.text = "❌ No internet connection"
+                Toast.makeText(this, "Please check your internet connection", Toast.LENGTH_LONG).show()
+            }
+            result.error?.contains("rate limit", ignoreCase = true) == true -> {
+                outputView?.text = "❌ Rate limit reached"
+                Toast.makeText(this, "Too many requests. Please wait a moment.", Toast.LENGTH_LONG).show()
+            }
+            result.error?.contains("API key", ignoreCase = true) == true -> {
+                outputView?.text = "❌ API key not configured"
+                Toast.makeText(this, "Please configure your OpenAI API key in settings", Toast.LENGTH_LONG).show()
+            }
+            else -> {
+                outputView?.text = "❌ ${result.error}"
+                Toast.makeText(this, result.error ?: "Unknown error", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    
+    // ========================================
+    // UNIFIED FEATURE PANEL SYSTEM
+    // ========================================
+    
+    /**
+     * Show unified feature panel (replaces keyboard with dynamic panel)
+     * This is the single entry point for Grammar, Tone, AI Assistant, and Clipboard
+     */
+    private fun showFeaturePanel(type: PanelType) {
+        try {
+            Log.d(TAG, "Opening feature panel: $type")
+            
+            // Close any other open panels
+            if (isAIPanelVisible) {
+                aiPanel?.visibility = View.GONE
+                isAIPanelVisible = false
+            }
+            if (isMiniSettingsVisible) {
+                isMiniSettingsVisible = false
+            }
+            
+            // Inflate shared panel layout
+            val featurePanel = layoutInflater.inflate(R.layout.panel_feature_shared, null)
+            val title = featurePanel.findViewById<TextView>(R.id.panelTitle)
+            val rightContainer = featurePanel.findViewById<FrameLayout>(R.id.panelRightContainer)
+            val body = featurePanel.findViewById<FrameLayout>(R.id.panelBody)
+            
+            // Apply theme colors
+            val palette = themeManager.getCurrentPalette()
+            featurePanel.setBackgroundColor(palette.keyboardBg)
+            featurePanel.findViewById<LinearLayout>(R.id.panelHeader)?.setBackgroundColor(palette.toolbarBg)
+            title?.setTextColor(palette.keyText)
+            
+            // Configure panel based on type
+            when (type) {
+                PanelType.GRAMMAR_FIX -> {
+                    title?.text = "Fix Grammar"
+                    val translate = layoutInflater.inflate(R.layout.panel_right_translate, rightContainer, false)
+                    rightContainer?.addView(translate)
+                    inflateGrammarBody(body)
+                }
+                PanelType.WORD_TONE -> {
+                    title?.text = "Word Tone"
+                    val translate = layoutInflater.inflate(R.layout.panel_right_translate, rightContainer, false)
+                    rightContainer?.addView(translate)
+                    inflateToneBody(body)
+                }
+                PanelType.AI_ASSISTANT -> {
+                    title?.text = "AI Writing Assistant"
+                    val translate = layoutInflater.inflate(R.layout.panel_right_translate, rightContainer, false)
+                    rightContainer?.addView(translate)
+                    inflateAIAssistantBody(body)
+                }
+                PanelType.CLIPBOARD -> {
+                    title?.text = "Clipboard"
+                    val toggle = layoutInflater.inflate(R.layout.panel_right_toggle, rightContainer, false)
+                    rightContainer?.addView(toggle)
+                    inflateClipboardBody(body)
+                }
+                PanelType.QUICK_SETTINGS -> {
+                    title?.text = "Quick Settings"
+                    // No right widget for settings
+                    inflateQuickSettingsBody(body)
+                }
+            }
+            
+            // Back button handler
+            featurePanel.findViewById<TextView>(R.id.btnBack)?.setOnClickListener {
+                Log.d(TAG, "Back button tapped, restoring keyboard")
+                restoreKeyboardFromPanel()
+            }
+            
+            // Replace keyboard view with panel
+            keyboardContainer?.removeAllViews()
+            keyboardContainer?.addView(featurePanel)
+            
+            // Hide suggestions
+            suggestionContainer?.visibility = View.GONE
+            
+            Log.d(TAG, "✅ Feature panel displayed: $type")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing feature panel", e)
+            Toast.makeText(this, "Error opening panel", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Inflate grammar panel body with AI integration
+     */
+    private fun inflateGrammarBody(container: FrameLayout?) {
+        val view = layoutInflater.inflate(R.layout.panel_body_grammar, container, false)
+        container?.addView(view)
+        
+        // Apply theme colors
+        val palette = themeManager.getCurrentPalette()
+        view.setBackgroundColor(palette.keyboardBg)
+        
+        val grammarOutput = view.findViewById<TextView>(R.id.grammarOutput)
+        val replaceButton = view.findViewById<Button>(R.id.btnReplaceText)
+        
+        // Style output text area
+        grammarOutput?.apply {
+            setTextColor(palette.keyText)
+            setHintTextColor(Color.argb(128, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText)))
+        }
+        
+        // ✅ FIX GRAMMAR BUTTON
+        view.findViewById<Button>(R.id.btnGrammarFix)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            grammarOutput?.text = "Processing..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processText(
+                        text = inputText,
+                        feature = AdvancedAIService.ProcessingFeature.GRAMMAR_FIX
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            grammarOutput?.text = result.text
+                            if (result.fromCache) {
+                                grammarOutput?.append("\n💾 (cached)")
+                            }
+                            Log.d(TAG, "✅ Grammar fixed in ${result.processingTimeMs}ms")
+                        } else {
+                            showAIError(result, grammarOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        grammarOutput?.text = "❌ Error: ${e.message}"
+                        Log.e(TAG, "Grammar fix error", e)
+                    }
+                }
+            }
+        }
+        
+        // 🔁 REPHRASE BUTTON
+        view.findViewById<Button>(R.id.btnRephrase)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            grammarOutput?.text = "Rephrasing..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processWithCustomPrompt(
+                        text = inputText,
+                        systemPrompt = "Rephrase this text in a more natural way without changing its meaning. Keep it clear and concise.",
+                        promptTitle = "rephrase"
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            grammarOutput?.text = result.text
+                            if (result.fromCache) {
+                                grammarOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, grammarOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        grammarOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // 😊 ADD EMOJIS BUTTON
+        view.findViewById<Button>(R.id.btnAddEmojis)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            grammarOutput?.text = "Adding emojis..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processWithCustomPrompt(
+                        text = inputText,
+                        systemPrompt = "Add relevant emojis to this text to make it more expressive and fun. Keep the original meaning.",
+                        promptTitle = "add_emojis"
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            grammarOutput?.text = result.text
+                        } else {
+                            showAIError(result, grammarOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        grammarOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // REPLACE TEXT BUTTON
+        replaceButton?.setOnClickListener {
+            val correctedText = grammarOutput?.text?.toString() ?: ""
+            
+            if (correctedText.isNotEmpty() && !correctedText.startsWith("❌") && !correctedText.startsWith("Processing")) {
+                replaceWithAIText(correctedText.split("\n")[0])  // Get first line only (before cache indicator)
+                Toast.makeText(this, "✅ Text replaced", Toast.LENGTH_SHORT).show()
+                restoreKeyboardFromPanel()
+            } else {
+                Toast.makeText(this, "⚠️ No valid text to replace", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    
+    /**
+     * Inflate tone panel body with AI integration
+     */
+    private fun inflateToneBody(container: FrameLayout?) {
+        val view = layoutInflater.inflate(R.layout.panel_body_tone, container, false)
+        container?.addView(view)
+        
+        // Apply theme colors
+        val palette = themeManager.getCurrentPalette()
+        view.setBackgroundColor(palette.keyboardBg)
+        
+        val toneOutput = view.findViewById<TextView>(R.id.toneOutput)
+        val replaceButton = view.findViewById<Button>(R.id.btnReplaceToneText)
+        
+        // Style output text area
+        toneOutput?.apply {
+            setTextColor(palette.keyText)
+            setHintTextColor(Color.argb(128, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText)))
+        }
+        
+        // 😄 FUNNY TONE
+        view.findViewById<Button>(R.id.btnFunny)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            toneOutput?.text = "Making it funny..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.adjustTone(
+                        text = inputText,
+                        tone = AdvancedAIService.ToneType.FUNNY
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            toneOutput?.text = result.text
+                            if (result.fromCache) {
+                                toneOutput?.append("\n💾 (cached)")
+                            }
+                            Log.d(TAG, "✅ Funny tone applied in ${result.processingTimeMs}ms")
+                        } else {
+                            showAIError(result, toneOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        toneOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // ✨ POETIC TONE (using FORMAL)
+        view.findViewById<Button>(R.id.btnPoetic)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            toneOutput?.text = "Making it poetic..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.adjustTone(
+                        text = inputText,
+                        tone = AdvancedAIService.ToneType.FORMAL
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            toneOutput?.text = result.text
+                            if (result.fromCache) {
+                                toneOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, toneOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        toneOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // 📝 SHORTEN
+        view.findViewById<Button>(R.id.btnShorten)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            toneOutput?.text = "Shortening..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processText(
+                        text = inputText,
+                        feature = AdvancedAIService.ProcessingFeature.SHORTEN
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            toneOutput?.text = result.text
+                            if (result.fromCache) {
+                                toneOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, toneOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        toneOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // 😏 SARCASTIC (using CASUAL)
+        view.findViewById<Button>(R.id.btnSarcastic)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            toneOutput?.text = "Making it casual..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.adjustTone(
+                        text = inputText,
+                        tone = AdvancedAIService.ToneType.CASUAL
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            toneOutput?.text = result.text
+                            if (result.fromCache) {
+                                toneOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, toneOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        toneOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // REPLACE TEXT BUTTON
+        replaceButton?.setOnClickListener {
+            val tonedText = toneOutput?.text?.toString() ?: ""
+            
+            if (tonedText.isNotEmpty() && !tonedText.startsWith("❌") && !tonedText.contains("...")) {
+                replaceWithAIText(tonedText.split("\n")[0])
+                Toast.makeText(this, "✅ Tone applied", Toast.LENGTH_SHORT).show()
+                restoreKeyboardFromPanel()
+            } else {
+                Toast.makeText(this, "⚠️ No valid text to replace", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    
+    /**
+     * Inflate AI assistant panel body with AI integration
+     */
+    private fun inflateAIAssistantBody(container: FrameLayout?) {
+        val view = layoutInflater.inflate(R.layout.panel_body_ai_assistant, container, false)
+        container?.addView(view)
+        
+        // Apply theme colors
+        val palette = themeManager.getCurrentPalette()
+        view.setBackgroundColor(palette.keyboardBg)
+        
+        val aiOutput = view.findViewById<TextView>(R.id.aiOutput)
+        val replaceButton = view.findViewById<Button>(R.id.btnReplaceAIText)
+        
+        // Style output text area
+        aiOutput?.apply {
+            setTextColor(palette.keyText)
+            setHintTextColor(Color.argb(128, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText)))
+        }
+        
+        // 💬 CHATGPT - General AI assistance
+        view.findViewById<Button>(R.id.btnChatGPT)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            aiOutput?.text = "ChatGPT processing..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processWithCustomPrompt(
+                        text = inputText,
+                        systemPrompt = "Improve this text and make it more professional, clear, and well-structured. Keep the original meaning but enhance the quality.",
+                        promptTitle = "chatgpt_assist"
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            aiOutput?.text = result.text
+                            if (result.fromCache) {
+                                aiOutput?.append("\n💾 (cached)")
+                            }
+                            Log.d(TAG, "✅ ChatGPT processed in ${result.processingTimeMs}ms")
+                        } else {
+                            showAIError(result, aiOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        aiOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // 👤 HUMANIZE - Make text natural
+        view.findViewById<Button>(R.id.btnHumanize)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            aiOutput?.text = "Humanizing..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processWithCustomPrompt(
+                        text = inputText,
+                        systemPrompt = "Rewrite this text to sound more natural, human, and conversational. Make it warm and relatable while keeping the same message.",
+                        promptTitle = "humanize"
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            aiOutput?.text = result.text
+                            if (result.fromCache) {
+                                aiOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, aiOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        aiOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // ↩️ REPLY - Generate smart replies
+        view.findViewById<Button>(R.id.btnReply)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No message to reply to", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            aiOutput?.text = "Generating replies..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.generateSmartReplies(
+                        message = inputText,
+                        context = "general",
+                        count = 3
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            aiOutput?.text = result.text
+                            if (result.fromCache) {
+                                aiOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, aiOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        aiOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // 📚 IDIOMS - Add idiomatic expressions
+        view.findViewById<Button>(R.id.btnIdioms)?.setOnClickListener {
+            val inputText = getCurrentInputText()
+            
+            if (inputText.isEmpty()) {
+                Toast.makeText(this, "⚠️ No text to process", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            aiOutput?.text = "Adding idioms..."
+            
+            coroutineScope.launch {
+                try {
+                    val result = advancedAIService.processWithCustomPrompt(
+                        text = inputText,
+                        systemPrompt = "Rewrite this text using appropriate idioms and expressions to make it more engaging and colorful while keeping the meaning clear.",
+                        promptTitle = "idioms"
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result.success) {
+                            aiOutput?.text = result.text
+                            if (result.fromCache) {
+                                aiOutput?.append("\n💾 (cached)")
+                            }
+                        } else {
+                            showAIError(result, aiOutput)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        aiOutput?.text = "❌ Error: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        // REPLACE TEXT BUTTON
+        replaceButton?.setOnClickListener {
+            val aiText = aiOutput?.text?.toString() ?: ""
+            
+            if (aiText.isNotEmpty() && !aiText.startsWith("❌") && !aiText.contains("...")) {
+                // For smart replies, use the first reply
+                val textToInsert = if (aiText.contains("•")) {
+                    aiText.split("\n").firstOrNull { it.startsWith("•") }?.removePrefix("•")?.trim() ?: aiText.split("\n")[0]
+                } else {
+                    aiText.split("\n")[0]
+                }
+                
+                replaceWithAIText(textToInsert)
+                Toast.makeText(this, "✅ AI text inserted", Toast.LENGTH_SHORT).show()
+                restoreKeyboardFromPanel()
+            } else {
+                Toast.makeText(this, "⚠️ No valid text to replace", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    
+    /**
+     * Inflate clipboard panel body
+     */
+    private fun inflateClipboardBody(container: FrameLayout?) {
+        val view = layoutInflater.inflate(R.layout.panel_body_clipboard, container, false)
+        container?.addView(view)
+        
+        // Apply theme colors
+        val palette = themeManager.getCurrentPalette()
+        view.setBackgroundColor(palette.keyboardBg)
+        
+        // Style clipboard items with theme colors
+        view.findViewById<TextView>(R.id.clipItem1)?.apply {
+            setTextColor(palette.keyText)
+            setBackgroundColor(palette.keyBg)
+            setOnClickListener {
+                val text = (it as TextView).text.toString()
+                currentInputConnection?.commitText(text, 1)
+                restoreKeyboardFromPanel()
+            }
+        }
+        
+        view.findViewById<TextView>(R.id.clipItem2)?.apply {
+            setTextColor(palette.keyText)
+            setBackgroundColor(palette.keyBg)
+            setOnClickListener {
+                val text = (it as TextView).text.toString()
+                currentInputConnection?.commitText(text, 1)
+                restoreKeyboardFromPanel()
+            }
+        }
+        
+        view.findViewById<TextView>(R.id.clipItem3)?.apply {
+            setTextColor(palette.keyText)
+            setBackgroundColor(palette.keyBg)
+            setOnClickListener {
+                val text = (it as TextView).text.toString()
+                currentInputConnection?.commitText(text, 1)
+                restoreKeyboardFromPanel()
+            }
+        }
+        
+        // Style "Recent Clips" header
+        view.findViewById<TextView>(R.id.clipboardHeaderTitle)?.apply {
+            setTextColor(palette.keyText)
+        }
+    }
+    
+    /**
+     * Inflate quick settings panel body
+     */
+    private fun inflateQuickSettingsBody(container: FrameLayout?) {
+        val view = layoutInflater.inflate(R.layout.panel_body_quick_settings, container, false)
+        container?.addView(view)
+        
+        // Apply theme colors
+        val palette = themeManager.getCurrentPalette()
+        view.setBackgroundColor(palette.keyboardBg)
+        
+        val prefs = getSharedPreferences("keyboard_prefs", MODE_PRIVATE)
+        
+        // Sound Switch
+        view.findViewById<android.widget.Switch>(R.id.switch_sound)?.apply {
+            isChecked = prefs.getBoolean("key_sound", true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("key_sound", isChecked).apply()
+                soundEnabled = isChecked
+                sendSettingToFlutter("key_sound", isChecked)
+                Log.d(TAG, "Key Sound: $isChecked")
+            }
+        }
+        
+        // Vibration Switch
+        view.findViewById<android.widget.Switch>(R.id.switch_vibration)?.apply {
+            isChecked = prefs.getBoolean("vibration", true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("vibration", isChecked).apply()
+                vibrationEnabled = isChecked
+                sendSettingToFlutter("vibration", isChecked)
+                Log.d(TAG, "Vibration: $isChecked")
+            }
+        }
+        
+        // AI Suggestions Switch
+        view.findViewById<android.widget.Switch>(R.id.switch_ai_suggestions)?.apply {
+            isChecked = prefs.getBoolean("ai_suggestions", true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("ai_suggestions", isChecked).apply()
+                sendSettingToFlutter("ai_suggestions", isChecked)
+                Log.d(TAG, "AI Suggestions: $isChecked")
+            }
+        }
+        
+        // Number Row Switch
+        view.findViewById<android.widget.Switch>(R.id.switch_number_row)?.apply {
+            isChecked = prefs.getBoolean("number_row", false)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("number_row", isChecked).apply()
+                showNumberRow = isChecked
+                sendSettingToFlutter("number_row", isChecked)
+                Log.d(TAG, "Number Row: $isChecked")
+                
+                // Reload keyboard with new setting
+                restoreKeyboardFromPanel()
+                reloadKeyboard()
+            }
+        }
+    }
+    
+    /**
+     * Restore keyboard from feature panel
+     */
+    private fun restoreKeyboardFromPanel() {
+        try {
+            val container = keyboardContainer ?: return
+            
+            // Remove panel
+            container.removeAllViews()
+            
+            // Restore keyboard
+            keyboardView?.visibility = View.VISIBLE
+            keyboardView?.let { container.addView(it) }
+            
+            // Show suggestions
+            suggestionContainer?.visibility = View.VISIBLE
+            
+            Log.d(TAG, "✅ Keyboard restored from panel")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring keyboard from panel", e)
+        }
+    }
+    
+    /**
+     * Create simplified 6-button toolbar
+     * Alternative to the complex CleverType toolbar
+     */
+    private fun createSimplifiedToolbar(): LinearLayout {
+        val toolbarView = layoutInflater.inflate(R.layout.keyboard_toolbar_simple, null) as LinearLayout
+        
+        // Apply theme colors
+        val palette = themeManager.getCurrentPalette()
+        toolbarView.setBackgroundColor(palette.toolbarBg)
+        
+        // Setup button listeners
+        setupSimplifiedToolbarListeners(toolbarView, palette)
+        
+        Log.d(TAG, "✅ Simplified toolbar created with 6 buttons")
+        return toolbarView
+    }
+    
+    /**
+     * Setup listeners for simplified toolbar buttons
+     */
+    private fun setupSimplifiedToolbarListeners(toolbar: LinearLayout, palette: com.example.ai_keyboard.themes.ThemePaletteV2) {
+        // Grammar Fix Button (✅) - Now uses unified panel
+        toolbar.findViewById<TextView>(R.id.btn_grammar_fix)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "Grammar Fix button tapped")
+                showFeaturePanel(PanelType.GRAMMAR_FIX)
+            }
+        }
+        
+        // Word Tone Button (🎨) - Now uses unified panel
+        toolbar.findViewById<TextView>(R.id.btn_word_tone)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "Word Tone button tapped")
+                showFeaturePanel(PanelType.WORD_TONE)
+            }
+        }
+        
+        // AI Assistant Button (🤖) - Now uses unified panel
+        toolbar.findViewById<TextView>(R.id.btn_ai_assistant)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "AI Assistant button tapped")
+                showFeaturePanel(PanelType.AI_ASSISTANT)
+            }
+        }
+        
+        // Clipboard Button (📋) - Now uses unified panel
+        toolbar.findViewById<TextView>(R.id.btn_clipboard)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "Clipboard button tapped")
+                showFeaturePanel(PanelType.CLIPBOARD)
+            }
+        }
+        
+        // More Actions Button (⋮) - Opens Quick Settings panel
+        toolbar.findViewById<TextView>(R.id.btn_more_actions)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "More Actions button tapped")
+                showFeaturePanel(PanelType.QUICK_SETTINGS)
+            }
+        }
+        
+        // Smart Backspace Button (↩)
+        toolbar.findViewById<TextView>(R.id.btn_smart_backspace)?.apply {
+            setTextColor(palette.keyText)
+            setOnClickListener {
+                Log.d(TAG, "Smart Backspace button tapped")
+                deleteFullWord()
+            }
+        }
+    }
+    
+    /**
+     * Show mini settings sheet in place of keyboard
+     */
+    private fun showMiniSettingsSheet() {
+        try {
+            val mainLayout = mainKeyboardLayout ?: return
+            val container = keyboardContainer ?: return
+            
+            // CRITICAL: Close AI panel if open
+            if (isAIPanelVisible) {
+                closeAIPanel()
+            }
+            
+            // Hide current keyboard view (removes ALL views including AI panel)
+            container.removeAllViews()
+            
+            // Inflate mini settings sheet
+            val settingsSheet = layoutInflater.inflate(R.layout.mini_settings_sheet, container, false)
+            
+            // Apply theme colors to the sheet
+            val palette = themeManager.getCurrentPalette()
+            settingsSheet.setBackgroundColor(palette.keyboardBg)
+            
+            // Get current settings
+            val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+            val soundEnabled = prefs.getBoolean("sound_enabled", true)
+            val vibrationEnabled = prefs.getBoolean("vibration_enabled", true)
+            val aiEnabled = prefs.getBoolean("ai_suggestions", true)
+            val numberRow = prefs.getBoolean("show_number_row", false)
+            
+            // Setup header theming
+            settingsSheet.findViewById<TextView>(R.id.settings_header)?.apply {
+                setTextColor(palette.keyText)
+            }
+            
+            // Setup switches with current values
+            val switchSound = settingsSheet.findViewById<android.widget.Switch>(R.id.switch_sound)
+            val switchVibration = settingsSheet.findViewById<android.widget.Switch>(R.id.switch_vibration)
+            val switchAI = settingsSheet.findViewById<android.widget.Switch>(R.id.switch_ai_mode)
+            val switchNumberRow = settingsSheet.findViewById<android.widget.Switch>(R.id.switch_number_row)
+            
+            switchSound?.isChecked = soundEnabled
+            switchVibration?.isChecked = vibrationEnabled
+            switchAI?.isChecked = aiEnabled
+            switchNumberRow?.isChecked = numberRow
+            
+            // Setup switch listeners
+            switchSound?.setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("sound_enabled", checked).apply()
+                this.soundEnabled = checked
+                sendSettingToFlutter("sound_enabled", checked)
+                Log.d(TAG, "Sound ${if (checked) "enabled" else "disabled"}")
+            }
+            
+            switchVibration?.setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("vibration_enabled", checked).apply()
+                this.vibrationEnabled = checked
+                sendSettingToFlutter("vibration_enabled", checked)
+                Log.d(TAG, "Vibration ${if (checked) "enabled" else "disabled"}")
+            }
+            
+            switchAI?.setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("ai_suggestions", checked).apply()
+                this.aiSuggestionsEnabled = checked
+                sendSettingToFlutter("ai_suggestions", checked)
+                Log.d(TAG, "AI Suggestions ${if (checked) "enabled" else "disabled"}")
+            }
+            
+            switchNumberRow?.setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("show_number_row", checked).apply()
+                this.showNumberRow = checked
+                sendSettingToFlutter("show_number_row", checked)
+                Log.d(TAG, "Number row ${if (checked) "enabled" else "disabled"}")
+                // Keyboard will reload when returning to keyboard view
+            }
+            
+            // Setup back button
+            settingsSheet.findViewById<android.widget.Button>(R.id.btn_back)?.apply {
+                // Apply theme color to button
+                val bgDrawable = background?.mutate()
+                bgDrawable?.setTint(palette.specialAccent)
+                background = bgDrawable
+                
+                setOnClickListener {
+                    restoreKeyboardFromSettings()
+                }
+            }
+            
+            // Apply theme colors to all text labels
+            val labels = listOf(
+                R.id.settings_header
+            )
+            labels.forEach { id ->
+                settingsSheet.findViewById<TextView>(id)?.setTextColor(palette.keyText)
+            }
+            
+            // Add settings sheet to container
+            container.addView(settingsSheet)
+            isMiniSettingsVisible = true
+            
+            Log.d(TAG, "✅ Mini settings sheet displayed")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing mini settings sheet", e)
+            Toast.makeText(this, "Error opening settings", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Restore keyboard view from mini settings sheet
+     */
+    private fun restoreKeyboardFromSettings() {
+        try {
+            val container = keyboardContainer ?: return
+            
+            // CRITICAL: Ensure AI panel is closed
+            if (isAIPanelVisible) {
+                aiPanel?.visibility = View.GONE
+                isAIPanelVisible = false
+            }
+            
+            // Remove settings sheet
+            container.removeAllViews()
+            
+            // Check if number row setting changed - need to reload keyboard layout
+            if (isMiniSettingsVisible) {
+                val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+                val newNumberRow = prefs.getBoolean("show_number_row", false)
+                
+                // If number row changed, recreate keyboard with new layout
+                if (newNumberRow != showNumberRow) {
+                    showNumberRow = newNumberRow
+                    reloadKeyboard()
+                } else {
+                    // Just restore existing keyboard view
+                    keyboardView?.let { container.addView(it) }
+                }
+            } else {
+                // Just restore existing keyboard view
+                keyboardView?.let { container.addView(it) }
+            }
+            
+            isMiniSettingsVisible = false
+            Log.d(TAG, "✅ Keyboard restored from settings sheet")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring keyboard", e)
+            Toast.makeText(this, "Error restoring keyboard", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * Send setting change to Flutter via SharedPreferences
+     * Flutter's MethodChannel monitors SharedPreferences changes
+     */
+    private fun sendSettingToFlutter(key: String, value: Any) {
+        try {
+            // Settings are already saved to SharedPreferences
+            // Flutter side will sync via the existing MethodChannel when needed
+            Log.d(TAG, "Setting synced: $key = $value")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing setting to Flutter", e)
+        }
     }
     
     /**
@@ -8582,7 +9619,7 @@ class AIKeyboardService : InputMethodService(),
     private fun reloadKeyboard() {
         try {
             // Reload the current keyboard layout with updated settings
-            switchToLetters()
+            switchKeyboardMode(KeyboardMode.LETTERS)
         } catch (e: Exception) {
             Log.e(TAG, "Error reloading keyboard", e)
         }

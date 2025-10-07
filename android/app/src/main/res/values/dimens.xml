@@ -55,8 +55,8 @@
     <dimen name="split_keyboard_gap">80dp</dimen>
     <dimen name="split_keyboard_half_width">35%p</dimen>
     
-    <!-- Gboard visual styling -->
-    <dimen name="key_corner_radius">6dp</dimen>
+    <!-- CleverType visual styling - modern rounded design -->
+    <dimen name="key_corner_radius">12dp</dimen>
     <dimen name="key_elevation">1dp</dimen>
     <dimen name="key_pressed_elevation">2dp</dimen>
     <dimen name="suggestion_elevation">2dp</dimen>
@@ -72,4 +72,9 @@
     <!-- Gesture detection thresholds -->
     <dimen name="spacebar_gesture_threshold">50dp</dimen>
     <dimen name="cursor_control_sensitivity">15dp</dimen>
+    
+    <!-- Fixed keyboard height to prevent resizing when switching panels (like Gboard) -->
+    <!-- Fixed height disabled for adaptive sizing - height calculated dynamically -->
+    <dimen name="keyboard_fixed_height">280dp</dimen>
+    <dimen name="panel_content_height">272dp</dimen>
 </resources>
