@@ -3,7 +3,7 @@
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="8dp">
+    android:padding="0dp">
 
     <!-- AI Action Chips -->
     <HorizontalScrollView
@@ -62,7 +62,6 @@
         android:id="@+id/aiOutput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="80dp"
         android:hint="AI-generated text will appear here..."
         android:textColorHint="@color/kb_text_secondary"
         android:textColor="@color/kb_text_primary"
@@ -76,7 +75,7 @@
         android:id="@+id/btnReplaceAIText"
         android:text="Replace Text"
         android:layout_width="wrap_content"
-        android:layout_height="40dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="end"
         android:layout_marginTop="12dp"
         android:paddingHorizontal="24dp"

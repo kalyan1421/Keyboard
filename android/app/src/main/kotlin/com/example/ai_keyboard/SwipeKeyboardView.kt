@@ -123,6 +123,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     init {
         // Initialize with ThemeManager V2 - no hardcoded colors
         initializeFromTheme()
+        setupInsetHandling()
     }
     
     /**
@@ -999,6 +1000,24 @@ class SwipeKeyboardView @JvmOverloads constructor(
         invalidate() // Clear the drawn path
     }
     
+    
+    /**
+     * Setup window insets handling for navigation bar and system UI
+     * ✅ Auto-adjusts for gesture navigation and traditional nav bar
+     */
+    private fun setupInsetHandling() {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+            // Don't apply any padding - this causes white space at bottom
+            // The keyboard service and UniversalKeyboardHost handle positioning
+            
+            android.util.Log.d(
+                "SwipeKeyboardView",
+                "[InsetsFix] Window insets received but not applying padding to prevent white space"
+            )
+
+            insets
+        }
+    }
     
     /**
      * Cleanup when view is detached

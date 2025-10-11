@@ -84,4 +84,11 @@
     <!-- Fixed height disabled for adaptive sizing - height calculated dynamically -->
     <dimen name="keyboard_fixed_height">280dp</dimen>
     <dimen name="panel_content_height">272dp</dimen>
+    
+    <!-- Keyboard default/minimum height for consistent sizing -->
+    <dimen name="keyboard_default_height">320dp</dimen>
+    
+    <!-- Navigation bar compensation -->
+    <dimen name="navigation_bar_padding">0dp</dimen>
+    <dimen name="keyboard_bottom_padding">0dp</dimen>
 </resources>

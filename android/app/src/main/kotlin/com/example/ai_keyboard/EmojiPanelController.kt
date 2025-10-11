@@ -239,7 +239,7 @@ class EmojiPanelController(
             root?.findViewById<View>(R.id.emojiToolbar)?.setBackgroundColor(palette.toolbarBg)
             
             // 3. Apply category bar background
-            root?.findViewById<View>(R.id.emojiCategoriesScroll)?.setBackgroundColor(palette.keyboardBg)
+           root?.findViewById<View>(R.id.emojiCategoryScroll)?.setBackgroundColor(palette.keyboardBg)
             
             // 4. Apply search input colors
             emojiSearchInput?.setTextColor(palette.keyText)

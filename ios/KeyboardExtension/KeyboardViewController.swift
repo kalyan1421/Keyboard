@@ -9,30 +9,17 @@
 import UIKit
 import AudioToolbox
 
+@objc(KeyboardViewController)
 class KeyboardViewController: UIInputViewController {
 
     // MARK: - Properties
-    private var keyboardView: UIView!
-    private var nextKeyboardButton: UIButton!
+    var keyboardView: UIView!
     private var keyboardHeight: CGFloat = 216
-    private let settingsManager = SettingsManager()
-    
-    // Keyboard layout properties
-    private let keyRows = [
-        ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
-        ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
-        ["shift", "z", "x", "c", "v", "b", "n", "m", "delete"],
-        ["123", "globe", "space", "return"]
-    ]
+    private let settingsManager = SettingsManager.shared
+    var layoutManager: LayoutManager!
     
     // Enhanced Shift State Management (3-State FSM)
-    private enum ShiftState {
-        case normal      // 0 - Default lowercase
-        case shift       // 1 - Single uppercase (next character only)
-        case capsLock    // 2 - Continuous uppercase
-    }
-    
-    private var shiftState: ShiftState = .normal
+    var shiftState: ShiftState = .normal
     private var lastShiftPressTime: TimeInterval = 0
     private var doubleTapTimeout: TimeInterval = 0.3
     
@@ -47,8 +34,50 @@ class KeyboardViewController: UIInputViewController {
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupKeyboard()
+        
+        // Initialize layout manager
+        layoutManager = LayoutManager(keyboardViewController: self)
+        
+        // Setup keyboard with fallback
+        if layoutManager != nil {
+            setupKeyboard()
+        } else {
+            print("Failed to create LayoutManager, using basic setup")
+            setupBasicKeyboard()
+        }
+        
+        // Load settings
         loadSettings()
+        
+        // Auto-capitalize at document start if enabled
+        if settingsManager.autoCapitalizationEnabled {
+            let textBefore = textDocumentProxy.documentContextBeforeInput ?? ""
+            if textBefore.isEmpty {
+                shiftState = .shift
+                updateShiftKey()
+            }
+        }
+        
+        // Observe settings changes from main app via Darwin notifications
+        let notificationCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        let notificationName = "com.example.aiKeyboard.settingsChanged" as CFString
+        let observer = UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        
+        CFNotificationCenterAddObserver(
+            notificationCenter,
+            observer,
+            { _, observer, name, _, _ in
+                guard let observer = observer else { return }
+                let viewController = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
+                DispatchQueue.main.async {
+                    viewController.loadSettings()
+                    viewController.updateKeyboardAppearance()
+                }
+            },
+            notificationName,
+            nil,
+            .deliverImmediately
+        )
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -69,11 +98,18 @@ class KeyboardViewController: UIInputViewController {
         }
     }
     
-    // MARK: - Keyboard Setup (Programmatic UI - No Storyboards)
+    // MARK: - Keyboard Setup (Using LayoutManager)
     private func setupKeyboard() {
+        guard layoutManager != nil else {
+            print("LayoutManager is nil, falling back to basic setup")
+            setupBasicKeyboard()
+            return
+        }
+        
         // Create main keyboard container
         keyboardView = UIView()
         keyboardView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardView.backgroundColor = UIColor.systemGray6
         view.addSubview(keyboardView)
         
         // Setup constraints for keyboard view
@@ -84,81 +120,51 @@ class KeyboardViewController: UIInputViewController {
             keyboardView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         
-        createKeyboardLayout()
+        // Use LayoutManager to create keyboard layout
+        _ = layoutManager.createKeyboardLayout(in: keyboardView)
+        
+        // Configure accessibility
+        layoutManager.configureAccessibility()
     }
     
-    private func createKeyboardLayout() {
-        let stackView = UIStackView()
-        stackView.axis = .vertical
-        stackView.distribution = .fillEqually
-        stackView.spacing = 8
-        stackView.translatesAutoresizingMaskIntoConstraints = false
+    // MARK: - Fallback Basic Keyboard Setup
+    private func setupBasicKeyboard() {
+        // Create a simple fallback keyboard if LayoutManager fails
+        keyboardView = UIView()
+        keyboardView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardView.backgroundColor = UIColor.systemGray6
+        view.addSubview(keyboardView)
         
-        keyboardView.addSubview(stackView)
-        
+        // Setup constraints
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: keyboardView.topAnchor, constant: 8),
-            stackView.leadingAnchor.constraint(equalTo: keyboardView.leadingAnchor, constant: 4),
-            stackView.trailingAnchor.constraint(equalTo: keyboardView.trailingAnchor, constant: -4),
-            stackView.bottomAnchor.constraint(equalTo: keyboardView.bottomAnchor, constant: -8)
+            keyboardView.topAnchor.constraint(equalTo: view.topAnchor),
+            keyboardView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            keyboardView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            keyboardView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         
-        // Create rows
-        for (rowIndex, row) in keyRows.enumerated() {
-            let rowStackView = createRowStackView(for: row, rowIndex: rowIndex)
-            stackView.addArrangedSubview(rowStackView)
-        }
+        // Create a simple "Hello" button for testing
+        let testButton = UIButton(type: .system)
+        testButton.setTitle("Hello", for: .normal)
+        testButton.backgroundColor = UIColor.systemBlue
+        testButton.setTitleColor(.white, for: .normal)
+        testButton.layer.cornerRadius = 8
+        testButton.translatesAutoresizingMaskIntoConstraints = false
+        
+        testButton.addTarget(self, action: #selector(testButtonPressed), for: .touchUpInside)
+        
+        keyboardView.addSubview(testButton)
+        
+        NSLayoutConstraint.activate([
+            testButton.centerXAnchor.constraint(equalTo: keyboardView.centerXAnchor),
+            testButton.centerYAnchor.constraint(equalTo: keyboardView.centerYAnchor),
+            testButton.widthAnchor.constraint(equalToConstant: 100),
+            testButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
     }
     
-    private func createRowStackView(for keys: [String], rowIndex: Int) -> UIStackView {
-        let rowStackView = UIStackView()
-        rowStackView.axis = .horizontal
-        rowStackView.distribution = .fillEqually
-        rowStackView.spacing = 4
-        
-        for key in keys {
-            let button = createKeyButton(for: key, rowIndex: rowIndex)
-            rowStackView.addArrangedSubview(button)
-        }
-        
-        return rowStackView
-    }
-    
-    private func createKeyButton(for key: String, rowIndex: Int) -> UIButton {
-        let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Configure button appearance
-        button.layer.cornerRadius = 6
-        button.layer.borderWidth = 1
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
-        
-        // Set button title and action based on key type
-        switch key {
-        case "shift":
-            button.setTitle("⇧", for: .normal)
-            button.addTarget(self, action: #selector(shiftPressed), for: .touchUpInside)
-        case "delete":
-            button.setTitle("⌫", for: .normal)
-            button.addTarget(self, action: #selector(deletePressed), for: .touchUpInside)
-        case "123":
-            button.setTitle("123", for: .normal)
-            button.addTarget(self, action: #selector(numbersPressed), for: .touchUpInside)
-        case "globe":
-            button.setTitle("🌐", for: .normal)
-            button.addTarget(self, action: #selector(globePressed), for: .touchUpInside)
-        case "space":
-            button.setTitle("space", for: .normal)
-            button.addTarget(self, action: #selector(spacePressed), for: .touchUpInside)
-        case "return":
-            button.setTitle("return", for: .normal)
-            button.addTarget(self, action: #selector(returnPressed), for: .touchUpInside)
-        default:
-            button.setTitle(key, for: .normal)
-            button.addTarget(self, action: #selector(keyPressed(_:)), for: .touchUpInside)
-        }
-        
-        return button
+    @objc private func testButtonPressed() {
+        textDocumentProxy.insertText("Hello ")
     }
     
     // MARK: - Settings Management (App Groups Implementation)
@@ -169,26 +175,16 @@ class KeyboardViewController: UIInputViewController {
     }
     
     private func updateKeyboardAppearance() {
+        guard keyboardView != nil else { return }
+        
         let isDarkMode = textDocumentProxy.keyboardAppearance == .dark || settingsManager.currentTheme == "dark"
         
         // Update keyboard background
         keyboardView.backgroundColor = isDarkMode ? UIColor.systemGray6 : UIColor.systemGray5
         
-        // Update all key buttons
-        for case let stackView as UIStackView in keyboardView.subviews {
-            updateButtonsAppearance(in: stackView, isDarkMode: isDarkMode)
-        }
-    }
-    
-    private func updateButtonsAppearance(in view: UIView, isDarkMode: Bool) {
-        if let stackView = view as? UIStackView {
-            for subview in stackView.arrangedSubviews {
-                updateButtonsAppearance(in: subview, isDarkMode: isDarkMode)
-            }
-        } else if let button = view as? UIButton {
-            button.backgroundColor = isDarkMode ? UIColor.systemGray4 : UIColor.white
-            button.setTitleColor(isDarkMode ? UIColor.white : UIColor.black, for: .normal)
-            button.layer.borderColor = isDarkMode ? UIColor.systemGray3.cgColor : UIColor.systemGray4.cgColor
+        // Use LayoutManager to update button appearances if available
+        if layoutManager != nil {
+            layoutManager.updateButtonAppearances()
         }
     }
     
@@ -240,7 +236,7 @@ class KeyboardViewController: UIInputViewController {
         textDocumentProxy.insertText(character)
     }
     
-    @objc private func shiftPressed() {
+    @objc func shiftPressed() {
         let now = Date().timeIntervalSince1970
         
         // Enhanced 3-State Shift Management: normal -> shift -> capsLock -> normal
@@ -343,9 +339,13 @@ class KeyboardViewController: UIInputViewController {
         }
     }
     
-    @objc private func numbersPressed() {
-        // TODO: Implement number keyboard layout
-        print("Numbers keyboard not yet implemented")
+    @objc func numbersPressed() {
+        // Toggle between alphabetic and numeric layouts
+        if currentLayoutType == .alphabetic {
+            switchToLayout(.numeric)
+        } else {
+            switchToLayout(.alphabetic)
+        }
     }
     
     @objc private func globePressed() {
@@ -353,11 +353,8 @@ class KeyboardViewController: UIInputViewController {
     }
     
     private func updateShiftKey() {
-        // Find and update shift key appearance
-        // This is a simplified version - in production, you'd store button references
-        for case let stackView as UIStackView in keyboardView.subviews {
-            updateShiftButton(in: stackView)
-        }
+        // Find and update shift key appearance using KeyButton
+        updateShiftButton(in: keyboardView)
     }
     
     private func updateShiftButton(in view: UIView) {
@@ -365,36 +362,11 @@ class KeyboardViewController: UIInputViewController {
             for subview in stackView.arrangedSubviews {
                 updateShiftButton(in: subview)
             }
-        } else if let button = view as? UIButton, button.currentTitle == "⇧" {
-            // Enhanced visual feedback based on shift state
-            switch shiftState {
-            case .normal:
-                // Normal state - dim/unhighlighted
-                button.backgroundColor = UIColor.systemGray4
-                button.tintColor = UIColor.label
-                button.alpha = 0.7
-                
-            case .shift:
-                // Shift state - highlighted once
-                button.backgroundColor = UIColor.systemBlue
-                button.tintColor = UIColor.white
-                button.alpha = 1.0
-                
-            case .capsLock:
-                // Caps lock - strongly highlighted with underline effect
-                button.backgroundColor = UIColor.systemOrange
-                button.tintColor = UIColor.white
-                button.alpha = 1.0
-                
-                // Add visual indicator for caps lock (could be an underline or border)
-                button.layer.borderWidth = 2.0
-                button.layer.borderColor = UIColor.systemOrange.cgColor
-            }
-            
-            // Remove border for non-caps lock states
-            if shiftState != .capsLock {
-                button.layer.borderWidth = 0
-                button.layer.borderColor = UIColor.clear.cgColor
+        } else if let keyButton = view as? KeyButton, keyButton.keyType == .shift {
+            keyButton.updateForShiftState(shiftState)
+        } else {
+            view.subviews.forEach { subview in
+                updateShiftButton(in: subview)
             }
         }
     }
@@ -407,6 +379,49 @@ class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         updateKeyboardAppearance()
+        
+        // Enhanced auto-capitalization logic
+        if settingsManager.autoCapitalizationEnabled && shiftState == .normal {
+            let textBefore = textDocumentProxy.documentContextBeforeInput ?? ""
+            
+            // Capitalize at start of document
+            if textBefore.isEmpty {
+                shiftState = .shift
+                updateShiftKey()
+                return
+            }
+            
+            // Capitalize after double newline (new paragraph)
+            if textBefore.hasSuffix("\n\n") {
+                shiftState = .shift
+                updateShiftKey()
+                return
+            }
+            
+            // Capitalize after sentence ending punctuation followed by space
+            let sentenceEnders = [". ", "! ", "? ", ".\n", "!\n", "?\n"]
+            for ender in sentenceEnders {
+                if textBefore.hasSuffix(ender) {
+                    shiftState = .shift
+                    updateShiftKey()
+                    return
+                }
+            }
+        }
+    }
+    
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        
+        coordinator.animate(alongsideTransition: { _ in
+            // Handle orientation change - determine orientation from size
+            let newOrientation: UIInterfaceOrientation = size.width > size.height ? .landscapeLeft : .portrait
+            
+            // Only handle orientation change if layoutManager exists
+            if self.layoutManager != nil {
+                self.layoutManager.handleOrientationChange(to: newOrientation)
+            }
+        })
     }
     
     // MARK: - Advanced Feedback Methods

@@ -7,7 +7,13 @@ class SettingsManager {
     private let appGroupIdentifier = "group.com.example.aiKeyboard.shared"
     
     private var userDefaults: UserDefaults? {
-        return UserDefaults(suiteName: appGroupIdentifier)
+        // Try to use App Groups, fallback to standard UserDefaults if not available
+        if let appGroupDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            return appGroupDefaults
+        } else {
+            print("Warning: App Group not available, using standard UserDefaults")
+            return UserDefaults.standard
+        }
     }
     
     init() {

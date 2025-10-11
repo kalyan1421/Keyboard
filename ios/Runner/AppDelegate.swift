@@ -1,5 +1,6 @@
 import UIKit
 import Flutter
+import Firebase
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -11,6 +12,10 @@ import Flutter
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         
+        // ✅ Initialize Firebase FIRST, before accessing any Flutter components
+        FirebaseApp.configure()
+        
+        // ✅ Now safely access Flutter engine
         let controller = window?.rootViewController as! FlutterViewController
         let keyboardChannel = FlutterMethodChannel(name: CHANNEL, binaryMessenger: controller.binaryMessenger)
         
@@ -45,9 +50,10 @@ import Flutter
             }
         })
         
+        // ✅ Register Flutter plugins
         GeneratedPluginRegistrant.register(with: self)
         
-        // Setup shortcuts for easier access (TODO: Add ShortcutsManager to Xcode project)
+        // Setup shortcuts for easier access (commented out until ShortcutsManager is added to Runner target)
         // if #available(iOS 12.0, *) {
         //     ShortcutsManager.shared.setupKeyboardShortcuts()
         // }
@@ -94,12 +100,17 @@ import Flutter
     
     private func updateKeyboardSettings(_ settings: [String: Any]) {
         // Share settings with keyboard extension using App Groups
-        if let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard") {
+        if let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard.shared") {
             userDefaults.set(settings["theme"] as? String ?? "default", forKey: "keyboard_theme")
             userDefaults.set(settings["aiSuggestions"] as? Bool ?? true, forKey: "ai_suggestions")
             userDefaults.set(settings["swipeTyping"] as? Bool ?? true, forKey: "swipe_typing")
             userDefaults.set(settings["voiceInput"] as? Bool ?? true, forKey: "voice_input")
             userDefaults.synchronize()
+            
+            // Notify keyboard extension of settings change
+            let notificationCenter = CFNotificationCenterGetDarwinNotifyCenter()
+            let notificationName = "com.example.aiKeyboard.settingsChanged" as CFString
+            CFNotificationCenterPostNotification(notificationCenter, CFNotificationName(notificationName), nil, nil, true)
         }
     }
     
@@ -182,7 +193,7 @@ class KeyboardExtensionManager {
     private init() {}
     
     func sendSettingsUpdate(theme: String, aiSuggestions: Bool, swipeTyping: Bool, voiceInput: Bool) {
-        guard let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard") else { return }
+        guard let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard.shared") else { return }
         
         userDefaults.set(theme, forKey: "keyboard_theme")
         userDefaults.set(aiSuggestions, forKey: "ai_suggestions")
@@ -192,8 +203,8 @@ class KeyboardExtensionManager {
         
         // Post notification to keyboard extension
         let notification = CFNotificationCenterGetDarwinNotifyCenter()
-        let name = CFNotificationName("com.example.aiKeyboard.settingsChanged" as CFString)
-        CFNotificationCenterPostNotification(notification, name, nil, nil, true)
+        let name = "com.example.aiKeyboard.settingsChanged" as CFString
+        CFNotificationCenterPostNotification(notification, CFNotificationName(name), nil, nil, true)
     }
     
     // Handle Siri shortcuts and user activities (TODO: Implement after adding ShortcutsManager)

@@ -3,8 +3,11 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/keyboard"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:layout_alignParentBottom="true"
+    android:layout_gravity="center"
+    android:clipToPadding="false"
+    android:clipToOutline="false"
     android:background="@android:color/transparent"
     android:keyBackground="@android:color/transparent"
     android:keyPreviewLayout="@layout/keyboard_key_preview"
@@ -18,8 +21,4 @@
     android:shadowRadius="1.5"
     android:shadowDx="0"
     android:shadowDy="1"
-    android:verticalCorrection="0dp"
-    android:paddingLeft="4dp"
-    android:paddingRight="4dp"
-    android:paddingTop="4dp"
-    android:paddingBottom="4dp" />
+    android:verticalCorrection="0dp" />

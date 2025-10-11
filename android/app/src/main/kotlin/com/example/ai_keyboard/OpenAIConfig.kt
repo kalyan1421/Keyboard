@@ -45,36 +45,23 @@ class OpenAIConfig private constructor(private val context: Context) {
     init {
         Log.d(TAG, "OpenAIConfig initializing...")
         
-        // Always ensure API key is properly set
-        val apiKey = "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"
+        // Always ensure API key is properly set - FORCE UPDATE to new key
+        val apiKey = "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"
         
-        if (!hasApiKey()) {
-            Log.d(TAG, "No API key found, setting new key...")
-            
-            // Try encrypted storage first
-            try {
-                setApiKey(apiKey)
-                Log.d(TAG, "API key set via encrypted storage")
-            } catch (e: Exception) {
-                Log.e(TAG, "Encrypted storage failed, using direct storage", e)
-                setApiKeyDirect(apiKey)
-            }
-            
-            setAIFeaturesEnabled(true)
-        } else {
-            Log.d(TAG, "API key already exists")
-            
-            // Verify the key can be retrieved
-            val testKey = getApiKey()
-            if (testKey == null) {
-                Log.w(TAG, "API key exists but cannot be retrieved, resetting...")
-                clearApiKey()
-                setApiKeyDirect(apiKey)
-                setAIFeaturesEnabled(true)
-            } else {
-                Log.d(TAG, "API key retrieved successfully: ${testKey.take(10)}...")
-            }
+        // FORCE UPDATE: Always clear old key and set new one
+        Log.d(TAG, "Forcing API key update to ensure correct key is used...")
+        clearApiKey()
+        
+        // Try encrypted storage first
+        try {
+            setApiKey(apiKey)
+            Log.d(TAG, "API key set via encrypted storage")
+        } catch (e: Exception) {
+            Log.e(TAG, "Encrypted storage failed, using direct storage", e)
+            setApiKeyDirect(apiKey)
         }
+        
+        setAIFeaturesEnabled(true)
         
         // Final verification
         val finalKey = getApiKey()
@@ -168,7 +155,7 @@ class OpenAIConfig private constructor(private val context: Context) {
         clearApiKey()
         
         // Use the provided API key
-        val apiKey = "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"
+        val apiKey = "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"
         setApiKey(apiKey)
         setAIFeaturesEnabled(true)
         

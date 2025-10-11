@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.Keyboard
@@ -20,6 +21,7 @@ import android.util.Log
 import com.example.ai_keyboard.utils.LogUtil
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -41,6 +43,10 @@ import android.graphics.Typeface
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.example.ai_keyboard.ui.common.UniversalKeyboardHost
+import com.example.ai_keyboard.utils.KeyboardHeights
+import com.example.ai_keyboard.utils.totalKeyboardHeightPx
+import com.example.ai_keyboard.utils.baseKeyboardHeightPx
 import kotlinx.coroutines.*
 import kotlin.math.max
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -111,7 +117,8 @@ class AIKeyboardService : InputMethodService(),
         WORD_TONE,
         AI_ASSISTANT,
         CLIPBOARD,
-        QUICK_SETTINGS
+        QUICK_SETTINGS,
+        EMOJI
     }
     
     /**
@@ -199,6 +206,8 @@ class AIKeyboardService : InputMethodService(),
     // UI Components
     private var keyboardView: SwipeKeyboardView? = null
     private var keyboard: Keyboard? = null
+    private lateinit var keyboardHeightManager: KeyboardHeightManager
+    private var universalHost: UniversalKeyboardHost? = null
     private var suggestionContainer: LinearLayout? = null
     private var topContainer: LinearLayout? = null // Container for suggestions + language switch
     private var mediaPanelManager: SimpleMediaPanel? = null
@@ -662,6 +671,10 @@ class AIKeyboardService : InputMethodService(),
     override fun onCreate() {
         super.onCreate()
         
+        // Initialize keyboard height manager
+        keyboardHeightManager = KeyboardHeightManager(this)
+        keyboardHeightManager.logMeasurements()
+        
         // Initialize OpenAI configuration first (critical for AI features)
         try {
             OpenAIConfig.getInstance(this)
@@ -1118,7 +1131,8 @@ class AIKeyboardService : InputMethodService(),
             // Determine font scale and bottom offset based on orientation
             val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
             val fontScale = if (isLandscape) fontScaleL else fontScaleP
-            val bottom = if (isLandscape) bottomL.dp else bottomP.dp
+            // ✅ FIX: Bottom offset removed - insets padding handles spacing automatically
+            val bottom = 0
             
             // Reload keyboard if number row changed (requires different XML layout)
             if (numberRowChanged) {
@@ -1387,46 +1401,41 @@ class AIKeyboardService : InputMethodService(),
     }
     
     override fun onCreateInputView(): View {
-        // Create main container with proper WindowInsets handling
+        // Create main container
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = themeManager.createKeyboardBackground()
-            fitsSystemWindows = false // CRITICAL: manual insets handling
+            fitsSystemWindows = false
             clipToPadding = false
         }
         
         mainKeyboardLayout = mainLayout
         
-        // CRITICAL FIX: Single WindowInsets listener - navigation bar detection
-        ViewCompat.setOnApplyWindowInsetsListener(mainLayout) { view, insets ->
-            val navInsets = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
-            val systemBarsInsets = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.navigationBars())
-            
-            // Detect navigation bar presence and apply proper padding
-            val bottomPadding = maxOf(navInsets.bottom, systemBarsInsets.bottom)
-            
-            view.setPadding(
-                navInsets.left,
-                0, // No top padding for IME
-                navInsets.right,
-                bottomPadding
-            )
-            
-            Log.d(TAG, "[AIKeyboard] Nav bar padding: ${bottomPadding}px")
-            insets
-        }
-        
-        // Create toolbar AFTER layout inflation to prevent "main layout not found"
+        // Create toolbar
         mainLayout.post {
             cleverTypeToolbar = createSimplifiedToolbar()
-            mainLayout.addView(cleverTypeToolbar, 0) // Add at top
+            mainLayout.addView(cleverTypeToolbar, 0)
         }
         
-        // MERGED: Single suggestion bar creation method
+        // Create suggestion bar
         createUnifiedSuggestionBar(mainLayout)
         
-        // Create adaptive keyboard container with dynamic height (40% screen - nav bar, min 400px)
-        val keyboardContainer = createAdaptiveKeyboardContainer()
+        // Create the Universal Keyboard Host - single container for all panels
+        universalHost = UniversalKeyboardHost(this).apply {
+            withToolbar = false  // Toolbar is separate above
+            withSuggestions = false  // Suggestions are separate above
+            setBackgroundColor(themeManager.getKeyboardBackgroundColor())
+        }
+        
+        // Legacy container wrapper for compatibility
+        val keyboardContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            addView(universalHost)
+        }
         
         // Initialize keyboard view without additional WindowInsets handling
         keyboardView = try {
@@ -1446,7 +1455,14 @@ class AIKeyboardService : InputMethodService(),
             setKeyboardService(this@AIKeyboardService)
             // NO additional WindowInsets here - handled by parent
             
-            Log.d(TAG, "[AIKeyboard] Initialized: lang=$currentLanguage, numberRow=$showNumberRow")
+            // ✅ Keyboard height enforcement - prevent inflation
+            minimumHeight = resources.getDimensionPixelSize(R.dimen.keyboard_default_height)
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            
+            Log.d(TAG, "[AIKeyboard] Initialized: lang=$currentLanguage, numberRow=$showNumberRow, minHeight=${minimumHeight}px")
         }
         
         // Create other panels
@@ -1454,7 +1470,8 @@ class AIKeyboardService : InputMethodService(),
         createEmojiPanel()  
         createAIPanel()
         
-        keyboardView?.let { keyboardContainer.addView(it) }
+        // Add keyboard view to universal host
+        keyboardView?.let { universalHost?.switchContent(it) }
         mainLayout.addView(keyboardContainer)
         this.keyboardContainer = keyboardContainer
         
@@ -1472,35 +1489,26 @@ class AIKeyboardService : InputMethodService(),
     
     /**
      * Create adaptive keyboard container with CleverType-optimized height
-     * Height = 35% of screen height minus navigation bar, range 320-380dp
+     * Height = 35% of screen height, range 320-380dp
      * CleverType spec: More compact than standard 40% for better screen utilization
+     * ✅ FIX: No nav bar subtraction - insets padding handles spacing automatically
      */
     private fun createAdaptiveKeyboardContainer(): LinearLayout {
-        val metrics = resources.displayMetrics
-        val screenHeight = metrics.heightPixels
-        val navBarHeight = getNavigationBarHeight()
-        
-        // CleverType specification: 35% screen height with defined range
-        val cleverTypeMinHeight = (320 * metrics.density).toInt()
-        val cleverTypeMaxHeight = (380 * metrics.density).toInt()
-        val cleverTypeHeight = ((screenHeight * 0.35f) - navBarHeight).toInt()
-        
-        // Constrain to CleverType range for consistent UX across devices
-        val finalHeight = cleverTypeHeight.coerceIn(cleverTypeMinHeight, cleverTypeMaxHeight)
-        
-        Log.d(TAG, "[AIKeyboard] CleverType height: ${finalHeight}px (${finalHeight/metrics.density}dp, range: 320-380dp)")
-        
+        // Legacy method - UniversalKeyboardHost handles all height management
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                finalHeight
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
+            clipToPadding = false
+            clipChildren = false
         }
     }
     
     /**
      * Get navigation bar height from system resources
+     * Note: This is now only used for reference/debugging, not for height calculations
      */
     private fun getNavigationBarHeight(): Int {
         val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
@@ -4064,19 +4072,7 @@ class AIKeyboardService : InputMethodService(),
         // Use enhanced emoji insertion with cursor handling
         insertEmojiWithCursor(randomEmoji)
         
-        // Show brief toast with emoji category info
-        val categoryInfo = when {
-            EmojiCollection.smileys.contains(randomEmoji) -> "😊 Smiley"
-            EmojiCollection.hearts.contains(randomEmoji) -> "❤️ Heart"
-            EmojiCollection.animals.contains(randomEmoji) -> "🐶 Animal"
-            EmojiCollection.food.contains(randomEmoji) -> "🍕 Food"
-            EmojiCollection.activities.contains(randomEmoji) -> "⚽ Activity"
-            EmojiCollection.travel.contains(randomEmoji) -> "🚗 Travel"
-            EmojiCollection.flags.contains(randomEmoji) -> "🏁 Flag"
-            else -> "🎉 Emoji"
-        }
-        
-        Log.d(TAG, "Inserted random emoji: $randomEmoji ($categoryInfo)")
+        Log.d(TAG, "Inserted random emoji: $randomEmoji")
         
         // Future enhancement: Implement emoji picker popup
         // Toast.makeText(this, "Emoji picker - Feature coming soon!", Toast.LENGTH_SHORT).show()
@@ -5404,6 +5400,25 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        
+        // Use KeyboardHeightManager to ensure consistent height
+        val keyboardHeight = keyboardHeightManager.calculateKeyboardHeight(
+            includeToolbar = true,
+            includeSuggestions = true
+        )
+        
+        // Apply consistent height to main layout
+        mainKeyboardLayout?.post {
+            mainKeyboardLayout?.layoutParams?.height = keyboardHeight
+            mainKeyboardLayout?.requestLayout()
+            Log.d(TAG, "[KeyboardHeightManager] Applied keyboard height: ${keyboardHeight}px")
+        }
+        
+        // Height is now managed by UniversalKeyboardHost - no manual adjustment needed
+    }
+    
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         
@@ -5482,6 +5497,30 @@ class AIKeyboardService : InputMethodService(),
     override fun onFinishInput() {
         super.onFinishInput()
         clearSuggestions()
+    }
+    
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        
+        // Handle configuration changes with KeyboardHeightManager
+        keyboardHeightManager.handleConfigurationChange(newConfig) { isLandscape, newHeight ->
+            // Update keyboard height
+            mainKeyboardLayout?.layoutParams?.height = newHeight
+            mainKeyboardLayout?.requestLayout()
+            
+            // Height is now managed by UniversalKeyboardHost - no manual adjustment needed
+            
+            Log.d(TAG, "[KeyboardHeightManager] Configuration changed - Landscape: $isLandscape, Height: $newHeight")
+        }
+        
+        // Reinitialize keyboard for new configuration
+        keyboardView?.let { view ->
+            val keyboardResource = getKeyboardResourceForLanguage(currentLanguage.uppercase(), showNumberRow)
+            val newKeyboard = Keyboard(this, keyboardResource)
+            view.keyboard = newKeyboard
+            view.setKeyboard(newKeyboard)
+            keyboard = newKeyboard
+        }
     }
     
     // REMOVED: Duplicate clearSuggestions() - using optimized version from line 4458
@@ -8524,7 +8563,7 @@ class AIKeyboardService : InputMethodService(),
                     inflateGrammarBody(body)
                 }
                 PanelType.WORD_TONE -> {
-                    title?.text = "Word Tone"
+                    title?.text = "Word  Tone"
                     val translate = layoutInflater.inflate(R.layout.panel_right_translate, rightContainer, false)
                     rightContainer?.addView(translate)
                     inflateToneBody(body)
@@ -8535,6 +8574,7 @@ class AIKeyboardService : InputMethodService(),
                     rightContainer?.addView(translate)
                     inflateAIAssistantBody(body)
                 }
+                
                 PanelType.CLIPBOARD -> {
                     title?.text = "Clipboard"
                     val toggle = layoutInflater.inflate(R.layout.panel_right_toggle, rightContainer, false)
@@ -8546,6 +8586,11 @@ class AIKeyboardService : InputMethodService(),
                     // No right widget for settings
                     inflateQuickSettingsBody(body)
                 }
+                PanelType.EMOJI -> {
+                    title?.text = "Emoji"
+                    // No right widget for emoji
+                    inflateEmojiBody(body)
+                }
             }
             
             // Back button handler
@@ -8554,9 +8599,8 @@ class AIKeyboardService : InputMethodService(),
                 restoreKeyboardFromPanel()
             }
             
-            // Replace keyboard view with panel
-            keyboardContainer?.removeAllViews()
-            keyboardContainer?.addView(featurePanel)
+            // Switch to panel in universal host
+            universalHost?.switchContent(featurePanel)
             
             // Hide suggestions and toolbar
             suggestionContainer?.visibility = View.GONE
@@ -9288,41 +9332,36 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Show emoji panel (similar to feature panels)
+     * Inflate emoji panel body
      */
-    private fun showEmojiPanel() {
+    private fun inflateEmojiBody(container: FrameLayout?) {
         try {
-            val container = keyboardContainer ?: return
-            
-            Log.d(TAG, "Opening emoji panel")
-            
-            // Remove current keyboard
-            container.removeAllViews()
-            
-            // Hide toolbar and suggestions
-            cleverTypeToolbar?.visibility = View.GONE
-            suggestionContainer?.visibility = View.GONE
-            
-            // Inflate emoji panel
-            val emojiView = emojiPanelController?.inflate(container)
+            // Use the existing EmojiPanelController to inflate the emoji panel
+            val emojiView = emojiPanelController?.inflate(container ?: return)
             if (emojiView != null) {
+                // Remove the view from its current parent if it has one
+                val currentParent = emojiView.parent as? ViewGroup
+                currentParent?.removeView(emojiView)
+                
+                // Add the emoji view to the container
+                container.removeAllViews()
                 container.addView(emojiView)
+                
+                // Track emoji panel state
                 emojiPanelView = emojiView
                 isEmojiPanelVisible = true
                 
                 // Apply theme
                 emojiPanelController?.applyTheme()
                 
-                Log.d(TAG, "✅ Emoji panel displayed")
+                Log.d(TAG, "✅ Emoji panel body inflated")
             } else {
-                Log.e(TAG, "Failed to inflate emoji panel")
-                restoreKeyboardFromPanel()
+                Log.e(TAG, "Failed to inflate emoji panel body")
+                Toast.makeText(this, "Error loading emoji panel", Toast.LENGTH_SHORT).show()
             }
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Error showing emoji panel", e)
+            Log.e(TAG, "Error inflating emoji body", e)
             Toast.makeText(this, "Error opening emoji panel", Toast.LENGTH_SHORT).show()
-            restoreKeyboardFromPanel()
         }
     }
     
@@ -9331,20 +9370,17 @@ class AIKeyboardService : InputMethodService(),
      */
     private fun restoreKeyboardFromPanel() {
         try {
-            val container = keyboardContainer ?: return
-            
-            // Remove panel
-            container.removeAllViews()
-            
             // Hide emoji panel if visible
             if (isEmojiPanelVisible) {
                 isEmojiPanelVisible = false
                 emojiPanelView = null
             }
             
-            // Restore keyboard
-            keyboardView?.visibility = View.VISIBLE
-            keyboardView?.let { container.addView(it) }
+            // Restore keyboard in universal host
+            keyboardView?.let { 
+                it.visibility = View.VISIBLE
+                universalHost?.switchContent(it)
+            }
             
             // Show suggestions and toolbar
             suggestionContainer?.visibility = View.VISIBLE
@@ -9450,7 +9486,7 @@ class AIKeyboardService : InputMethodService(),
             setTextColor(palette.keyText)
             setOnClickListener {
                 Log.d(TAG, "Emoji button tapped")
-                showEmojiPanel()
+                showFeaturePanel(PanelType.EMOJI)
             }
         }
         
