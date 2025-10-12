@@ -10,6 +10,9 @@ import android.view.MotionEvent
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlin.math.*
 
 class SwipeKeyboardView @JvmOverloads constructor(
@@ -119,6 +122,29 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var clipboardItems = listOf<ClipboardItem>()
     private var clipboardKeyRects = mutableListOf<RectF>()
     private var clipboardService: AIKeyboardService? = null
+    
+    // Dynamic layout state
+    private var isDynamicLayoutMode = false
+    private var dynamicKeys = mutableListOf<DynamicKey>()
+    private var currentLayoutModel: LanguageLayoutAdapter.LayoutModel? = null
+    private var currentNumberRowEnabled = false
+    
+    // ✅ FIXED: Track current keyboard mode for proper key code mapping
+    var currentKeyboardMode: LanguageLayoutAdapter.KeyboardMode = LanguageLayoutAdapter.KeyboardMode.LETTERS
+    var currentLangCode: String = "en"
+    
+    /**
+     * Dynamic key model for programmatic layouts
+     */
+    data class DynamicKey(
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int,
+        val label: String,
+        val code: Int,
+        val longPressOptions: List<String>? = null
+    )
     
     init {
         // Initialize with ThemeManager V2 - no hardcoded colors
@@ -430,9 +456,11 @@ class SwipeKeyboardView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         if (isClipboardMode) {
             drawClipboardLayout(canvas)
+        } else if (isDynamicLayoutMode) {
+            drawDynamicLayout(canvas)
         } else {
             try {
-                // Draw custom themed keys
+                // Draw custom themed keys (legacy XML mode)
                 keyboard?.let { kbd ->
                     val keys = kbd.keys
                     keys?.forEach { key ->
@@ -452,6 +480,170 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 // General drawing exception handling
                 // Continue with basic functionality
             }
+        }
+    }
+    
+    /**
+     * Draw dynamic layout (modern JSON-based approach)
+     */
+    private fun drawDynamicLayout(canvas: Canvas) {
+        val manager = themeManager
+        if (manager == null) {
+            canvas.drawColor(Color.parseColor("#F5F5F5"))
+            return
+        }
+        
+        val palette = manager.getCurrentPalette()
+        canvas.drawColor(palette.keyboardBg)
+        
+        // Draw each dynamic key
+        dynamicKeys.forEach { key ->
+            drawDynamicKey(canvas, key, manager, palette)
+        }
+        
+        // Draw swipe trail if in progress
+        if (isSwipeInProgress && swipePoints.isNotEmpty()) {
+            canvas.drawPath(swipePath, swipePaint)
+        }
+    }
+    
+    /**
+     * Draw a single dynamic key
+     */
+    private fun drawDynamicKey(
+        canvas: Canvas,
+        key: DynamicKey,
+        manager: ThemeManager,
+        palette: com.example.ai_keyboard.themes.ThemePaletteV2
+    ) {
+        val density = context.resources.displayMetrics.density
+        val basePadding = if (borderlessMode) 0f else (1f * density)
+        val verticalSpacing = keySpacingVerticalDp * density / 2f
+        val horizontalSpacing = keySpacingHorizontalDp * density / 2f
+        
+        val keyRect = RectF(
+            key.x.toFloat() + basePadding + horizontalSpacing,
+            key.y.toFloat() + basePadding + verticalSpacing,
+            (key.x + key.width).toFloat() - basePadding - horizontalSpacing,
+            (key.y + key.height).toFloat() - basePadding - verticalSpacing
+        )
+        
+        // Determine key type
+        val keyType = when (key.code) {
+            32 -> "space"
+            Keyboard.KEYCODE_SHIFT, -1 -> "shift"
+            Keyboard.KEYCODE_DELETE, -5 -> "backspace"
+            Keyboard.KEYCODE_DONE, 10, -4 -> "enter"
+            -13, -16 -> "mic"
+            -15 -> "emoji"
+            -14 -> "globe"
+            -10, -11, -12 -> "symbols"
+            else -> "regular"
+        }
+        
+        // Get appropriate drawable
+        val keyDrawable = when {
+            keyType == "enter" && manager.shouldUseAccentForEnter() -> manager.createSpecialKeyDrawable()
+            keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
+            manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
+            else -> manager.createKeyDrawable()
+        }
+        
+        // Draw key background
+        keyDrawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
+        keyDrawable.draw(canvas)
+        
+        // Check if this key should use an icon
+        val iconResId = getIconForKeyType(keyType, key.label)
+        
+        if (iconResId != null) {
+            // Draw icon for special keys
+            val iconDrawable = try {
+                ContextCompat.getDrawable(context, iconResId)?.mutate()
+            } catch (e: Exception) {
+                null
+            }
+            
+            if (iconDrawable != null) {
+                val iconSize = minOf(key.width, key.height) * 0.4f
+                val centerX = keyRect.centerX()
+                val centerY = keyRect.centerY()
+                
+                // Apply tint based on key type and state
+                val tintColor = when {
+                    keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
+                    manager.shouldUseAccentForKey(keyType) || 
+                    (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
+                    isKeyActive(keyType) -> Color.WHITE
+                    else -> palette.keyText
+                }
+                
+                iconDrawable.setColorFilter(tintColor, PorterDuff.Mode.SRC_IN)
+                iconDrawable.setBounds(
+                    (centerX - iconSize/2).toInt(),
+                    (centerY - iconSize/2).toInt(),
+                    (centerX + iconSize/2).toInt(),
+                    (centerY + iconSize/2).toInt()
+                )
+                iconDrawable.draw(canvas)
+                
+                // Draw language label on space key if enabled
+                if (keyType == "space" && showLanguageOnSpace && currentLanguageLabel.isNotEmpty()) {
+                    val textPaint = spaceLabelPaint ?: manager.createSpaceLabelPaint()
+                    val basePaint = Paint(textPaint)
+                    basePaint.textSize = textPaint.textSize * labelScaleMultiplier * 0.7f
+                    basePaint.color = palette.spaceLabelColor
+                    basePaint.textAlign = Paint.Align.CENTER
+                    val textY = centerY + iconSize/2 + basePaint.textSize
+                    canvas.drawText(currentLanguageLabel, centerX, textY, basePaint)
+                }
+            }
+        } else {
+            // Draw text label for regular keys
+            val textPaint = when (keyType) {
+                "space" -> spaceLabelPaint ?: manager.createSpaceLabelPaint()
+                else -> keyTextPaint ?: manager.createKeyTextPaint()
+            }
+            
+            val basePaint = Paint(textPaint)
+            basePaint.textSize = textPaint.textSize * labelScaleMultiplier
+            
+            // Override text color for special keys
+            if (manager.shouldUseAccentForKey(keyType) || 
+                (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
+                isKeyActive(keyType)) {
+                basePaint.color = Color.WHITE
+            } else {
+                basePaint.color = palette.keyText
+            }
+            
+            val text = if (keyType == "space" && showLanguageOnSpace) {
+                currentLanguageLabel
+            } else {
+                key.label
+            }
+            
+            // Center the text
+            val centerX = keyRect.centerX()
+            val centerY = keyRect.centerY()
+            val textHeight = basePaint.descent() - basePaint.ascent()
+            val textOffset = (textHeight / 2) - basePaint.descent()
+            basePaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(text, centerX, centerY + textOffset, basePaint)
+        }
+        
+        // Draw long-press hint if available
+        if (key.longPressOptions != null && key.longPressOptions.isNotEmpty()) {
+            val textPaint = keyTextPaint ?: manager.createKeyTextPaint()
+            val hintPaint = Paint(textPaint).apply {
+                textSize = textPaint.textSize * labelScaleMultiplier * 0.4f
+                alpha = (255 * 0.6f).toInt()
+                color = palette.keyText
+                textAlign = Paint.Align.CENTER
+            }
+            val hintX = keyRect.right - (key.width * 0.15f)
+            val hintY = keyRect.top + (key.height * 0.25f)
+            canvas.drawText(key.longPressOptions.first(), hintX, hintY, hintPaint)
         }
     }
     
@@ -658,6 +850,11 @@ class SwipeKeyboardView @JvmOverloads constructor(
             return true
         }
         
+        // ✅ CRITICAL FIX: Handle dynamic layout mode touches
+        if (isDynamicLayoutMode) {
+            return handleDynamicLayoutTouch(me)
+        }
+        
         return try {
             // Initialize adaptive sizing on first touch
             if (isAdaptiveSizingEnabled && adaptiveKeyWidth == 0f) {
@@ -689,6 +886,35 @@ class SwipeKeyboardView @JvmOverloads constructor(
         } catch (e: Exception) {
             // General exception handling for touch events
             false
+        }
+    }
+    
+    /**
+     * ✅ CRITICAL FIX: Handle touch events for dynamic layout mode
+     * This ensures the correct key codes are sent for the current mode
+     */
+    private fun handleDynamicLayoutTouch(event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP -> {
+                val x = event.x.toInt()
+                val y = event.y.toInt()
+                
+                // Find which dynamic key was tapped
+                val tappedKey = dynamicKeys.firstOrNull { key ->
+                    x >= key.x && x < (key.x + key.width) &&
+                    y >= key.y && y < (key.y + key.height)
+                }
+                
+                if (tappedKey != null && event.action == MotionEvent.ACTION_UP) {
+                    // Send the key code from the dynamic key
+                    (context as? AIKeyboardService)?.onKey(tappedKey.code, intArrayOf(tappedKey.code))
+                    android.util.Log.d("SwipeKeyboardView", 
+                        "✅ Dynamic key tapped: ${tappedKey.label} | Code: ${tappedKey.code} | Mode: $currentKeyboardMode")
+                    return true
+                }
+                return true
+            }
+            else -> return false
         }
     }
     
@@ -1078,6 +1304,241 @@ class SwipeKeyboardView @JvmOverloads constructor(
             calculateClipboardKeyLayout()
             invalidate()
         }
+    }
+    
+    /**
+     * Set dynamic layout from LanguageLayoutAdapter with number row support
+     * This replaces the traditional Keyboard XML approach
+     * @param layout The layout model from LanguageLayoutAdapter
+     * @param showNumberRow Whether to display the number row at the top
+     */
+    fun setDynamicLayout(layout: LanguageLayoutAdapter.LayoutModel, showNumberRow: Boolean = false) {
+        // Guard against premature layout before measurement
+        if (width == 0 || height == 0) {
+            post { setDynamicLayout(layout, showNumberRow) }
+            return
+        }
+        
+        isDynamicLayoutMode = true
+        dynamicKeys.clear()
+        currentLayoutModel = layout
+        currentNumberRowEnabled = showNumberRow
+        
+        // Apply RTL layout direction if needed
+        val isRTL = layout.direction.equals("RTL", ignoreCase = true)
+        layoutDirection = if (isRTL) {
+            android.util.Log.d("SwipeKeyboardView", "✅ Applying RTL layout direction for ${layout.languageCode}")
+            android.view.View.LAYOUT_DIRECTION_RTL
+        } else {
+            android.view.View.LAYOUT_DIRECTION_LTR
+        }
+        
+        val screenWidth = width
+        val screenHeight = height
+        val padding = 8f * context.resources.displayMetrics.density
+        val keyVerticalSpacing = keySpacingVerticalDp * context.resources.displayMetrics.density
+        val keyHorizontalSpacing = keySpacingHorizontalDp * context.resources.displayMetrics.density
+        
+        // Build rows list - number row is already included in layout.rows if enabled
+        val allRows = mutableListOf<List<LanguageLayoutAdapter.KeyModel>>()
+        allRows.addAll(layout.rows)
+        
+        // Log if number row is present
+        if (showNumberRow) {
+            android.util.Log.d("SwipeKeyboardView", "✅ Number row included in layout (${layout.numberRow.size} keys)")
+        }
+        
+        // Calculate key dimensions
+        val numRows = allRows.size
+        val availableHeight = screenHeight - (padding * 2)
+        val keyHeight = ((availableHeight - (keyVerticalSpacing * (numRows - 1))) / numRows).toInt()
+        
+        var currentY = padding.toInt()
+        
+        allRows.forEach { row ->
+            val availableWidth = screenWidth - (padding * 2)
+            
+            // Calculate total width units for this row based on key types
+            val totalWidthUnits = row.sumOf { keyModel ->
+                getKeyWidthFactor(keyModel.label).toDouble()
+            }.toFloat()
+            
+            // Base unit width
+            val unitWidth = (availableWidth - (keyHorizontalSpacing * (row.size - 1))) / totalWidthUnits
+            
+            // For RTL, start from the right side
+            var currentX = if (isRTL) {
+                (screenWidth - padding).toInt()
+            } else {
+                padding.toInt()
+            }
+            
+            row.forEach { keyModel ->
+                val widthFactor = getKeyWidthFactor(keyModel.label)
+                val keyWidth = (unitWidth * widthFactor).toInt()
+                
+                // For RTL, position keys from right to left
+                val keyX = if (isRTL) {
+                    currentX - keyWidth
+                } else {
+                    currentX
+                }
+                
+                val dynamicKey = DynamicKey(
+                    x = keyX,
+                    y = currentY,
+                    width = keyWidth,
+                    height = keyHeight,
+                    label = keyModel.label,
+                    code = keyModel.code,
+                    longPressOptions = keyModel.longPress
+                )
+                dynamicKeys.add(dynamicKey)
+                
+                // Update position for next key
+                if (isRTL) {
+                    currentX -= keyWidth + keyHorizontalSpacing.toInt()
+                } else {
+                    currentX += keyWidth + keyHorizontalSpacing.toInt()
+                }
+            }
+            
+            currentY += keyHeight + keyVerticalSpacing.toInt()
+        }
+        
+        android.util.Log.d("SwipeKeyboardView", "✅ Dynamic layout set: ${dynamicKeys.size} keys (${layout.direction}, numberRow: $showNumberRow)")
+        invalidate()
+        requestLayout()
+    }
+    
+    /**
+     * Toggle number row visibility without reloading the entire layout
+     * @param enable Whether to show or hide the number row
+     */
+    fun toggleNumberRow(enable: Boolean) {
+        currentNumberRowEnabled = enable
+        currentLayoutModel?.let { layout ->
+            setDynamicLayout(layout, enable)
+            android.util.Log.d("SwipeKeyboardView", "✅ Number row toggled: $enable")
+        }
+    }
+    
+    /**
+     * ✅ FIXED: Set keyboard mode and rebuild layout with correct key codes
+     * This ensures symbol mode sends correct key codes, not letter codes
+     * 
+     * @param mode The keyboard mode to switch to (LETTERS, SYMBOLS, etc.)
+     * @param layoutAdapter The layout adapter to build the new layout
+     * @param showNumberRow Whether to show the number row (only for LETTERS mode)
+     */
+    fun setKeyboardMode(
+        mode: LanguageLayoutAdapter.KeyboardMode, 
+        layoutAdapter: LanguageLayoutAdapter, 
+        showNumberRow: Boolean = false
+    ) {
+        // Guard against premature calls before view is measured
+        if (width == 0 || height == 0) {
+            post { setKeyboardMode(mode, layoutAdapter, showNumberRow) }
+            return
+        }
+        
+        currentKeyboardMode = mode
+        android.util.Log.d("SwipeKeyboardView", "✅ setKeyboardMode: $mode for language: $currentLangCode")
+        
+        // Launch coroutine to build layout asynchronously using proper scope
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            try {
+                // Build layout for the specified mode - this generates correct key codes
+                val layout = layoutAdapter.buildLayoutFor(currentLangCode, mode, showNumberRow)
+                
+                // Apply the layout with correct key mappings
+                setDynamicLayout(layout, showNumberRow)
+                
+                android.util.Log.d("SwipeKeyboardView", 
+                    "✅ Layout rebuilt for mode: $mode, keys: ${layout.rows.flatten().size}")
+                
+                // Force refresh to update display
+                invalidate()
+            } catch (e: Exception) {
+                android.util.Log.e("SwipeKeyboardView", "❌ Failed to set keyboard mode: $mode", e)
+            }
+        }
+    }
+    
+    /**
+     * Get width factor for a key based on its label
+     * This allows special keys to be wider or narrower than standard keys
+     */
+    private fun getKeyWidthFactor(label: String): Float {
+        return when {
+            // Space bar - extra wide
+            label == "SPACE" || label.startsWith("space") -> 4.0f
+            
+            // Return/Enter key - wider
+            label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
+            
+            // Mode switches - slightly wider
+            label == "?123" || label == "ABC" || label == "=<" || label == "1234" -> 1.3f
+            
+            // Special function keys - moderately wider
+            label == "SHIFT" || label == "⇧" ||
+            label == "DELETE" || label == "⌫" ||
+            label == "GLOBE" || label == "🌐" -> 1.2f
+            
+            // Standard keys
+            else -> 1.0f
+        }
+    }
+    
+    /**
+     * 🔍 AUDIT: Get drawable resource ID for special key labels
+     * Maps key labels to their corresponding Android drawable icons
+     */
+    private fun getDrawableForKey(label: String): Int? {
+        return when (label.uppercase()) {
+            "SHIFT", "⇧" -> R.drawable.sym_keyboard_shift
+            "DELETE", "⌫" -> R.drawable.sym_keyboard_delete
+            "RETURN", "SYM_KEYBOARD_RETURN" -> R.drawable.sym_keyboard_return
+            "GLOBE", "🌐" -> R.drawable.sym_keyboard_globe
+            "SPACE" -> R.drawable.sym_keyboard_space
+            // CRITICAL FIX: Add missing mode switch key icons (using return icon as placeholder)
+            "?123", "ABC", "=<", "1234" -> R.drawable.sym_keyboard_return
+            else -> null
+        }
+    }
+    
+    /**
+     * Get icon resource ID based on key type and label for dynamic layouts
+     */
+    private fun getIconForKeyType(keyType: String, label: String): Int? {
+        return when (keyType) {
+            "shift" -> R.drawable.sym_keyboard_shift
+            "backspace" -> R.drawable.sym_keyboard_delete
+            "enter" -> R.drawable.sym_keyboard_return
+            "globe" -> R.drawable.sym_keyboard_globe
+            "space" -> R.drawable.sym_keyboard_space
+            else -> {
+                // Fallback: check label for special keys
+                when (label.uppercase()) {
+                    "SHIFT", "⇧" -> R.drawable.sym_keyboard_shift
+                    "DELETE", "⌫" -> R.drawable.sym_keyboard_delete
+                    "RETURN", "SYM_KEYBOARD_RETURN" -> R.drawable.sym_keyboard_return
+                    "GLOBE", "🌐" -> R.drawable.sym_keyboard_globe
+                    "SPACE" -> R.drawable.sym_keyboard_space
+                    else -> null
+                }
+            }
+        }
+    }
+    
+    /**
+     * Switch back to traditional Keyboard XML mode
+     */
+    fun useLegacyKeyboardMode() {
+        isDynamicLayoutMode = false
+        dynamicKeys.clear()
+        android.util.Log.d("SwipeKeyboardView", "Switched to legacy Keyboard XML mode")
+        invalidate()
     }
     
     /**

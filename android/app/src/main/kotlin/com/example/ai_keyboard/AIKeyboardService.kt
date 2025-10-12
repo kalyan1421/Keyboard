@@ -1,5 +1,4 @@
 package com.example.ai_keyboard
-
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -98,13 +97,15 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Keyboard mode enum for CleverType-style cycling
-     * Letters → Numbers → Symbols → Letters
+     * Keyboard mode enum for multi-mode layout system
+     * Letters → Symbols → Extended Symbols → Dialer
      */
     enum class KeyboardMode {
         LETTERS,
         NUMBERS,
         SYMBOLS,
+        EXTENDED_SYMBOLS,
+        DIALER,
         EMOJI
     }
     
@@ -401,6 +402,8 @@ class AIKeyboardService : InputMethodService(),
     // Method channels removed for compatibility - using SharedPreferences only for theme updates
     
     private lateinit var keyboardLayoutManager: KeyboardLayoutManager
+    private lateinit var languageLayoutAdapter: LanguageLayoutAdapter
+    private var useDynamicLayout = true  // Enable dynamic JSON-based layouts by default
     private lateinit var multilingualDictionary: MultilingualDictionary
     private lateinit var autocorrectEngine: UnifiedAutocorrectEngine
     private var languageSwitchView: LanguageSwitchView? = null
@@ -532,6 +535,15 @@ class AIKeyboardService : InputMethodService(),
                                 themeManager.reload()
                                 applyTheme()
                                 
+                                // Check if number row setting changed and reload layout
+                                val numberRowEnabled = getNumberRowEnabled()
+                                if (useDynamicLayout && currentKeyboardMode == KeyboardMode.LETTERS) {
+                                    coroutineScope.launch {
+                                        loadLanguageLayout(currentLanguage)
+                                        Log.d(TAG, "✅ Layout reloaded with numberRow=$numberRowEnabled")
+                                    }
+                                }
+                                
                                 Log.d(TAG, "✅ Settings applied successfully")
                                 applySettingsImmediately()
                             } catch (e: Exception) {
@@ -601,8 +613,16 @@ class AIKeyboardService : InputMethodService(),
                             try {
                                 Log.d(TAG, "Reloading dictionary settings from broadcast...")
                                 reloadDictionarySettings()
-                                // Reload dictionary entries
-                                dictionaryManager.initialize()
+                                
+                                // ✅ Reload dictionary entries from Flutter SharedPreferences
+                                // This ensures shortcuts added in Flutter UI are immediately available
+                                if (::dictionaryManager.isInitialized) {
+                                    dictionaryManager.reloadFromFlutterPrefs()
+                                    Log.d(TAG, "✅ Dictionary entries reloaded from Flutter!")
+                                } else {
+                                    Log.w(TAG, "⚠️ DictionaryManager not initialized yet")
+                                }
+                                
                                 Log.d(TAG, "Dictionary settings reloaded successfully!")
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error reloading dictionary settings from broadcast", e)
@@ -767,9 +787,28 @@ class AIKeyboardService : InputMethodService(),
         dictionaryManager.addListener(dictionaryListener)
         
         // User dictionary manager already initialized in initializeCoreComponents()
+        // Phase 3: Multi-language sync integration
         if (::userDictionaryManager.isInitialized) {
-            userDictionaryManager.syncFromCloud()
-            Log.d(TAG, "✅ User dictionary sync initiated")
+            val currentLang = dictionaryManager.getCurrentLanguage()
+            
+            // Sync learned words from cloud
+            userDictionaryManager.syncFromCloud(currentLang)
+            Log.d(TAG, "✅ User dictionary sync initiated for $currentLang")
+            
+            // Connect dictionary manager to cloud sync (per-language)
+            dictionaryManager.setCloudSyncCallback { shortcuts ->
+                // Sync shortcuts to Firebase via UserDictionaryManager with language context
+                userDictionaryManager.syncShortcutsToCloud(shortcuts, currentLang)
+                Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $currentLang")
+            }
+            
+            // Load shortcuts from cloud and import
+            userDictionaryManager.loadShortcutsFromCloud(currentLang) { cloudShortcuts ->
+                dictionaryManager.importFromCloud(cloudShortcuts)
+                Log.d(TAG, "✅ Imported ${cloudShortcuts.size} shortcuts from cloud for $currentLang")
+            }
+            
+            Log.d(TAG, "✅ Custom shortcuts cloud sync enabled for $currentLang")
         }
         
         Log.d(TAG, "User dictionary manager initialized")
@@ -831,7 +870,47 @@ class AIKeyboardService : InputMethodService(),
         try {
             Log.d(TAG, "🔧 Initializing core components...")
             
-            // Initialize user dictionary manager first
+            // Initialize language manager FIRST (needed for language preferences)
+            languageManager = LanguageManager(this)
+            Log.d(TAG, "✅ LanguageManager initialized")
+            
+            // 🔍 AUDIT: Add language change listener to sync layout/dictionary
+            languageManager.addLanguageChangeListener(object : LanguageManager.LanguageChangeListener {
+                override fun onLanguageChanged(oldLanguage: String, newLanguage: String) {
+                    Log.d("LangSwitch", "🌐 Switching from $oldLanguage → $newLanguage")
+                    
+                    // Update current language tracking
+                    currentLanguage = newLanguage
+                    
+                    // Switch dictionary and autocorrect engine
+                    if (::dictionaryManager.isInitialized) {
+                        dictionaryManager.switchLanguage(newLanguage)
+                    }
+                    
+                    if (::autocorrectEngine.isInitialized) {
+                        autocorrectEngine.setLocale(newLanguage)
+                    }
+                    
+                    if (::userDictionaryManager.isInitialized) {
+                        userDictionaryManager.switchLanguage(newLanguage)
+                    }
+                    
+                    // Reload dynamic layout if active
+                    if (useDynamicLayout && currentKeyboardMode == KeyboardMode.LETTERS) {
+                        coroutineScope.launch {
+                            loadLanguageLayout(newLanguage)
+                        }
+                    }
+                    
+                    Log.d("LangSwitch", "✅ Language switch complete: $oldLanguage → $newLanguage")
+                }
+                
+                override fun onEnabledLanguagesChanged(enabledLanguages: Set<String>) {
+                    Log.d("LangSwitch", "🌐 Enabled languages updated: $enabledLanguages")
+                }
+            })
+            
+            // Initialize user dictionary manager
             userDictionaryManager = UserDictionaryManager(this)
             Log.d(TAG, "✅ UserDictionaryManager initialized")
             
@@ -857,9 +936,15 @@ class AIKeyboardService : InputMethodService(),
             )
             Log.d(TAG, "✅ UnifiedAutocorrectEngine initialized")
             
-            // Preload essential languages asynchronously
-            val enabledLangs = listOf("en", "hi", "te", "ta")
-            Log.d(TAG, "🔄 Starting preload for ${enabledLangs.size} languages: $enabledLangs")
+            // Attach suggestion callback for real-time updates
+            autocorrectEngine.attachSuggestionCallback { suggestions ->
+                updateSuggestionUI(suggestions)
+            }
+            Log.d(TAG, "✅ Suggestion callback attached to autocorrect engine")
+            
+            // Preload user-enabled languages asynchronously (no hardcoded list)
+            val enabledLangs = languageManager.getEnabledLanguages().toList()
+            Log.d(TAG, "🔄 Preloading user-enabled languages: $enabledLangs")
             autocorrectEngine.preloadLanguages(enabledLangs)
             
             // Verify loading status asynchronously (don't block onCreate)
@@ -1246,21 +1331,79 @@ class AIKeyboardService : InputMethodService(),
      * Initialize multilingual keyboard components
      */
     private fun initializeMultilingualComponents() {
+        Log.d(TAG, "🚀 initializeMultilingualComponents() called")
         try {
-            // Initialize language manager
-            languageManager = LanguageManager(this)
+            // LanguageManager already initialized in initializeCoreComponents()
+            // No need to reinitialize
             
             // Initialize language detector
             languageDetector = LanguageDetector()
+            Log.d(TAG, "✓ LanguageDetector initialized")
             
             // Initialize keyboard layout manager
             keyboardLayoutManager = KeyboardLayoutManager(this)
+            languageLayoutAdapter = LanguageLayoutAdapter(this)
+            Log.d(TAG, "✓ KeyboardLayoutManager initialized")
+            
+            // 🔍 AUDIT: Verify all key mappings at startup (after languageLayoutAdapter is ready)
+            Log.d(TAG, "🔍 Running key mapping verification audit...")
+            try {
+                languageLayoutAdapter.verifyAllMappings()
+                
+                // 🔍 AUDIT: Compare all template mappings
+                listOf("qwerty_template.json", "symbols_template.json", "extended_symbols_template.json", "dialer_template.json")
+                    .forEach { templateName ->
+                        languageLayoutAdapter.compareKeyMappings(templateName)
+                    }
+                Log.d(TAG, "✅ Key mapping audit complete")
+            } catch (e: Exception) {
+                Log.e(TAG, "⚠️ Key mapping audit failed (non-fatal)", e)
+            }
+            
+            // ✅ Initialize SwipeAutocorrectEngine EARLY (before engine ready check)
+            // This prevents early return from skipping initialization
+            Log.d(TAG, "🔧 Starting SwipeAutocorrectEngine initialization (early)...")
+            try {
+                swipeAutocorrectEngine = SwipeAutocorrectEngine.getInstance(this)
+                Log.d(TAG, "✓ SwipeAutocorrectEngine instance created")
+                
+                // Will link to UnifiedAutocorrectEngine later when ready
+                CoroutineScope(Dispatchers.Main).launch {
+                    var attempts = 0
+                    while (attempts < 10) {
+                        delay(500) // Check every 500ms
+                        if (ensureEngineReady()) {
+                            Log.d(TAG, "🔗 UnifiedAutocorrectEngine ready, linking to SwipeAutocorrectEngine...")
+                            try {
+                                swipeAutocorrectEngine.setUnifiedEngine(autocorrectEngine)
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    swipeAutocorrectEngine.initialize()
+                                    Log.d(TAG, "✅ SwipeAutocorrectEngine initialized and linked (attempt ${attempts + 1})")
+                                }
+                                break
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Failed to link/initialize SwipeAutocorrectEngine", e)
+                            }
+                        } else {
+                            Log.d(TAG, "⏳ Waiting for UnifiedAutocorrectEngine... (attempt ${attempts + 1}/10)")
+                        }
+                        attempts++
+                    }
+                    if (attempts >= 10) {
+                        Log.e(TAG, "❌ Failed to link SwipeAutocorrectEngine after 10 attempts (5 seconds)")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to create SwipeAutocorrectEngine instance", e)
+            }
             
             // Core components already initialized in initializeCoreComponents()
             // Just verify they're ready
-            if (!ensureEngineReady()) {
-                Log.e(TAG, "❌ Core components not ready in initializeMultilingualComponents")
-                return
+            val engineReady = ensureEngineReady()
+            Log.d(TAG, "🔍 ensureEngineReady() = $engineReady")
+            if (!engineReady) {
+                Log.w(TAG, "⚠️ Core components not fully ready in initializeMultilingualComponents, continuing anyway...")
+                // Don't return - allow initialization to continue
             }
             
             // Connect user dictionary manager to autocorrect engine (if initialized)
@@ -1272,19 +1415,17 @@ class AIKeyboardService : InputMethodService(),
             // Initialize enhanced prediction system
             nextWordPredictor = com.example.ai_keyboard.predict.NextWordPredictor(autocorrectEngine, multilingualDictionary)
             
+            // Load English dictionary for prediction
+            multilingualDictionary.loadLanguage("en", coroutineScope)
+            Log.d(TAG, "Started loading English dictionary for predictions")
+            
             // Phase 2: User dictionary integration handled by UnifiedAutocorrectEngine
             Log.d(TAG, "User dictionary integration complete")
             
             Log.d(TAG, "Enhanced prediction system initialized")
             
-            // Initialize enhanced swipe autocorrect engine
-            swipeAutocorrectEngine = SwipeAutocorrectEngine.getInstance(this)
-            
-            // STEP 2: Integrate SwipeAutocorrectEngine with UnifiedAutocorrectEngine
-            if (ensureEngineReady()) {
-                swipeAutocorrectEngine.setUnifiedEngine(autocorrectEngine)
-                Log.d(TAG, "✅ SwipeAutocorrectEngine integrated with UnifiedAutocorrectEngine")
-            }
+            // Note: SwipeAutocorrectEngine initialization moved earlier in this function
+            // to prevent early return from skipping it
             
             // Run validation tests for enhanced autocorrect
             coroutineScope.launch {
@@ -1294,10 +1435,9 @@ class AIKeyboardService : InputMethodService(),
                     Log.d(TAG, "Autocorrect Test: $result")
                 }
                 
-                // Initialize swipe autocorrect engine
-                swipeAutocorrectEngine.initialize()
+                // Load additional dictionaries
                 loadDictionariesAsync()
-                Log.d(TAG, "Swipe autocorrect engine and dictionary initialization completed")
+                Log.d(TAG, "Dictionary initialization completed")
             }
             
             // Set up language change listener
@@ -1341,22 +1481,28 @@ class AIKeyboardService : InputMethodService(),
             autocorrectEngine.setLocale(newLanguage)
             
             // Update keyboard view with new layout
-            keyboardView?.let { kv ->
-                val mode = when (currentKeyboard) {
-                    KEYBOARD_LETTERS -> "letters"
-                    KEYBOARD_SYMBOLS -> "symbols" 
-                    KEYBOARD_NUMBERS -> "numbers"
-                    else -> "letters"
-                }
-                
-                val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(mode)
-                if (newKeyboard != null) {
-                    keyboard = newKeyboard
-                    kv.keyboard = keyboard
-                    kv.invalidateAllKeys()
+            if (useDynamicLayout && currentKeyboard == KEYBOARD_LETTERS) {
+                // NEW: Reload dynamic layout for new language
+                loadDynamicLayout(newLanguage)
+            } else {
+                // LEGACY: Use XML-based layout reload
+                keyboardView?.let { kv ->
+                    val mode = when (currentKeyboard) {
+                        KEYBOARD_LETTERS -> "letters"
+                        KEYBOARD_SYMBOLS -> "symbols" 
+                        KEYBOARD_NUMBERS -> "numbers"
+                        else -> "letters"
+                    }
                     
-                    // Rebind listener after keyboard reassignment
-                    rebindKeyboardListener()
+                    val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(mode)
+                    if (newKeyboard != null) {
+                        keyboard = newKeyboard
+                        kv.keyboard = keyboard
+                        kv.invalidateAllKeys()
+                        
+                        // Rebind listener after keyboard reassignment
+                        rebindKeyboardListener()
+                    }
                 }
             }
             
@@ -2332,6 +2478,31 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "⚠️ Not in LETTERS mode, skipping layout reload. Mode: $currentKeyboardMode")
         }
         
+        // Phase 3: Sync dictionary managers to new language
+        try {
+            if (::dictionaryManager.isInitialized) {
+                dictionaryManager.switchLanguage(currentLanguage)
+                Log.d(TAG, "✅ Dictionary manager switched to $currentLanguage")
+            }
+            
+            if (::userDictionaryManager.isInitialized) {
+                userDictionaryManager.switchLanguage(currentLanguage)
+                
+                // Sync from cloud for new language
+                userDictionaryManager.syncFromCloud(currentLanguage)
+                
+                // Load shortcuts for new language
+                userDictionaryManager.loadShortcutsFromCloud(currentLanguage) { cloudShortcuts ->
+                    dictionaryManager.importFromCloud(cloudShortcuts)
+                    Log.d(TAG, "✅ Loaded ${cloudShortcuts.size} shortcuts for $currentLanguage")
+                }
+                
+                Log.d(TAG, "✅ User dictionary manager switched to $currentLanguage")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error syncing managers on language switch", e)
+        }
+        
         // Show toast notification
         showLanguageToast(currentLanguage)
     }
@@ -2953,7 +3124,30 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
+    /**
+     * 🔍 DEEP DIAGNOSTIC: Log every key press with full context for audit
+     */
+    private fun logKeyDiagnostics(primaryCode: Int, keyCodes: IntArray?) {
+        val keyLabel = when (primaryCode) {
+            Keyboard.KEYCODE_SHIFT, -1 -> "SHIFT"
+            Keyboard.KEYCODE_DELETE, -5 -> "DELETE"
+            Keyboard.KEYCODE_DONE, -4 -> "RETURN"
+            32 -> "SPACE"
+            -14 -> "GLOBE"
+            -10 -> "?123"
+            -11 -> "ABC"
+            -20 -> "=<"
+            -21 -> "1234"
+            else -> if (primaryCode > 0 && primaryCode < 128) primaryCode.toChar().toString() else "CODE_$primaryCode"
+        }
+        
+        Log.d("KeyAudit", "🔍 Key pressed: $keyLabel | Code: $primaryCode | Mode: $currentKeyboardMode | Lang: $currentLanguage | Dynamic: $useDynamicLayout")
+    }
+    
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
+        // 🔍 DIAGNOSTIC: Log every key press with full context
+        logKeyDiagnostics(primaryCode, keyCodes)
+        
         // ✅ Intercept separators for autocorrect BEFORE normal processing
         if (isSeparator(primaryCode)) {
             Log.d(TAG, "🔍 Separator detected: code=$primaryCode")
@@ -2979,16 +3173,23 @@ class AIKeyboardService : InputMethodService(),
         when (primaryCode) {
             Keyboard.KEYCODE_DELETE -> handleBackspace(ic)
             Keyboard.KEYCODE_SHIFT -> handleShift()
-            Keyboard.KEYCODE_DONE -> {
+            Keyboard.KEYCODE_DONE, -4 -> {
                 // Context-aware enter key behavior (Gboard-style)
+                // -4 is sym_keyboard_return from dynamic layouts
                 handleEnterKey(ic)
+                
+                // CRITICAL FIX: Clear suggestions after sentence completion
+                currentWord = ""
+                updateAISuggestions() // This will clear suggestions for empty word
+                Log.d(TAG, "✅ Suggestions cleared after RETURN key")
             }
             KEYCODE_SPACE -> handleSpace(ic)
-            KEYCODE_SYMBOLS -> cycleKeyboardMode()  // ?123 key cycles forward
+            KEYCODE_SYMBOLS -> switchKeyboardMode(KeyboardMode.SYMBOLS)  // ?123 key
             KEYCODE_LETTERS -> returnToLetters()    // ABC key returns to letters
             KEYCODE_NUMBERS -> cycleKeyboardMode()  // Also cycle
-            -3 -> cycleKeyboardMode()  // Handle XML ?123 code
-            -2 -> returnToLetters()    // Handle XML ABC code
+            -20 -> switchKeyboardMode(KeyboardMode.EXTENDED_SYMBOLS)  // =< key
+            -21 -> switchKeyboardMode(KeyboardMode.DIALER)  // 1234 key
+            // REMOVED: XML legacy codes (-3, -2) - all XML files now use consistent codes
             KEYCODE_VOICE -> {
                 // Enhanced voice input with visual feedback
                 handleVoiceInput()
@@ -2997,6 +3198,19 @@ class AIKeyboardService : InputMethodService(),
             KEYCODE_GLOBE -> {
                 // Language switching - cycle through enabled languages
                 cycleLanguage()
+                
+                // CRITICAL FIX: Notify AI services about language change
+                if (::aiBridge.isInitialized) {
+                    try {
+                        // Reset suggestion context for new language
+                        currentWord = ""
+                        updateAISuggestions()
+                        Log.d(TAG, "✅ AI services notified of language change to: $currentLanguage")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "⚠️ Error notifying AI services of language change", e)
+                    }
+                }
+                
                 ensureCursorStability()
             }
             KEYCODE_EMOJI -> {
@@ -3153,37 +3367,78 @@ class AIKeyboardService : InputMethodService(),
      * @return true if we handled the key (committed text); false to let normal flow continue.
      */
     private fun applyAutocorrectOnSeparator(code: Int): Boolean {
-        val autocorrectEnabled = isAutoCorrectEnabled()
-        Log.d(TAG, "🔍 applyAutocorrectOnSeparator: autocorrect=$autocorrectEnabled, code=$code")
-        
-        if (!autocorrectEnabled) {
-            Log.w(TAG, "⚠️ Autocorrect is DISABLED in settings")
-            return false
-        }
-        
         val ic = currentInputConnection ?: run {
             Log.w(TAG, "⚠️ No InputConnection available")
             return false
         }
         
         // Look back to capture the last token (64 chars is plenty for a single word)
-        val before = ic.getTextBeforeCursor(64, 0) ?: return false
+        val before = ic.getTextBeforeCursor(64, 0) ?: run {
+            Log.w(TAG, "⚠️ Could not get text before cursor")
+            // Still commit the separator
+            if (code > 0) ic.commitText(String(Character.toChars(code)), 1)
+            return true
+        }
         
         // Last run of letters/apostrophes (works well for English and Latin-script languages)
         val match = Regex("([\\p{L}']+)$").find(before)
         if (match == null) {
             Log.d(TAG, "🔍 No word found before cursor: '$before'")
-            if (code > 0) ic.commitText(String(Character.toChars(code)), 1)
+            if (code > 0) {
+                val charStr = String(Character.toChars(code))
+                Log.d(TAG, "💾 Committing separator: '$charStr' (code=$code)")
+                ic.commitText(charStr, 1)
+            }
             return true
         }
         
         val original = match.groupValues[1]
         Log.d(TAG, "🔍 Found word: '$original' (length=${original.length})")
         
+        // ✅ CHECK FOR CUSTOM DICTIONARY EXPANSION FIRST (before autocorrect!)
+        if (dictionaryEnabled) {
+            val expansion = dictionaryManager.getExpansion(original)
+            if (expansion != null) {
+                val expandedText = expansion.expansion
+                val separator = if (code > 0) String(Character.toChars(code)) else " "
+                
+                ic.beginBatchEdit()
+                ic.deleteSurroundingText(original.length, 0)
+                ic.commitText("$expandedText$separator", 1)
+                ic.endBatchEdit()
+                
+                dictionaryManager.incrementUsage(original)
+                
+                // ✅ Add expanded text to word history for next-word prediction
+                wordHistory.add(expandedText)
+                if (wordHistory.size > 20) {
+                    wordHistory.removeAt(0)
+                }
+                
+                Log.d(TAG, "⚙️ Shortcut expanded: '$original' → '$expandedText'")
+                Log.d(TAG, "📚 Added '$expandedText' to word history (size=${wordHistory.size})")
+                return true  // Expansion done, don't run autocorrect
+            }
+        }
+        
         if (original.isEmpty() || original.length < 2) {
             // Too short to correct, just commit separator
             Log.d(TAG, "🔍 Word too short to correct")
             if (code > 0) ic.commitText(String(Character.toChars(code)), 1)
+            return true
+        }
+        
+        val autocorrectEnabled = isAutoCorrectEnabled()
+        Log.d(TAG, "🔍 applyAutocorrectOnSeparator: autocorrect=$autocorrectEnabled, code=$code")
+        
+        if (!autocorrectEnabled) {
+            Log.w(TAG, "⚠️ Autocorrect is DISABLED in settings")
+            // Still commit the separator character
+            if (code > 0) {
+                val charStr = String(Character.toChars(code))
+                Log.d(TAG, "💾 Committing separator (autocorrect OFF): '$charStr' (code=$code)")
+                ic.commitText(charStr, 1)
+            }
             return true
         }
         
@@ -3203,6 +3458,14 @@ class AIKeyboardService : InputMethodService(),
             
             if (best == null) {
                 Log.d(TAG, "🔍 No suggestion available")
+                
+                // ✅ Add original word to history for next-word prediction
+                wordHistory.add(original)
+                if (wordHistory.size > 20) {
+                    wordHistory.removeAt(0)
+                }
+                Log.d(TAG, "📚 Added '$original' to word history (size=${wordHistory.size})")
+                
                 // No suggestion; just commit the separator
                 if (code > 0) ic.commitText(String(Character.toChars(code)), 1)
                 return true
@@ -3213,6 +3476,14 @@ class AIKeyboardService : InputMethodService(),
                 Log.d(TAG, "🚫 Skipping autocorrect — user rejected previous correction for '$original'")
                 correctionRejected = false
                 lastCorrection = null
+                
+                // ✅ Add original word to history for next-word prediction
+                wordHistory.add(original)
+                if (wordHistory.size > 20) {
+                    wordHistory.removeAt(0)
+                }
+                Log.d(TAG, "📚 Added '$original' to word history (size=${wordHistory.size})")
+                
                 // Just commit the separator
                 if (code > 0) ic.commitText(String(Character.toChars(code)), 1)
                 return true
@@ -3237,12 +3508,26 @@ class AIKeyboardService : InputMethodService(),
                 undoAvailable = true
                 Log.d(TAG, "💾 Stored last correction for undo: '$original' → '$replaced'")
                 
+                // ✅ Add corrected word to history for next-word prediction
+                wordHistory.add(replaced)
+                if (wordHistory.size > 20) {
+                    wordHistory.removeAt(0)
+                }
+                Log.d(TAG, "📚 Added '$replaced' to word history (size=${wordHistory.size})")
+                
                 // 🔥 CRITICAL: Learn from this correction for adaptive improvement
                 try {
                     autocorrectEngine.onCorrectionAccepted(original, best, currentLanguage)
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ Error learning from correction", e)
                 }
+            } else {
+                // ✅ No replacement, but still add original word to history
+                wordHistory.add(original)
+                if (wordHistory.size > 20) {
+                    wordHistory.removeAt(0)
+                }
+                Log.d(TAG, "📚 Added '$original' to word history (size=${wordHistory.size})")
             }
             // Always commit the separator if it's a printable character
             if (code > 0) {
@@ -3382,15 +3667,8 @@ class AIKeyboardService : InputMethodService(),
                 undoAvailable = false
                 currentWord = original
                 
-                // Blacklist this correction permanently
-                try {
-                    if (::userDictionaryManager.isInitialized) {
-                        userDictionaryManager.blacklistCorrection(original, corrected)
-                    }
-                    autocorrectEngine.learnFromUser(original, original, currentLanguage)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to blacklist rejected correction", e)
-                }
+                // Phase 5: Learn from rejection
+                onCorrectionRejected(original, corrected)
                 
                 // Update suggestions
                 if (aiSuggestionsEnabled) {
@@ -3471,14 +3749,8 @@ class AIKeyboardService : InputMethodService(),
                 undoAvailable = false
                 Log.d(TAG, "🚫 User manually rejected autocorrect '$original' → '$corrected'")
                 
-                // Blacklist this correction permanently
-                try {
-                    if (::userDictionaryManager.isInitialized) {
-                        userDictionaryManager.blacklistCorrection(original, corrected)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to blacklist rejected correction", e)
-                }
+                // Phase 5: Learn from rejection
+                onCorrectionRejected(original, corrected)
                 
                 lastCorrection = null
             }
@@ -3667,6 +3939,94 @@ class AIKeyboardService : InputMethodService(),
         updateAISuggestions()
     }
     
+    // ==================== PHASE 3: WORD LEARNING INTEGRATION ====================
+    
+    /**
+     * Called when a word is committed (typed and accepted)
+     * Phase 3: Automatic word learning for personalization
+     */
+    private fun onWordCommitted(word: String) {
+        if (word.isBlank() || word.length < 2) return
+        
+        try {
+            if (::userDictionaryManager.isInitialized) {
+                userDictionaryManager.learnWord(word)
+                Log.d(TAG, "✨ Learned word: '$word'")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to learn word", e)
+        }
+    }
+    
+    /**
+     * Called when a new shortcut is added
+     * Phase 3: Automatic shortcut cloud sync
+     */
+    private fun onShortcutAdded(shortcut: String, expansion: String) {
+        try {
+            if (::dictionaryManager.isInitialized && ::userDictionaryManager.isInitialized) {
+                dictionaryManager.addEntry(shortcut, expansion)
+                
+                // Sync to cloud
+                val currentLang = dictionaryManager.getCurrentLanguage()
+                val allShortcuts = dictionaryManager.getAllEntriesAsMap()
+                userDictionaryManager.syncShortcutsToCloud(allShortcuts, currentLang)
+                
+                Log.d(TAG, "✅ Added shortcut and synced to cloud: $shortcut → $expansion")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add shortcut", e)
+        }
+    }
+    
+    /**
+     * Phase 5: Called when user accepts an autocorrect suggestion
+     * Positive learning for personalization
+     */
+    private fun onCorrectionAccepted(original: String, corrected: String) {
+        try {
+            if (::userDictionaryManager.isInitialized) {
+                // Learn the corrected word
+                userDictionaryManager.learnWord(corrected)
+                
+                // Also tell autocorrect engine
+                if (::autocorrectEngine.isInitialized) {
+                    autocorrectEngine.learnFromUser(original, corrected, currentLanguage)
+                }
+                
+                Log.d(TAG, "✅ Accepted correction: '$original' → '$corrected'")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to process accepted correction", e)
+        }
+    }
+    
+    /**
+     * Phase 5: Called when user rejects an autocorrect suggestion
+     * Negative learning - blacklists the correction
+     */
+    private fun onCorrectionRejected(original: String, corrected: String) {
+        try {
+            if (::userDictionaryManager.isInitialized) {
+                userDictionaryManager.blacklistCorrection(original, corrected)
+                
+                // Learn the original word as valid
+                userDictionaryManager.learnWord(original)
+                
+                // Tell autocorrect engine
+                if (::autocorrectEngine.isInitialized) {
+                    autocorrectEngine.learnFromUser(original, original, currentLanguage)
+                }
+                
+                Log.d(TAG, "🚫 Rejected correction: '$original' ≠ '$corrected'")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to process rejected correction", e)
+        }
+    }
+    
+    // ==================== END PHASE 3 & 5 ====================
+    
     private fun finishCurrentWord() {
         if (currentWord.isEmpty()) return
         
@@ -3680,7 +4040,22 @@ class AIKeyboardService : InputMethodService(),
                 autocorrectEngine.processBoundary(context, currentLanguage)
                 
                 // Get suggestions for the current word
-                val suggestions = autocorrectEngine.getCorrections(currentWord, currentLanguage, context)
+                val allSuggestions = autocorrectEngine.getCorrections(currentWord, currentLanguage, context)
+                
+                // Phase 5: Filter out blacklisted corrections
+                val suggestions = if (::userDictionaryManager.isInitialized) {
+                    allSuggestions.filter { suggestion ->
+                        !userDictionaryManager.isBlacklisted(currentWord, suggestion.word)
+                    }.also { filtered ->
+                        val blacklistedCount = allSuggestions.size - filtered.size
+                        if (blacklistedCount > 0) {
+                            Log.d(TAG, "🚫 Filtered $blacklistedCount blacklisted corrections for '$currentWord'")
+                        }
+                    }
+                } else {
+                    allSuggestions
+                }
+                
                 val topSuggestion = suggestions.firstOrNull()
                 
                 if (topSuggestion != null && topSuggestion.isCorrection) {
@@ -3693,11 +4068,11 @@ class AIKeyboardService : InputMethodService(),
                             ic.deleteSurroundingText(currentWord.length, 0)
                             ic.commitText("$correction ", 1)
                             
-                            // Save correction history for revert
-                            autocorrectEngine.learnFromUser(currentWord, correction.toString(), currentLanguage)
-                            
                             // Show brief underline/highlight feedback
                             showAutocorrectFeedback(correction)
+                            
+                            // Phase 3 & 5: Learn from accepted correction
+                            onCorrectionAccepted(currentWord, correction)
                             
                             Log.d(TAG, "Auto-corrected '$currentWord' → '$correction'")
                         }
@@ -3708,21 +4083,22 @@ class AIKeyboardService : InputMethodService(),
                 } else {
                     // No auto-correction, add original word
                     wordHistory.add(currentWord)
+                    
+                    // Phase 3: Learn original word
+                    onWordCommitted(currentWord)
                 }
                 
                 // Update suggestion strip with candidates
                 withContext(Dispatchers.Main) {
                     // Update suggestion strip with top suggestions
-                    val autocorrectCandidates = suggestions.map { 
-                        AutocorrectCandidate(
-                            word = it.word,
-                            score = it.score,
-                            confidence = it.score,
-                            type = if (it.isCorrection) CandidateType.CORRECTION else CandidateType.ORIGINAL,
-                            editDistance = if (it.isCorrection) 1 else 0
-                        )
+                    val suggestionTexts = suggestions.map { suggestion ->
+                        if (suggestion.isCorrection) {
+                            "✓ ${suggestion.word}" // Mark corrections
+                        } else {
+                            suggestion.word
+                        }
                     }
-                    updateSuggestionStrip(autocorrectCandidates)
+                    updateSuggestionUI(suggestionTexts)
                 }
                 
             } catch (e: Exception) {
@@ -3768,39 +4144,6 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    /**
-     * Update suggestion strip with enhanced autocorrect candidates
-     * Format: [original] [best correction] [alternatives]
-     */
-    private fun updateSuggestionStrip(candidates: List<AutocorrectCandidate>) {
-        try {
-            if (candidates.isEmpty()) {
-                // Clear suggestions
-                updateSuggestionUI(emptyList())
-                return
-            }
-            
-            val suggestionTexts = candidates.take(3).map { candidate ->
-                when (candidate.type) {
-                    CandidateType.ORIGINAL -> candidate.word // Show as typed
-                    CandidateType.CORRECTION -> "✓ ${candidate.word}" // Mark corrections
-                    else -> candidate.word
-                }
-            }
-            
-            updateSuggestionUI(suggestionTexts)
-            
-            // Check for revert capability
-            val revertCandidate = autocorrectEngine.getRevertCandidate("") // Placeholder for lastWord
-            if (revertCandidate != null) {
-                // Could add special revert UI indication here
-                Log.d(TAG, "Revert available: $revertCandidate")
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating suggestion strip", e)
-        }
-    }
     
     private fun handleShift() {
         // Delegate to enhanced caps/shift manager
@@ -3956,14 +4299,22 @@ class AIKeyboardService : InputMethodService(),
         
         when (targetMode) {
             KeyboardMode.LETTERS -> {
-                val lang = currentLanguage.uppercase()
-                val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
-                keyboard = Keyboard(this, keyboardResource)
-                currentKeyboard = KEYBOARD_LETTERS
-                keyboardView?.keyboard = keyboard
-                keyboardView?.showNormalLayout()
-                rebindKeyboardListener()  // NOTE: Always rebind after layout change
-                applyTheme()
+                if (useDynamicLayout) {
+                    // NEW: Use dynamic JSON-based layout
+                    coroutineScope.launch {
+                        loadLanguageLayout(currentLanguage)
+                    }
+                } else {
+                    // LEGACY: Use XML-based layout
+                    val lang = currentLanguage.uppercase()
+                    val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
+                    keyboard = Keyboard(this, keyboardResource)
+                    currentKeyboard = KEYBOARD_LETTERS
+                    keyboardView?.keyboard = keyboard
+                    keyboardView?.showNormalLayout()
+                    rebindKeyboardListener()  // NOTE: Always rebind after layout change
+                    applyTheme()
+                }
             }
             
             KeyboardMode.NUMBERS -> {
@@ -3976,12 +4327,47 @@ class AIKeyboardService : InputMethodService(),
             }
             
             KeyboardMode.SYMBOLS -> {
-                keyboard = Keyboard(this, R.xml.symbols)
-                currentKeyboard = KEYBOARD_SYMBOLS
-                keyboardView?.keyboard = keyboard
-                keyboardView?.showNormalLayout()
-                rebindKeyboardListener()  // NOTE: Always rebind after layout change
-                applyTheme()
+                if (useDynamicLayout) {
+                    // Use dynamic symbols layout
+                    loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.SYMBOLS)
+                } else {
+                    keyboard = Keyboard(this, R.xml.symbols)
+                    currentKeyboard = KEYBOARD_SYMBOLS
+                    keyboardView?.keyboard = keyboard
+                    keyboardView?.showNormalLayout()
+                    rebindKeyboardListener()
+                    applyTheme()
+                }
+            }
+            
+            KeyboardMode.EXTENDED_SYMBOLS -> {
+                if (useDynamicLayout) {
+                    // Use dynamic extended symbols layout
+                    loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.EXTENDED_SYMBOLS)
+                } else {
+                    // Fallback to regular symbols
+                    keyboard = Keyboard(this, R.xml.symbols)
+                    currentKeyboard = KEYBOARD_SYMBOLS
+                    keyboardView?.keyboard = keyboard
+                    keyboardView?.showNormalLayout()
+                    rebindKeyboardListener()
+                    applyTheme()
+                }
+            }
+            
+            KeyboardMode.DIALER -> {
+                if (useDynamicLayout) {
+                    // Use dynamic dialer layout
+                    loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.DIALER)
+                } else {
+                    // Fallback to numbers
+                    keyboard = Keyboard(this, R.xml.symbols)
+                    currentKeyboard = KEYBOARD_NUMBERS
+                    keyboardView?.keyboard = keyboard
+                    keyboardView?.showNormalLayout()
+                    rebindKeyboardListener()
+                    applyTheme()
+                }
             }
             
             KeyboardMode.EMOJI -> {
@@ -3995,14 +4381,103 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
+     * ✅ FIXED: Load dynamic JSON-based layout for a language with proper mode synchronization
+     * This ensures key codes are rebuilt correctly when switching modes
+     */
+    private fun loadDynamicLayout(languageCode: String, mode: LanguageLayoutAdapter.KeyboardMode = LanguageLayoutAdapter.KeyboardMode.LETTERS) {
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "📱 Loading dynamic layout for: $languageCode, mode: $mode")
+                val showNumberRow = getNumberRowEnabled()
+                
+                mainHandler.post {
+                    // ✅ CRITICAL FIX: Use setKeyboardMode instead of setDynamicLayout
+                    // This rebuilds the layout with correct key codes for the current mode
+                    keyboardView?.let { view ->
+                        if (view is SwipeKeyboardView) {
+                            view.currentLangCode = languageCode
+                            view.setKeyboardMode(mode, languageLayoutAdapter, showNumberRow)
+                            view.setCurrentLanguage(languageManager.getLanguageDisplayName(languageCode))
+                        }
+                    }
+                    
+                    currentKeyboard = when (mode) {
+                        LanguageLayoutAdapter.KeyboardMode.LETTERS -> KEYBOARD_LETTERS
+                        LanguageLayoutAdapter.KeyboardMode.SYMBOLS -> KEYBOARD_SYMBOLS
+                        LanguageLayoutAdapter.KeyboardMode.EXTENDED_SYMBOLS -> KEYBOARD_SYMBOLS
+                        LanguageLayoutAdapter.KeyboardMode.DIALER -> KEYBOARD_NUMBERS
+                    }
+                    applyTheme()
+                    Log.d(TAG, "✅ Dynamic layout loaded for $languageCode (mode: $mode)")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to load dynamic layout for $languageCode", e)
+                // Fallback to legacy XML layout
+                mainHandler.post {
+                    val lang = languageCode.uppercase()
+                    val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
+                    keyboard = Keyboard(this@AIKeyboardService, keyboardResource)
+                    currentKeyboard = KEYBOARD_LETTERS
+                    keyboardView?.keyboard = keyboard
+                    keyboardView?.useLegacyKeyboardMode()
+                    rebindKeyboardListener()
+                    applyTheme()
+                    Log.w(TAG, "⚠️ Fell back to legacy XML layout for $languageCode")
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get number row enabled setting from SharedPreferences
+     */
+    private fun getNumberRowEnabled(): Boolean {
+        return try {
+            // Read from the same place as SettingsManager (ai_keyboard_settings)
+            val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+            val enabled = prefs.getBoolean("show_number_row", false)
+            Log.d(TAG, "📊 getNumberRowEnabled: $enabled")
+            enabled
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading number row setting", e)
+            false
+        }
+    }
+    
+    /**
+     * ✅ FIXED: Load language layout with number row support
+     * Enhanced version that respects user settings and properly synchronizes mode
+     */
+    private suspend fun loadLanguageLayout(langCode: String) {
+        val showNumberRow = getNumberRowEnabled()
+        
+        // ✅ CRITICAL FIX: Use setKeyboardMode to ensure proper key code mapping
+        withContext(Dispatchers.Main) {
+            keyboardView?.let { view ->
+                if (view is SwipeKeyboardView) {
+                    view.currentLangCode = langCode
+                    view.setKeyboardMode(LanguageLayoutAdapter.KeyboardMode.LETTERS, languageLayoutAdapter, showNumberRow)
+                    view.setCurrentLanguage(languageManager.getLanguageDisplayName(langCode))
+                    view.refreshTheme()
+                }
+            }
+        }
+
+        autocorrectEngine.preloadLanguages(listOf(langCode))
+        Log.d(TAG, "✅ Layout loaded for $langCode with numberRow=$showNumberRow")
+    }
+    
+    /**
      * Cycle to next keyboard mode (CleverType behavior)
-     * Letters → Numbers → Symbols → Letters
+     * Letters → Symbols → Extended Symbols → Dialer → Letters
      */
     private fun cycleKeyboardMode() {
         val nextMode = when (currentKeyboardMode) {
-            KeyboardMode.LETTERS -> KeyboardMode.NUMBERS
+            KeyboardMode.LETTERS -> KeyboardMode.SYMBOLS
             KeyboardMode.NUMBERS -> KeyboardMode.SYMBOLS
-            KeyboardMode.SYMBOLS -> KeyboardMode.LETTERS
+            KeyboardMode.SYMBOLS -> KeyboardMode.EXTENDED_SYMBOLS
+            KeyboardMode.EXTENDED_SYMBOLS -> KeyboardMode.DIALER
+            KeyboardMode.DIALER -> KeyboardMode.LETTERS
             KeyboardMode.EMOJI -> previousKeyboardMode
         }
         Log.d(TAG, "⚡ Cycling keyboard: $currentKeyboardMode → $nextMode")
@@ -4183,13 +4658,46 @@ class AIKeyboardService : InputMethodService(),
         // Reset retry count on success
         retryCount = 0
         
-        if (!aiSuggestionsEnabled) {
-            Log.d(TAG, "AI suggestions disabled in settings")
+        val word = currentWord.trim()
+        
+        // ✅ NEXT-WORD PREDICTION: Check BEFORE AI suggestions (works even if AI disabled)
+        if (word.isEmpty()) {
+            Log.d(TAG, "🔍 Empty word detected - checking for next-word predictions")
+            
+            if (::nextWordPredictor.isInitialized) {
+                try {
+                    val context = getRecentContext()
+                    Log.d(TAG, "🔍 Context for predictions: $context")
+                    
+                    if (context.isNotEmpty()) {
+                        Log.d(TAG, "🔮 Getting next-word predictions for context: $context")
+                        val predictions = nextWordPredictor.getPredictions(context, currentLanguage, 3)
+                        
+                        if (predictions.isNotEmpty()) {
+                            Log.d(TAG, "📊 Next-word predictions: $predictions")
+                            updateSuggestionUI(predictions)
+                            return
+                        } else {
+                            Log.d(TAG, "⚠️ No next-word predictions available for context: $context")
+                        }
+                    } else {
+                        Log.d(TAG, "⚠️ Context is empty, no previous words to predict from")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error getting next-word predictions", e)
+                    e.printStackTrace()
+                }
+            } else {
+                Log.w(TAG, "⚠️ NextWordPredictor not initialized")
+            }
+            
+            clearSuggestions()
             return
         }
         
-        val word = currentWord.trim()
-        if (word.isEmpty()) {
+        // Now check AI suggestions setting (only affects AI, not next-word)
+        if (!aiSuggestionsEnabled) {
+            Log.d(TAG, "AI suggestions disabled in settings (next-word still works)")
             clearSuggestions()
             return
         }
@@ -4506,43 +5014,129 @@ class AIKeyboardService : InputMethodService(),
             
             Log.d(TAG, "Enhanced suggestions: currentWord='$currentWord', prevToken='$prevToken', lang='$lang'")
             
-            // Use NextWordPredictor for word candidates
-            val wordCandidates = if (::nextWordPredictor.isInitialized) {
-                nextWordPredictor.getPredictions(listOfNotNull(prevToken), lang, 8)
-                    .mapIndexed { idx, word -> word to (0.8 - idx * 0.1) }
-            } else {
-                // Fallback to simple prefix search
-                if (currentWord.isNotEmpty()) {
-                    autocorrectEngine.getCandidates(currentWord, lang, 5)
-                        .mapIndexed { idx, word -> word to (0.5 - idx * 0.1) }
-                } else {
-                    listOf("the", "of", "to", "and", "a").mapIndexed { idx, word -> word to (0.5 - idx * 0.1) }
+            // Build word candidates from multiple sources
+            val wordCandidates = mutableListOf<Pair<String, Double>>()
+            
+            // 1. Try NextWordPredictor for context-aware predictions
+            if (::nextWordPredictor.isInitialized) {
+                try {
+                    val predictions = nextWordPredictor.getPredictions(listOfNotNull(prevToken), lang, 8)
+                    wordCandidates.addAll(predictions.mapIndexed { idx, word -> word to (0.8 - idx * 0.1) })
+                    Log.d(TAG, "NextWordPredictor provided ${predictions.size} predictions")
+                } catch (e: Exception) {
+                    Log.w(TAG, "NextWordPredictor failed: ${e.message}")
                 }
             }
             
+            // 2. Try autocorrect engine for prefix matching
+            if (currentWord.isNotEmpty() && ensureEngineReady()) {
+                try {
+                    val candidates = autocorrectEngine.getCandidates(currentWord, lang, 5)
+                    wordCandidates.addAll(candidates.mapIndexed { idx, word -> word to (0.6 - idx * 0.1) })
+                    Log.d(TAG, "AutocorrectEngine provided ${candidates.size} candidates")
+                } catch (e: Exception) {
+                    Log.w(TAG, "AutocorrectEngine failed: ${e.message}")
+                }
+            }
+            
+            // 3. Try multilingualDictionary for prefix matching
+            if (currentWord.isNotEmpty() && ::multilingualDictionary.isInitialized && multilingualDictionary.isLoaded(lang)) {
+                try {
+                    val dictCandidates = multilingualDictionary.getCandidates(currentWord, lang, 5)
+                    wordCandidates.addAll(dictCandidates.mapIndexed { idx, word -> word to (0.5 - idx * 0.1) })
+                    Log.d(TAG, "MultilingualDictionary provided ${dictCandidates.size} candidates")
+                } catch (e: Exception) {
+                    Log.w(TAG, "MultilingualDictionary failed: ${e.message}")
+                }
+            }
+            
+            // 4. Fallback to hardcoded common words if we still don't have enough
+            if (wordCandidates.isEmpty()) {
+                val fallbackWords = if (currentWord.isEmpty()) {
+                    listOf("the", "of", "to", "and", "a", "in", "is", "it")
+                } else {
+                    // Match prefix from common words
+                    val prefix = currentWord.lowercase()
+                    val commonWords = listOf(
+                        "the", "of", "to", "and", "a", "in", "is", "it", "you", "that",
+                        "he", "was", "for", "on", "are", "with", "they", "be", "at", "this",
+                        "have", "from", "or", "one", "had", "by", "but", "not", "what", "all",
+                        "were", "we", "when", "your", "can", "said", "there", "use", "an", "each"
+                    )
+                    val matchingWords = commonWords.filter { it.startsWith(prefix) }.take(5)
+                    if (matchingWords.isNotEmpty()) matchingWords else listOf(currentWord, "the", "and")
+                }
+                wordCandidates.addAll(fallbackWords.mapIndexed { idx, word -> word to (0.4 - idx * 0.05) })
+                Log.d(TAG, "Using fallback words: ${fallbackWords.joinToString(", ")}")
+            }
+            
             // Get emoji candidates (existing system)
-            val emojiSuggestions = EmojiSuggestionEngine.getSuggestionsForTyping(currentWord, surrounding)
-            val emojiCandidates = emojiSuggestions.mapIndexed { idx, emoji -> emoji to (0.3 - idx * 0.05) }
+            val emojiCandidates = try {
+                val emojiSuggestions = EmojiSuggestionEngine.getSuggestionsForTyping(currentWord, surrounding)
+                emojiSuggestions.mapIndexed { idx, emoji -> emoji to (0.3 - idx * 0.05) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Emoji suggestions failed: ${e.message}")
+                emptyList()
+            }
             
             // Use SuggestionRanker to merge with context-aware emoji gating
-            val finalSuggestions = com.example.ai_keyboard.predict.SuggestionRanker.mergeForStrip(
-                currentWord = currentWord,
-                contextPrev = prevToken,
-                wordCands = wordCandidates,
-                emojiCands = emojiCandidates,
-                max = 5
-            )
+            val finalSuggestions = try {
+                com.example.ai_keyboard.predict.SuggestionRanker.mergeForStrip(
+                    currentWord = currentWord,
+                    contextPrev = prevToken,
+                    wordCands = wordCandidates,
+                    emojiCands = emojiCandidates,
+                    max = 5
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "SuggestionRanker failed: ${e.message}")
+                // Manually merge - take top 3 word candidates
+                wordCandidates.sortedByDescending { it.second }.take(3).map { it.first }
+            }
             
-            Log.d(TAG, "Enhanced prediction results: ${finalSuggestions.joinToString(", ")}")
-            return finalSuggestions
+            // Ensure we always return at least 3 suggestions
+            val result = if (finalSuggestions.size >= 3) {
+                finalSuggestions
+            } else {
+                val defaults = mutableListOf<String>()
+                defaults.addAll(finalSuggestions)
+                
+                // Fill with common words that aren't already in the list
+                val commonDefaults = listOf("the", "and", "to", "of", "a", "in", "is")
+                for (word in commonDefaults) {
+                    if (defaults.size >= 3) break
+                    if (!defaults.contains(word)) {
+                        defaults.add(word)
+                    }
+                }
+                
+                defaults.take(3)
+            }
+            
+            Log.d(TAG, "Enhanced prediction results: ${result.joinToString(", ")}")
+            return result
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in enhanced prediction, falling back to basic", e)
-            // Simple fallback
+            // Simple fallback - always return at least 3 suggestions
             return if (currentWord.isEmpty()) {
-                listOf("the", "of", "to", "and", "I")
+                listOf("the", "and", "to")
             } else {
-                listOf(currentWord)
+                val prefix = currentWord.lowercase()
+                val matching = listOf("the", "and", "to", "of", "a", "in", "is", "it", "you", "that")
+                    .filter { it.startsWith(prefix) }
+                    .take(3)
+                
+                if (matching.size >= 3) {
+                    matching
+                } else {
+                    // Fill with defaults
+                    val result = matching.toMutableList()
+                    result.add(currentWord)
+                    result.add("the")
+                    result.add("and")
+                    result.distinct().take(3)
+                }
             }
         }
     }
@@ -5046,6 +5640,12 @@ class AIKeyboardService : InputMethodService(),
     // Implement SwipeListener interface methods with enhanced autocorrection
     override fun onSwipeDetected(swipedKeys: List<Int>, swipePattern: String, keySequence: List<Int>) {
         if (keySequence.isEmpty()) return
+        
+        // ✅ Safety check: Ensure swipe engine is initialized
+        if (!::swipeAutocorrectEngine.isInitialized) {
+            Log.w(TAG, "⚠️ SwipeAutocorrectEngine not initialized yet - ignoring swipe gesture")
+            return
+        }
         
         // Use the ordered key sequence for better accuracy
         val swipeSequence = StringBuilder()
@@ -9989,69 +10589,32 @@ class AIKeyboardService : InputMethodService(),
     
     /**
      * Generate dictionary-based candidates for swipe sequence using advanced matching algorithms
+     * DEPRECATED: Legacy function - now handled by SwipeAutocorrectEngine
      */
+    @Deprecated("Use SwipeAutocorrectEngine instead")
     private suspend fun generateSwipeCandidates(
         swipeLetters: String, 
         prev1: String, 
         prev2: String
-    ): List<AutocorrectCandidate> = withContext(Dispatchers.Default) {
+    ): List<String> = withContext(Dispatchers.Default) {
         
         val startTime = System.currentTimeMillis()
-        val candidates = mutableListOf<AutocorrectCandidate>()
+        val candidates = mutableListOf<String>()
         
         try {
-            // Step 1: Try exact dictionary match first
-            if (autocorrectEngine.getCandidates(swipeLetters, currentLanguage, 1).isNotEmpty()) {
-                candidates.add(AutocorrectCandidate(
-                    word = swipeLetters,
-                    score = 0.95,
-                    editDistance = 0,
-                    type = CandidateType.ORIGINAL,
-                    confidence = 0.95
-                ))
-            }
+            // Use UnifiedAutocorrectEngine for swipe candidates
+            val suggestions = autocorrectEngine.getCorrections(
+                swipeLetters, 
+                currentLanguage, 
+                listOfNotNull(prev1, prev2).filter { it.isNotBlank() }
+            )
             
-            // Step 2: Generate candidates using path matching (longest common subsequence)
-            val pathCandidates = generatePathMatchingCandidates(swipeLetters)
-            candidates.addAll(pathCandidates)
-            
-            // Step 3: Generate candidates using edit distance (≤2)
-            val editCandidates = generateEditDistanceCandidates(swipeLetters, prev1, prev2)
-            candidates.addAll(editCandidates)
-            
-            // Step 4: Rank all candidates using unified scoring
-            val rankedCandidates = candidates.distinctBy { it.word }
-                .map { candidate ->
-                    // Calculate comprehensive score
-                    val freq = multilingualDictionary.getFrequency(currentLanguage, candidate.word)
-                    val freqScore = kotlin.math.ln((freq + 1).toDouble())
-                    
-                    val bigramScore = if (prev1.isNotEmpty()) {
-                        val bigramFreq = multilingualDictionary.getBigramFrequency(currentLanguage, prev1, candidate.word)
-                        if (bigramFreq > 0) kotlin.math.ln(bigramFreq.toDouble() + 1) else -5.0
-                    } else 0.0
-                    
-                    val trigramScore = if (prev2.isNotEmpty() && prev1.isNotEmpty()) {
-                        val trigramFreq = 0 // Trigrams not implemented in unified engine yet
-                        if (trigramFreq > 0) kotlin.math.ln(trigramFreq.toDouble() + 1) else -8.0
-                    } else 0.0
-                    
-                    // Unified scoring formula optimized for swipe typing
-                    val totalScore = 1.2 * freqScore - 
-                                   0.8 * candidate.editDistance - 
-                                   0.1 * kotlin.math.abs(candidate.word.length - swipeLetters.length) +
-                                   0.6 * bigramScore + 
-                                   0.4 * trigramScore
-                    
-                    candidate.copy(score = totalScore)
-                }
-                .sortedByDescending { it.score }
-                .take(10) // Keep top 10 for performance
+            candidates.addAll(suggestions.map { it.word })
                 
             val processingTime = System.currentTimeMillis() - startTime
-            Log.d(TAG, "Swipe candidates generated in ${processingTime}ms for '$swipeLetters' -> ${rankedCandidates.size} candidates")
+            Log.d(TAG, "Swipe candidates generated in ${processingTime}ms for '$swipeLetters' -> ${candidates.size} candidates")
             
-            return@withContext rankedCandidates
+            return@withContext candidates.take(10)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error generating swipe candidates", e)
@@ -10061,65 +10624,32 @@ class AIKeyboardService : InputMethodService(),
     
     /**
      * Generate candidates using longest common subsequence matching
+     * DEPRECATED: Legacy function from old AutocorrectEngine - now handled by SwipeAutocorrectEngine
      */
-    private fun generatePathMatchingCandidates(swipeLetters: String): List<AutocorrectCandidate> {
-        val candidates = mutableListOf<AutocorrectCandidate>()
-        
-        try {
-            // Get words that share significant character overlap
-            val wordsToCheck = autocorrectEngine.getCandidates(swipeLetters.take(2), currentLanguage, 50)
-            
-            wordsToCheck.take(50).forEach { word: String ->
-                val lcs = longestCommonSubsequence(swipeLetters, word)
-                val pathScore = lcs.toDouble() / maxOf(swipeLetters.length, word.length)
-                
-                if (pathScore >= 0.6) { // At least 60% character path match
-                    candidates.add(AutocorrectCandidate(
-                        word = word,
-                        score = pathScore,
-                        editDistance = kotlin.math.abs(swipeLetters.length - word.length),
-                        type = CandidateType.CORRECTION,
-                        confidence = pathScore
-                    ))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in path matching", e)
-        }
-        
-        return candidates
+    @Deprecated("Use SwipeAutocorrectEngine instead")
+    private fun generatePathMatchingCandidates(swipeLetters: String): List<String> {
+        // Legacy function - now handled by unified swipe engine
+        return emptyList()
     }
     
     /**
      * Generate candidates using Damerau-Levenshtein edit distance
+     * DEPRECATED: Legacy function from old AutocorrectEngine - now handled by UnifiedAutocorrectEngine
      */
+    @Deprecated("Use UnifiedAutocorrectEngine.getCorrections() instead")
     private suspend fun generateEditDistanceCandidates(
         swipeLetters: String, 
         prev1: String, 
         prev2: String
-    ): List<AutocorrectCandidate> = withContext(Dispatchers.Default) {
-        val candidates = mutableListOf<AutocorrectCandidate>()
-        
+    ): List<String> = withContext(Dispatchers.Default) {
         try {
             // Use enhanced autocorrect engine for edit distance candidates
             val autocorrectCandidates = autocorrectEngine.getCorrections(swipeLetters, currentLanguage, listOfNotNull(prev1, prev2).filter { it.isNotBlank() })
-            
-            // Convert UnifiedAutocorrectEngine suggestions to AutocorrectCandidate
-            autocorrectCandidates.forEach { suggestion ->
-                candidates.add(AutocorrectCandidate(
-                    word = suggestion.word,
-                    score = suggestion.score,
-                    confidence = suggestion.score,
-                    type = if (suggestion.isCorrection) CandidateType.CORRECTION else CandidateType.ORIGINAL,
-                    editDistance = if (suggestion.isCorrection) 1 else 0
-                ))
-            }
-            
+            return@withContext autocorrectCandidates.map { it.word }
         } catch (e: Exception) {
             Log.e(TAG, "Error in edit distance candidates", e)
+            return@withContext emptyList()
         }
-        
-        return@withContext candidates
     }
     
     /**
@@ -10179,24 +10709,15 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Update suggestion strip with swipe candidates (legacy)
      */
-    private fun updateSwipeSuggestionStrip(candidates: List<AutocorrectCandidate>) {
+    /**
+     * Update swipe suggestion strip
+     * DEPRECATED: Legacy function - now using unified suggestion system
+     */
+    @Deprecated("Use updateSuggestionUI() directly")
+    private fun updateSwipeSuggestionStrip(candidates: List<String>) {
         try {
-            if (candidates.isEmpty()) {
-                updateSuggestionUI(emptyList())
-                return
-            }
-            
-            val suggestionTexts = candidates.map { candidate ->
-                when (candidate.type) {
-                    CandidateType.ORIGINAL -> candidate.word
-                    CandidateType.CORRECTION -> candidate.word
-                    else -> candidate.word
-                }
-            }
-            
-            updateSuggestionUI(suggestionTexts)
-            Log.d(TAG, "Swipe suggestion strip updated with ${suggestionTexts.size} options: $suggestionTexts")
-            
+            updateSuggestionUI(candidates.take(3))
+            Log.d(TAG, "Swipe suggestion strip updated with ${candidates.size} options: $candidates")
         } catch (e: Exception) {
             Log.e(TAG, "Error updating swipe suggestion strip", e)
         }
@@ -10672,19 +11193,30 @@ class AIKeyboardService : InputMethodService(),
                 
                 // Get text before cursor to verify the word is there
                 val textBefore = ic.getTextBeforeCursor(word.length + 10, 0)?.toString() ?: ""
-                Log.d(TAG, "Checking expansion for '$word', text before: '$textBefore'")
+                Log.d(TAG, "🔍 Checking expansion for '$word', text before: '$textBefore'")
                 
-                // Delete the shortcut that was just typed
-                // The word hasn't been committed yet at this point, so we delete from currentWord
-                ic.deleteSurroundingText(word.length, 0)
-                
-                // Insert the expansion with a space
-                ic.commitText("${expansion.expansion} ", 1)
-                
-                // Increment usage count
-                dictionaryManager.incrementUsage(word)
-                
-                Log.d(TAG, "✅ Dictionary expansion: $word -> ${expansion.expansion}")
+                // Verify the word actually exists at the end of the text
+                val wordInText = textBefore.takeLast(word.length).lowercase()
+                if (wordInText == word.lowercase()) {
+                    // Delete the shortcut that was just typed
+                    ic.deleteSurroundingText(word.length, 0)
+                    
+                    // Insert the expansion with a space
+                    ic.commitText("${expansion.expansion} ", 1)
+                    
+                    // Increment usage count
+                    dictionaryManager.incrementUsage(word)
+                    
+                    Log.d(TAG, "✅ Dictionary expansion: $word -> ${expansion.expansion}")
+                } else {
+                    Log.w(TAG, "⚠️ Word mismatch: expected '$word' but found '$wordInText' in text field")
+                    // Try alternative: finish composing and then replace
+                    ic.finishComposingText()
+                    ic.deleteSurroundingText(word.length, 0)
+                    ic.commitText("${expansion.expansion} ", 1)
+                    dictionaryManager.incrementUsage(word)
+                    Log.d(TAG, "✅ Dictionary expansion (alternative method): $word -> ${expansion.expansion}")
+                }
             } else {
                 Log.d(TAG, "No expansion found for: $word")
             }
