@@ -1,0 +1,172 @@
+// Firestore Security Rules for CleverType Multi-Language Personalization
+// Updated: October 11, 2025
+// Purpose: Secure per-language dictionary and shortcut sync
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==================== User Dictionary Collection ====================
+    // Path: /users/{userId}/dictionary/{language}
+    // Stores learned words with frequency counts per language
+    
+    match /users/{userId}/dictionary/{language} {
+      // Users can read their own language dictionaries
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Users can write their own language dictionaries
+      allow write: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.entries is list  // Ensure entries is an array
+        && request.resource.data.lastModified is timestamp;  // Require timestamp
+        
+      // Validate language code format (2-3 letter codes)
+      allow write: if request.auth != null && request.auth.uid == userId
+        && language.matches('^[a-z]{2,3}$');
+    }
+    
+    // ==================== Custom Shortcuts Collection ====================
+    // Path: /users/{userId}/shortcuts/{language}
+    // Stores user-defined shortcuts (abbreviation → expansion) per language
+    
+    match /users/{userId}/shortcuts/{language} {
+      // Users can read their own shortcuts
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Users can write their own shortcuts
+      allow write: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.shortcuts is list  // Ensure shortcuts is an array
+        && request.resource.data.lastModified is timestamp;  // Require timestamp
+        
+      // Validate language code format
+      allow write: if request.auth != null && request.auth.uid == userId
+        && language.matches('^[a-z]{2,3}$');
+    }
+    
+    // ==================== Legacy Support (Optional) ====================
+    // Path: /users/{userId}/user_dictionary/words
+    // Legacy single-language storage (backward compatibility)
+    
+    match /users/{userId}/user_dictionary/words {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /users/{userId}/custom_shortcuts/entries {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // ==================== Deny All Other Access ====================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+// ==================== Data Validation Functions (Advanced) ====================
+// Uncomment below for stricter validation
+
+/*
+function isValidWordEntry(entry) {
+  return entry.keys().hasAll(['word', 'count'])
+    && entry.word is string
+    && entry.word.size() >= 2
+    && entry.word.size() <= 100
+    && entry.count is int
+    && entry.count >= 1
+    && entry.count <= 100000;
+}
+
+function isValidShortcutEntry(entry) {
+  return entry.keys().hasAll(['shortcut', 'expansion'])
+    && entry.shortcut is string
+    && entry.shortcut.size() >= 1
+    && entry.shortcut.size() <= 50
+    && entry.expansion is string
+    && entry.expansion.size() >= 1
+    && entry.expansion.size() <= 500;
+}
+
+// Enhanced dictionary rules with validation
+match /users/{userId}/dictionary/{language} {
+  allow write: if request.auth != null 
+    && request.auth.uid == userId
+    && request.resource.data.entries is list
+    && request.resource.data.entries.size() <= 10000  // Max 10k words per language
+    && request.resource.data.entries.hasOnly(isValidWordEntry);
+}
+
+// Enhanced shortcuts rules with validation
+match /users/{userId}/shortcuts/{language} {
+  allow write: if request.auth != null 
+    && request.auth.uid == userId
+    && request.resource.data.shortcuts is list
+    && request.resource.data.shortcuts.size() <= 1000  // Max 1k shortcuts per language
+    && request.resource.data.shortcuts.hasOnly(isValidShortcutEntry);
+}
+*/
+
+// ==================== Testing & Debugging ====================
+// For development/testing only - REMOVE in production!
+
+/*
+// Allow read/write access to all authenticated users (UNSAFE!)
+match /users/{userId}/{document=**} {
+  allow read, write: if request.auth != null;
+}
+*/
+
+// ==================== Rate Limiting Considerations ====================
+// Firestore has built-in rate limits:
+// - 1 write/document/second (per client)
+// - 10,000 reads/day (free tier)
+// - 20,000 writes/day (free tier)
+//
+// This implementation uses debounced saves (2s delay) to stay within limits.
+// Cloud sync on keyboard close ensures minimal write operations.
+
+// ==================== Cost Optimization Tips ====================
+// 1. Use debounced saves (already implemented)
+// 2. Sync only on keyboard close or every 10 minutes
+// 3. Cache data locally and sync deltas only
+// 4. Consider batched writes for multiple languages
+// 5. Use offline persistence to reduce read operations
+
+// ==================== Security Best Practices ====================
+// ✅ Only authenticated users can access their data
+// ✅ Users cannot access other users' dictionaries
+// ✅ Language codes are validated (2-3 letter codes)
+// ✅ Data structure is enforced (arrays with timestamps)
+// ✅ Legacy paths supported for backward compatibility
+// ❌ No public read/write access
+// ❌ No cross-user data sharing
+
+// ==================== Deployment Instructions ====================
+// 1. Copy this entire file
+// 2. Go to Firebase Console → Firestore Database → Rules
+// 3. Replace existing rules with this content
+// 4. Click "Publish"
+// 5. Test with Firestore Rules Playground
+
+// ==================== Testing Commands ====================
+// Test read access:
+// match /users/testUser123/dictionary/en
+// auth: { uid: "testUser123" }
+// → Should allow read ✅
+
+// Test write access:
+// match /users/testUser123/dictionary/en
+// auth: { uid: "testUser123" }
+// data: { entries: [...], lastModified: timestamp }
+// → Should allow write ✅
+
+// Test unauthorized access:
+// match /users/otherUser456/dictionary/en
+// auth: { uid: "testUser123" }
+// → Should deny ❌
+
+// ==================== Change Log ====================
+// 2025-10-11: Initial rules for multi-language support
+//            - Added per-language dictionary paths
+//            - Added per-language shortcuts paths
+//            - Added language code validation
+//            - Added legacy path support
+

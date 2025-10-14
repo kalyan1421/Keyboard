@@ -4,20 +4,35 @@ import android.content.Context
 import com.example.ai_keyboard.managers.BaseManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Manages user dictionary entries (shortcuts → expansions) with frequency tracking
  * Similar to Gboard and CleverType personal dictionary features
+ * 
+ * Phase 1: Multi-Language Support
+ * - Stores dictionaries per language in /files/dictionaries/{lang}.json
+ * - Reduces memory usage with on-demand loading
+ * - Backward compatible with old prefs-based storage
  */
 class DictionaryManager(context: Context) : BaseManager(context) {
     
     companion object {
         private const val KEY_ENTRIES = "dictionary_entries"
         private const val KEY_ENABLED = "dictionary_enabled"
+        private const val KEY_CURRENT_LANGUAGE = "current_language"
     }
     
     override fun getPreferencesName() = "dictionary_manager"
+    
+    // Multi-language dictionary directory
+    private val languageDir = File(context.filesDir, "dictionaries").apply {
+        if (!exists()) mkdirs()
+    }
+    
+    // Current active language
+    private var currentLanguage = "en"
     
     // Thread-safe list for concurrent access
     private val entries = CopyOnWriteArrayList<DictionaryEntry>()
@@ -30,6 +45,9 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     // Listeners for dictionary changes
     private val listeners = mutableListOf<DictionaryListener>()
     
+    // Observer for dictionary changes (for LanguageResources refresh)
+    private var changeObserver: (() -> Unit)? = null
+    
     interface DictionaryListener {
         fun onDictionaryUpdated(entries: List<DictionaryEntry>)
         fun onExpansionTriggered(shortcut: String, expansion: String)
@@ -37,23 +55,209 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     
     /**
      * Initialize the dictionary manager
+     * Phase 1: Loads language-specific dictionary from /files/dictionaries/{lang}.json
      */
     override fun initialize() {
-        logW("Initializing DictionaryManager")
+        logW("Initializing DictionaryManager with multi-language support")
         
         // Load settings
         isEnabled = prefs.getBoolean(KEY_ENABLED, true)
         
-        // Load persisted entries from native prefs
-        loadEntriesFromPrefs()
+        // Detect current language from keyboard settings
+        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val savedLanguage = prefs.getString(KEY_CURRENT_LANGUAGE, null)
+        val flutterLanguage = flutterPrefs.getString("flutter.keyboard_language", null)
+        currentLanguage = savedLanguage ?: flutterLanguage ?: "en"
         
-        // Also try to load from Flutter prefs (in case Flutter made changes)
-        loadFromFlutterPrefs()
+        logW("📚 Current language: $currentLanguage")
+        
+        // Load from language-specific JSON file
+        val languageFile = File(languageDir, "$currentLanguage.json")
+        if (languageFile.exists()) {
+            loadLanguage(currentLanguage)
+        } else {
+            // New language - start with empty dictionary
+            logW("ℹ️ No language file found for $currentLanguage. Starting fresh.")
+            loadFromFlutterPrefs() // Sync any entries from Flutter UI
+        }
+        
+        // Add default shortcuts if this is first run
+        if (entries.isEmpty() && !prefs.getBoolean("defaults_added_$currentLanguage", false)) {
+            addDefaultShortcuts()
+            prefs.edit().putBoolean("defaults_added_$currentLanguage", true).apply()
+            saveLanguage(currentLanguage)
+        }
         
         // Rebuild shortcut map with merged entries
         rebuildShortcutMap()
         
-        logW("DictionaryManager initialized with ${entries.size} entries (enabled: $isEnabled)")
+        logW("DictionaryManager initialized with ${entries.size} entries for $currentLanguage (enabled: $isEnabled)")
+    }
+    
+    // ==================== PHASE 1: MULTI-LANGUAGE METHODS ====================
+    
+    /**
+     * Load dictionary for a specific language
+     * @param lang Language code (e.g., "en", "hi", "te")
+     */
+    fun loadLanguage(lang: String) {
+        currentLanguage = lang
+        val file = File(languageDir, "$lang.json")
+        
+        if (!file.exists()) {
+            logW("⚠️ No dictionary found for $lang. Creating default one.")
+            entries.clear()
+            rebuildShortcutMap()
+            saveLanguage(lang)
+            return
+        }
+        
+        try {
+            val jsonArray = JSONArray(file.readText())
+            entries.clear()
+            
+            for (i in 0 until jsonArray.length()) {
+                val entry = DictionaryEntry.fromJson(jsonArray.getJSONObject(i))
+                entries.add(entry)
+            }
+            
+            rebuildShortcutMap()
+            prefs.edit().putString(KEY_CURRENT_LANGUAGE, lang).apply()
+            logW("✅ Loaded ${entries.size} entries for $lang")
+            
+        } catch (e: Exception) {
+            logE("❌ Failed to load dictionary for $lang", e)
+            entries.clear()
+            rebuildShortcutMap()
+        }
+    }
+    
+    /**
+     * Save current dictionary to language-specific file
+     * @param lang Language code to save (defaults to current language)
+     */
+    fun saveLanguage(lang: String = currentLanguage) {
+        try {
+            val file = File(languageDir, "$lang.json")
+            val jsonArray = JSONArray()
+            
+            entries.forEach { entry ->
+                jsonArray.put(entry.toJson())
+            }
+            
+            file.writeText(jsonArray.toString())
+            logW("💾 Saved dictionary for $lang with ${entries.size} entries")
+            
+        } catch (e: Exception) {
+            logE("❌ Failed to save dictionary for $lang", e)
+        }
+    }
+    
+    /**
+     * Switch to a different language dictionary
+     * Saves current language before switching
+     * @param newLang Target language code
+     */
+    fun switchLanguage(newLang: String) {
+        if (newLang == currentLanguage) {
+            logW("Already using language: $newLang")
+            return
+        }
+        
+        // Save current language dictionary
+        saveLanguage(currentLanguage)
+        
+        // Load new language
+        loadLanguage(newLang)
+        
+        // Notify listeners
+        notifyDictionaryUpdated()
+        
+        logW("🌐 Switched from $currentLanguage to $newLang")
+    }
+    
+    /**
+     * Get list of all available language dictionaries
+     * @return List of language codes with existing dictionaries
+     */
+    fun listAvailableLanguages(): List<String> {
+        return try {
+            languageDir.listFiles()?.map { it.nameWithoutExtension } ?: emptyList()
+        } catch (e: Exception) {
+            logE("Error listing available languages", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * Get current active language
+     */
+    fun getCurrentLanguage(): String = currentLanguage
+    
+    /**
+     * Delete dictionary for a specific language
+     * @param lang Language code to delete
+     */
+    fun deleteLanguage(lang: String): Boolean {
+        if (lang == currentLanguage) {
+            logW("⚠️ Cannot delete currently active language: $lang")
+            return false
+        }
+        
+        try {
+            val file = File(languageDir, "$lang.json")
+            if (file.exists()) {
+                file.delete()
+                logW("🗑️ Deleted dictionary for $lang")
+                return true
+            }
+        } catch (e: Exception) {
+            logE("Error deleting language $lang", e)
+        }
+        return false
+    }
+    
+    // ==================== END PHASE 1 ====================
+    
+    /**
+     * Add default shortcuts for common abbreviations
+     */
+    private fun addDefaultShortcuts() {
+        val defaults = mapOf(
+            "brb" to "be right back",
+            "omw" to "on my way",
+            "btw" to "by the way",
+            "ty" to "thank you",
+            "tysm" to "thank you so much",
+            "np" to "no problem",
+            "imo" to "in my opinion",
+            "imho" to "in my humble opinion",
+            "tbh" to "to be honest",
+            "lol" to "laugh out loud",
+            "lmao" to "laughing my ass off",
+            "fyi" to "for your information",
+            "asap" to "as soon as possible",
+            "eta" to "estimated time of arrival",
+            "fwiw" to "for what it's worth",
+            "iirc" to "if I remember correctly",
+            "tl;dr" to "too long; didn't read",
+            "afaik" to "as far as I know",
+            "gtg" to "got to go",
+            "g2g" to "got to go",
+            "ttyl" to "talk to you later",
+            "bbl" to "be back later",
+            "idk" to "I don't know",
+            "idc" to "I don't care",
+            "irl" to "in real life",
+            "smh" to "shaking my head",
+            "tfw" to "that feeling when"
+        )
+        
+        defaults.forEach { (shortcut, expansion) ->
+            addEntry(shortcut, expansion)
+        }
+        
+        logW("✅ Added ${defaults.size} default shortcuts")
     }
     
     /**
@@ -151,6 +355,14 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     }
     
     /**
+     * Get expansion text directly (convenience method for auto-expansion)
+     * Returns the expansion string if found, null otherwise
+     */
+    fun getExpansionText(word: String): String? {
+        return getExpansion(word)?.expansion
+    }
+    
+    /**
      * Check if a prefix matches any shortcuts (for suggestions)
      */
     fun getMatchingShortcuts(prefix: String, limit: Int = 5): List<DictionaryEntry> {
@@ -226,6 +438,13 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     fun isEnabled(): Boolean = isEnabled
     
     /**
+     * Set observer for dictionary changes (for LanguageResources refresh)
+     */
+    fun setChangeObserver(observer: () -> Unit) {
+        this.changeObserver = observer
+    }
+    
+    /**
      * Add listener for dictionary changes
      */
     fun addListener(listener: DictionaryListener) {
@@ -241,6 +460,8 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     
     private fun notifyDictionaryUpdated() {
         listeners.forEach { it.onDictionaryUpdated(getAllEntries()) }
+        // Notify observer for LanguageResources refresh
+        changeObserver?.invoke()
     }
     
     private fun notifyExpansionTriggered(shortcut: String, expansion: String) {
@@ -300,37 +521,99 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         logW("Rebuilt shortcut map with ${shortcutMap.size} entries")
     }
     
-    private fun loadEntriesFromPrefs() {
-        try {
-            val entriesJson = prefs.getString(KEY_ENTRIES, null)
-            if (entriesJson != null) {
-                val jsonArray = JSONArray(entriesJson)
-                entries.clear()
-                for (i in 0 until jsonArray.length()) {
-                    val entry = DictionaryEntry.fromJson(jsonArray.getJSONObject(i))
-                    entries.add(entry)
-                }
-                logW("Loaded ${entries.size} dictionary entries from preferences")
-            }
-        } catch (e: Exception) {
-            logE( "Error loading dictionary entries from preferences", e)
-        }
-    }
-    
     private fun saveEntriesToPrefs() {
         try {
-            val jsonArray = JSONArray()
-            entries.forEach { entry ->
-                jsonArray.put(entry.toJson())
-            }
-            prefs.edit()
-                .putString(KEY_ENTRIES, jsonArray.toString())
-                .apply()
+            // Save to language-specific file (new format)
+            saveLanguage(currentLanguage)
             
             // Also sync to Flutter SharedPreferences for UI display
             syncToFlutterPrefs()
+            
+            // Sync to cloud if UserDictionaryManager is available
+            requestCloudSync()
         } catch (e: Exception) {
             logE( "Error saving dictionary entries to preferences", e)
+        }
+    }
+    
+    /**
+     * Request cloud sync of shortcuts
+     * Called automatically after any dictionary change
+     */
+    private fun requestCloudSync() {
+        try {
+            // Get UserDictionaryManager from context (it's a service)
+            // We'll expose a method to set the sync callback
+            cloudSyncCallback?.invoke(getAllEntriesAsMap())
+        } catch (e: Exception) {
+            logE("Error requesting cloud sync", e)
+        }
+    }
+    
+    /**
+     * Get all entries as a simple map for cloud sync
+     */
+    fun getAllEntriesAsMap(): Map<String, String> {
+        return entries.associate { it.shortcut to it.expansion }
+    }
+    
+    // Cloud sync callback (set by AIKeyboardService)
+    private var cloudSyncCallback: ((Map<String, String>) -> Unit)? = null
+    
+    /**
+     * Set cloud sync callback
+     * Called by AIKeyboardService to enable Firebase sync
+     */
+    fun setCloudSyncCallback(callback: (Map<String, String>) -> Unit) {
+        cloudSyncCallback = callback
+        logW("✅ Cloud sync callback registered")
+    }
+    
+    /**
+     * Import shortcuts from cloud
+     * Merges with existing local shortcuts
+     */
+    fun importFromCloud(cloudShortcuts: Map<String, String>) {
+        var importedCount = 0
+        cloudShortcuts.forEach { (shortcut, expansion) ->
+            // Only import if not already present
+            if (!shortcutMap.containsKey(shortcut.lowercase())) {
+                addEntry(shortcut, expansion)
+                importedCount++
+            }
+        }
+        
+        if (importedCount > 0) {
+            logW("✅ Imported $importedCount shortcuts from cloud")
+            notifyDictionaryUpdated()
+        }
+    }
+    
+    /**
+     * Reload dictionary from Flutter SharedPreferences
+     * Called when DICTIONARY_CHANGED broadcast is received
+     * This ensures Flutter-added shortcuts are immediately available in IME
+     */
+    fun reloadFromFlutterPrefs() {
+        try {
+            logW("🔄 Reloading dictionary from Flutter SharedPreferences...")
+            
+            // Load entries from Flutter prefs (existing logic handles parsing)
+            loadFromFlutterPrefs()
+            
+            // Rebuild the lookup map for fast access
+            rebuildShortcutMap()
+            
+            // Save to language-specific file for persistence
+            saveLanguage(currentLanguage)
+            
+            logW("✅ Reloaded dictionary from Flutter SharedPreferences: ${entries.size} entries")
+            
+            // Notify listeners of the update
+            notifyDictionaryUpdated()
+            
+        } catch (e: Exception) {
+            logE("❌ Failed to reload from Flutter prefs", e)
         }
     }
     

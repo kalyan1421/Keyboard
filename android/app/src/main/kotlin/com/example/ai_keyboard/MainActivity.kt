@@ -302,35 +302,6 @@ class MainActivity : FlutterActivity() {
         imm?.showInputMethodPicker()
     }
 
-    private suspend fun updateKeyboardSettings(
-        theme: String,
-        aiSuggestions: Boolean,
-        swipeTyping: Boolean,
-        voiceInput: Boolean,
-        vibration: Boolean,
-        keyPreview: Boolean,
-        shiftFeedback: Boolean,
-        showNumberRow: Boolean,
-        soundEnabled: Boolean
-    ) = withContext(Dispatchers.IO) {
-        // Store settings in SharedPreferences for the keyboard service to read
-        getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-            .edit()
-            .putString("keyboard_theme", theme)
-            .putBoolean("ai_suggestions", aiSuggestions)
-            .putBoolean("swipe_typing", swipeTyping)
-            .putBoolean("voice_input", voiceInput)
-            .putBoolean("vibration_enabled", vibration)
-            .putBoolean("key_preview_enabled", keyPreview)
-            .putBoolean("show_shift_feedback", shiftFeedback)
-            .putBoolean("show_number_row", showNumberRow)
-            .putBoolean("sound_enabled", soundEnabled)
-            .apply()
-            
-        // Notify keyboard service to reload settings immediately
-        notifyKeyboardServiceSettingsChanged()
-    }
-    
     private suspend fun updateKeyboardSettingsV2(
         theme: String,
         popupEnabled: Boolean,

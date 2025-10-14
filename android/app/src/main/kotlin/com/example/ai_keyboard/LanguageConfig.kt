@@ -13,19 +13,26 @@ data class LanguageConfig(
     val hasAccents: Boolean,
     val dictionaryFile: String,
     val correctionRules: String,
-    val flag: String
+    val flag: String,
+    val source: Source = Source.LOCAL,
+    val version: Int = 1
 )
 
 enum class LayoutType {
-    QWERTY, AZERTY, QWERTZ, DEVANAGARI, CUSTOM
+    QWERTY, AZERTY, QWERTZ, DEVANAGARI, INSCRIPT, CUSTOM
 }
 
 enum class Script {
-    LATIN, DEVANAGARI, ARABIC, CYRILLIC
+    LATIN, DEVANAGARI, ARABIC, CYRILLIC, TELUGU, TAMIL, MALAYALAM
 }
 
 enum class TextDirection {
     LTR, RTL
+}
+
+enum class Source {
+    LOCAL,   // Bundled with app
+    REMOTE   // Downloaded from Firebase
 }
 
 data class Correction(
@@ -36,10 +43,12 @@ data class Correction(
 )
 
 /**
- * Predefined language configurations
+ * Predefined language configurations with hybrid local/remote support
  */
 object LanguageConfigs {
-    val SUPPORTED_LANGUAGES = mapOf(
+    
+    // Base languages bundled with the app
+    private val LOCAL_LANGUAGES = mapOf(
         "en" to LanguageConfig(
             code = "en",
             name = "English",
@@ -92,13 +101,53 @@ object LanguageConfigs {
             code = "hi",
             name = "Hindi",
             nativeName = "हिन्दी",
-            layoutType = LayoutType.DEVANAGARI,
+            layoutType = LayoutType.INSCRIPT,
             script = Script.DEVANAGARI,
             direction = TextDirection.LTR,
             hasAccents = false,
             dictionaryFile = "hi_words.txt",
             correctionRules = "hi_corrections.txt",
-            flag = "🇮🇳"
+            flag = "🇮🇳",
+            source = Source.LOCAL
+        ),
+        "te" to LanguageConfig(
+            code = "te",
+            name = "Telugu",
+            nativeName = "తెలుగు",
+            layoutType = LayoutType.INSCRIPT,
+            script = Script.TELUGU,
+            direction = TextDirection.LTR,
+            hasAccents = false,
+            dictionaryFile = "te_words.txt",
+            correctionRules = "te_corrections.txt",
+            flag = "🇮🇳",
+            source = Source.LOCAL
+        ),
+        "ta" to LanguageConfig(
+            code = "ta",
+            name = "Tamil",
+            nativeName = "தமிழ்",
+            layoutType = LayoutType.INSCRIPT,
+            script = Script.TAMIL,
+            direction = TextDirection.LTR,
+            hasAccents = false,
+            dictionaryFile = "ta_words.txt",
+            correctionRules = "ta_corrections.txt",
+            flag = "🇮🇳",
+            source = Source.LOCAL
+        ),
+        "ml" to LanguageConfig(
+            code = "ml",
+            name = "Malayalam",
+            nativeName = "മലയാളം",
+            layoutType = LayoutType.INSCRIPT,
+            script = Script.MALAYALAM,
+            direction = TextDirection.LTR,
+            hasAccents = false,
+            dictionaryFile = "ml_words.txt",
+            correctionRules = "ml_corrections.txt",
+            flag = "🇮🇳",
+            source = Source.LOCAL
         ),
         "ar" to LanguageConfig(
             code = "ar",
@@ -162,6 +211,19 @@ object LanguageConfigs {
         )
     )
     
+    // Mutable map that combines local and remote languages
+    val SUPPORTED_LANGUAGES: MutableMap<String, LanguageConfig> = LOCAL_LANGUAGES.toMutableMap()
+    
+    /**
+     * Merge remote languages from Firebase into supported languages
+     * This allows dynamic addition of 40+ languages without app update
+     */
+    @Synchronized
+    fun mergeRemoteLanguages(remote: Map<String, LanguageConfig>) {
+        SUPPORTED_LANGUAGES.putAll(remote)
+        android.util.Log.d("LanguageConfigs", "✅ Merged ${remote.size} remote languages. Total: ${SUPPORTED_LANGUAGES.size}")
+    }
+    
     /**
      * Get language config by code
      */
@@ -188,5 +250,26 @@ object LanguageConfigs {
      */
     fun getLanguagesByScript(script: Script): List<LanguageConfig> {
         return SUPPORTED_LANGUAGES.values.filter { it.script == script }
+    }
+    
+    /**
+     * Get local (bundled) languages
+     */
+    fun getLocalLanguages(): List<LanguageConfig> {
+        return SUPPORTED_LANGUAGES.values.filter { it.source == Source.LOCAL }
+    }
+    
+    /**
+     * Get remote (downloadable) languages
+     */
+    fun getRemoteLanguages(): List<LanguageConfig> {
+        return SUPPORTED_LANGUAGES.values.filter { it.source == Source.REMOTE }
+    }
+    
+    /**
+     * Check if language is bundled locally
+     */
+    fun isLocalLanguage(code: String): Boolean {
+        return LOCAL_LANGUAGES.containsKey(code)
     }
 }

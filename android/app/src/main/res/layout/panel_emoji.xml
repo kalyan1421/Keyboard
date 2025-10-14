@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- CleverType Style Emoji Panel -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/emojiPanelRoot"
     android:layout_width="match_parent"
@@ -8,138 +9,115 @@
     android:background="@color/kb_panel_bg"
     android:clipToPadding="false">
 
-    <!-- Emoji Toolbar with Search and Controls -->
-    <LinearLayout
-        android:id="@+id/emojiToolbar"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="12dp">
-
-        <!-- Search Input -->
-        <EditText
-            android:id="@+id/emojiSearchInput"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:hint="Search emojis..."
-            android:textSize="14sp"
-            android:paddingHorizontal="12dp"
-            android:background="@drawable/input_text_background"
-            android:inputType="text"
-            android:imeOptions="actionSearch" />
-
-        <!-- Search Button -->
-        <ImageView
-            android:id="@+id/emojiSearchBtn"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginStart="8dp"
-            android:padding="8dp"
-            android:src="@android:drawable/ic_menu_search"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Search" />
-
-        <!-- Delete Button -->
-        <ImageView
-            android:id="@+id/btnEmojiDelete"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginStart="8dp"
-            android:padding="8dp"
-            android:src="@android:drawable/ic_input_delete"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Delete" />
-
-        <!-- ABC Button -->
-        <TextView
-            android:id="@+id/btnEmojiToABC"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginStart="8dp"
-            android:paddingHorizontal="12dp"
-            android:gravity="center"
-            android:text="ABC"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:background="@drawable/action_button_background"
-            android:clickable="true"
-            android:focusable="true" />
-    </LinearLayout>
-
-    <!-- 🔹 Top Action Chips (similar to AI Writing Assistant) -->
+    <!-- Category Icons Bar (Horizontal Scrolling) -->
     <HorizontalScrollView
         android:id="@+id/emojiCategoryScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:scrollbars="none"
-        android:overScrollMode="never">
+        android:overScrollMode="never"
+        android:fadeScrollbars="true"
+        android:background="@color/kb_panel_bg">
 
         <LinearLayout
             android:id="@+id/emojiCategories"
             android:orientation="horizontal"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="6dp">
-
-            
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="8dp"
+            android:gravity="center_vertical">
+            <!-- Categories will be dynamically added here:
+                 🔍 Search | ⏰ Recent | 😊 Smileys | 🏃 Activities | 📋 Objects | 😃 Emoji | 💡 Symbols | 🚩 Flags -->
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- 🔹 Result Display Area (shows selected or searched emojis) -->
-    <TextView
-        android:id="@+id/emojiOutput"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Your selected emojis will appear here..."
-        android:textColorHint="@color/kb_text_secondary"
-        android:textColor="@color/kb_text_primary"
-        android:textSize="16sp"
-        android:padding="12dp"
-        android:layout_marginTop="12dp"
-        android:background="@drawable/input_text_background" />
-
-    <!-- 🔹 Emoji Grid or Suggestions -->
+    <!-- Emoji Grid (Scrollable Area) -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/emojiGrid"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:overScrollMode="never"
-        android:paddingHorizontal="6dp"
-        android:paddingTop="4dp"
+        android:paddingHorizontal="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:clipToPadding="false"
-        android:background="@android:color/transparent"/>
+        android:background="@color/kb_panel_bg"/>
 
-    <!-- 🔹 Bottom Action Buttons (consistent with AI panel style) -->
+    <!-- Bottom Bar with ABC Button -->
     <LinearLayout
-        android:id="@+id/emojiFooter"
+        android:id="@+id/emojiBottomBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="end"
-        android:padding="8dp">
+        android:gravity="start|center_vertical"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="8dp"
+        android:background="@color/kb_panel_bg">
+
+        <!-- ABC Button (Return to Keyboard) -->
+        <TextView
+            android:id="@+id/btnEmojiToABC"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:paddingHorizontal="20dp"
+            android:gravity="center"
+            android:text="ABC"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/kb_text_primary"
+            android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- Hidden Search Input (for search functionality) -->
+        <EditText
+            android:id="@+id/emojiSearchInput"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone" />
+
+        <!-- Hidden Delete Button (functionality available in category bar) -->
+        <ImageView
+            android:id="@+id/btnEmojiDelete"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:contentDescription="Delete" />
+
+        <!-- Hidden Search Button -->
+        <ImageView
+            android:id="@+id/emojiSearchBtn"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:contentDescription="Search" />
+    </LinearLayout>
+
+    <!-- Hidden Output (for compatibility) -->
+    <TextView
+        android:id="@+id/emojiOutput"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
+
+    <!-- Hidden Footer (for compatibility) -->
+    <LinearLayout
+        android:id="@+id/emojiFooter"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone">
 
         <Button
             android:id="@+id/btnInsertEmoji"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Insert Emoji"
-            android:textSize="14sp"
-            android:paddingHorizontal="20dp"
-            android:background="@drawable/action_button_background"
-            android:layout_marginEnd="8dp" />
+            android:layout_height="wrap_content" />
 
         <Button
             android:id="@+id/btnClearSelection"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Clear"
-            android:textSize="14sp"
-            android:paddingHorizontal="20dp"
-            android:background="@drawable/action_button_background" />
+            android:layout_height="wrap_content" />
     </LinearLayout>
 
 </LinearLayout>

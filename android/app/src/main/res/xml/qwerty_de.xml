@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
     android:keyWidth="10%p"
-    android:horizontalGap="@dimen/keyboard_horizontal_gap"
-    android:verticalGap="@dimen/keyboard_vertical_gap"
+    android:horizontalGap="0dp"
+    android:verticalGap="0dp"
     android:keyHeight="@dimen/key_height"
     android:keyTextSize="@dimen/key_text_size">
     
@@ -37,7 +37,7 @@
     <!-- Third row: Shift + YXCVBNMÄ + Backspace -->
     <Row>
         <Key android:codes="-1" 
-             android:keyLabel="^" 
+             android:keyIcon="@drawable/sym_keyboard_shift" 
              android:keyWidth="12%p" 
              android:isModifier="true" 
              android:isSticky="true" 
@@ -65,7 +65,7 @@
              android:keyEdgeFlags="left"/>
         <Key android:codes="44" android:keyLabel="," android:keyWidth="6%p"/>
         <Key android:codes="-14" 
-             android:keyLabel="🌐" 
+             android:keyIcon="@drawable/sym_keyboard_globe" 
              android:keyWidth="8%p"/>
         <Key android:codes="-15" 
              android:keyLabel="😊" 
@@ -76,7 +76,7 @@
              android:isRepeatable="true"/>
         <Key android:codes="46" android:keyLabel="." android:keyWidth="6%p"/>
         <Key android:codes="10" 
-             android:keyLabel="↵"
+             android:keyIcon="@drawable/sym_keyboard_return"
              android:keyWidth="24%p" 
              android:keyEdgeFlags="right"/>
     </Row>

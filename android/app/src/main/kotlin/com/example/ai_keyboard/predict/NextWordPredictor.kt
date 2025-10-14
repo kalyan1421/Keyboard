@@ -24,6 +24,7 @@ class NextWordPredictor(
 
     /**
      * Get next word predictions based on context
+     * Now supports trigram (2-word) and bigram (1-word) context prediction
      * 
      * @param context List of previous words for context
      * @param language Current language code
@@ -35,7 +36,14 @@ class NextWordPredictor(
         
         return try {
             val lastWord = context.last().lowercase()
-            autocorrectEngine.getNextWordPredictions(lastWord, language, limit)
+            
+            // ✅ Pass full context for trigram support
+            autocorrectEngine.getNextWordPredictions(
+                previousWord = lastWord, 
+                language = language, 
+                limit = limit,
+                context = context.map { it.lowercase() }  // Pass full context for trigram
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error getting predictions for context: $context", e)
             emptyList()
@@ -44,10 +52,16 @@ class NextWordPredictor(
 
     /**
      * Get predictions for a single previous word (legacy compatibility)
+     * Uses bigram-only prediction (no context)
      */
     fun getNextWords(previousWord: String, language: String = "en"): List<Pair<String, Double>> {
         return try {
-            val predictions = autocorrectEngine.getNextWordPredictions(previousWord, language, 10)
+            val predictions = autocorrectEngine.getNextWordPredictions(
+                previousWord = previousWord, 
+                language = language, 
+                limit = 10,
+                context = emptyList()  // No context for legacy calls
+            )
             predictions.mapIndexed { index, word ->
                 val score = 1.0 - (index * 0.1) // Simple scoring based on position
                 word to score

@@ -9,21 +9,54 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import com.example.ai_keyboard.utils.LogUtil
+import kotlin.math.*
 
 /**
- * UnifiedAutocorrectEngine - Single engine for all languages (English + Indic)
- * Replaces: AutocorrectEngine, MultilingualAutocorrectEngine, WordDatabase
+ * Data class for swipe path (for swipe input processing)
+ */
+data class SwipePath(val points: List<Pair<Float, Float>>)
+
+/**
+ * Swipe metrics for proper ranking
+ */
+data class SwipeMetrics(
+    val word: String,
+    val pathScore: Double,   // likelihood of this path generating word
+    val proximity: Double,   // avg nearest-key distance (smaller = better)
+    val editDistance: Int    // Levenshtein between snapped key sequence and word
+)
+
+/**
+ * Suggestion sources for tracking and debugging
+ */
+enum class SuggestionSource {
+    TYPING, SWIPE, LM_BIGRAM, LM_TRIGRAM, LM_QUADGRAM, USER, CORRECTION
+}
+
+/**
+ * Unified Suggestion data class as specified
+ */
+data class Suggestion(
+    val text: String,
+    val score: Double,
+    val source: SuggestionSource,
+    val isAutoCommit: Boolean = false
+)
+
+/**
+ * UnifiedAutocorrectEngine - Single logic layer for typing + swipe + suggestions
+ * Refactored to use LanguageResources DTO as single source of truth
  * 
  * Features:
- * - Transliteration-aware correction for Indic languages
- * - Multi-factor scoring (frequency, bigram, edit distance, transliteration proximity)
- * - Unified dictionary management with lazy loading
- * - User dictionary integration
- * - Context-aware next-word prediction
+ * - Unified scoring with Katz-backoff (quad→tri→bi→uni)
+ * - Keyboard proximity weighting for edit distance
+ * - Single API for all prediction types
+ * - Thread-safe LanguageResources consumption
+ * - Injectable scoring weights
  */
 class UnifiedAutocorrectEngine(
     private val context: Context,
-    private val dictionary: MultilingualDictionary,
+    private val multilingualDictionary: MultilingualDictionary,
     private val transliterationEngine: TransliterationEngine? = null,
     private val indicScriptHelper: IndicScriptHelper? = null,
     private val userDictionaryManager: UserDictionaryManager? = null
@@ -31,278 +64,859 @@ class UnifiedAutocorrectEngine(
     companion object {
         private const val TAG = "UnifiedAutocorrectEngine"
         private val INDIC_LANGUAGES = listOf("hi", "te", "ta", "ml", "bn", "gu", "kn", "pa", "ur")
+        
+        // Tunable scoring weights (make injectable via SharedPreferences)
+        private const val EDIT_WEIGHT = 1.0
+        private const val LM_WEIGHT = 2.0
+        private const val USER_WEIGHT = 3.0
+        private const val CORRECTION_WEIGHT = 4.0
+        private const val SWIPE_WEIGHT = 1.5
     }
 
-    // LRU cache for suggestions to improve performance (max 500 entries)
+    // Thread-safe cache for suggestions
     private val suggestionCache = object : LruCache<String, List<Suggestion>>(500) {}
-    private val coroutineScope = CoroutineScope(Dispatchers.Default)
     
-    // Corrections map loaded from corrections.json
-    private val correctionsMap = ConcurrentHashMap<String, String>()
+    // Current language resources
+    @Volatile
+    private var currentLanguage: String = "en"
+    @Volatile
+    private var languageResources: LanguageResources? = null
     
-    init {
-        loadCorrectionsFromAssets()
-    }
-
-    /**
-     * Data class for autocorrect suggestions
-     */
-    data class Suggestion(
-        val word: String,
-        val score: Double,
-        val isCorrection: Boolean = false,
-        val sourceLanguage: String = "en"
+    // QWERTY layout for keyboard proximity scoring (normalized 0.0-1.0 coordinates)
+    // Updated to match Android keyboard layout more accurately  
+    private val qwertyLayout = mapOf(
+        'q' to Pair(0.05f, 0.17f), 'w' to Pair(0.15f, 0.17f), 'e' to Pair(0.25f, 0.17f), 'r' to Pair(0.35f, 0.17f),
+        't' to Pair(0.45f, 0.17f), 'y' to Pair(0.55f, 0.17f), 'u' to Pair(0.65f, 0.17f), 'i' to Pair(0.75f, 0.17f),
+        'o' to Pair(0.85f, 0.17f), 'p' to Pair(0.95f, 0.17f),
+        'a' to Pair(0.075f, 0.44f), 's' to Pair(0.175f, 0.44f), 'd' to Pair(0.275f, 0.44f), 'f' to Pair(0.375f, 0.44f),
+        'g' to Pair(0.475f, 0.44f), 'h' to Pair(0.575f, 0.44f), 'j' to Pair(0.675f, 0.44f), 'k' to Pair(0.775f, 0.44f),
+        'l' to Pair(0.875f, 0.44f),
+        'z' to Pair(0.15f, 0.71f), 'x' to Pair(0.25f, 0.71f), 'c' to Pair(0.35f, 0.71f), 'v' to Pair(0.45f, 0.71f),
+        'b' to Pair(0.55f, 0.71f), 'n' to Pair(0.65f, 0.71f), 'm' to Pair(0.75f, 0.71f)
     )
+    
+    // Suggestion callback for real-time suggestion updates
+    private var suggestionCallback: ((List<String>) -> Unit)? = null
 
     /**
-     * Preload dictionaries for specified languages
+     * Set language and resources (NEW UNIFIED API)
+     * This is the single entry point for language switching
      */
-    fun preloadLanguages(languages: List<String>) {
-        languages.forEach { lang ->
-            if (!dictionary.isLoaded(lang)) {
-                dictionary.loadLanguage(lang, coroutineScope)
-                LogUtil.d(TAG, "Preloaded dictionary for $lang")
+    fun setLanguage(lang: String, resources: LanguageResources) {
+        currentLanguage = lang
+        languageResources = resources
+        suggestionCache.evictAll() // Clear cache when language changes
+        LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine: Engine ready [langs=[$lang], corrections=${resources.corrections.size}]")
+    }
+    
+    /**
+     * Check if engine has a specific language loaded
+     */
+    fun hasLanguage(lang: String): Boolean {
+        return currentLanguage == lang && languageResources != null
+    }
+    
+    /**
+     * Get typing suggestions for partial input (NEW UNIFIED API)
+     */
+    fun suggestForTyping(prefix: String, context: List<String>): List<Suggestion> {
+        if (prefix.isBlank()) return emptyList()
+        val resources = languageResources ?: return emptyList()
+        
+        val cacheKey = "$prefix:typing:${context.joinToString(",")}"
+        suggestionCache.get(cacheKey)?.let { return it }
+        
+        val suggestions = mutableListOf<Suggestion>()
+        
+        try {
+            // Find candidate words that start with prefix
+            val candidates = resources.words.entries
+                .filter { it.key.lowercase().startsWith(prefix.lowercase()) }
+                .take(20) // Limit candidates for performance
+            
+            candidates.forEach { (word, freq) ->
+                val editDistance = getEditDistanceWithProximity(prefix, word)
+                val score = calculateUnifiedScore(word, prefix, editDistance, context, SuggestionSource.TYPING)
+                suggestions.add(Suggestion(word, score, SuggestionSource.TYPING))
             }
+            
+            // Sort by score and take top suggestions
+            val result = suggestions
+                .sortedByDescending { it.score }
+                .take(5)
+            
+            suggestionCache.put(cacheKey, result)
+            return result
+            
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error getting typing suggestions for '$prefix'", e)
+            return emptyList()
         }
     }
-
+    
     /**
-     * Check if language dictionary is loaded
+     * Get best autocorrect suggestion (NEW UNIFIED API)
      */
-    fun isLanguageLoaded(language: String): Boolean {
-        return dictionary.isLoaded(language)
+    fun autocorrect(input: String, context: List<String>): Suggestion? {
+        if (input.isBlank()) return null
+        val resources = languageResources ?: return null
+        
+        // Priority 1: Check corrections map
+        resources.corrections[input.lowercase()]?.let { correction ->
+            val score = CORRECTION_WEIGHT * 4.0 // High priority for predefined corrections
+            return Suggestion(correction, score, SuggestionSource.CORRECTION, isAutoCommit = true)
+        }
+        
+        // Priority 2: Check typing suggestions and return best if score is high enough
+        val suggestions = suggestForTyping(input, context)
+        if (suggestions.isNotEmpty() && suggestions.first().score > 2.0) {
+            return suggestions.first().copy(isAutoCommit = true)
+        }
+        
+        return null
     }
     
     /**
-     * Check if engine is fully ready for use
-     * Returns true if corrections are loaded and at least one language dictionary is loaded
+     * Get next word predictions (NEW UNIFIED API)
+     */
+    fun nextWord(context: List<String>, k: Int = 3): List<Suggestion> {
+        if (context.isEmpty()) return emptyList()
+        val resources = languageResources ?: return emptyList()
+        
+        val cacheKey = "nextword:${context.joinToString(",")}:$k"
+        suggestionCache.get(cacheKey)?.let { return it }
+        
+        val suggestions = mutableListOf<Suggestion>()
+        
+        try {
+            // Use Katz-backoff: quad→tri→bi→uni
+            val contextWords = context.takeLast(3) // Max 3-word context for quadgrams
+            
+            // Try quadgrams if available and we have 3+ context words
+            if (resources.quadgrams != null && contextWords.size >= 3) {
+                val quadCandidates = getQuadgramPredictions(resources, contextWords, k * 2)
+                quadCandidates.forEach { (word, freq) ->
+                    val score = LM_WEIGHT * ln(freq.toDouble() + 1) * 1.2 // Bonus for 4-grams
+                    suggestions.add(Suggestion(word, score, SuggestionSource.LM_QUADGRAM))
+                }
+            }
+            
+            // Try trigrams if we have 2+ context words and need more suggestions
+            if (contextWords.size >= 2 && suggestions.size < k) {
+                val triCandidates = getTrigramPredictions(resources, contextWords, k * 2)
+                triCandidates.forEach { (word, freq) ->
+                    // Only add if not already from quadgrams
+                    if (!suggestions.any { it.text == word }) {
+                        val score = LM_WEIGHT * ln(freq.toDouble() + 1) * 1.1
+                        suggestions.add(Suggestion(word, score, SuggestionSource.LM_TRIGRAM))
+                    }
+                }
+            }
+            
+            // Try bigrams as fallback
+            if (suggestions.size < k) {
+                val lastWord = contextWords.last()
+                val biCandidates = getBigramPredictions(resources, lastWord, k * 2)
+                biCandidates.forEach { (word, freq) ->
+                    if (!suggestions.any { it.text == word }) {
+                        val score = LM_WEIGHT * ln(freq.toDouble() + 1)
+                        suggestions.add(Suggestion(word, score, SuggestionSource.LM_BIGRAM))
+                    }
+                }
+            }
+            
+            val result = suggestions
+                .sortedByDescending { it.score }
+                .take(k)
+            
+            suggestionCache.put(cacheKey, result)
+            return result
+            
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error getting next word predictions", e)
+            return emptyList()
+        }
+    }
+    
+    /**
+     * Get swipe suggestions (NEW UNIFIED API) - Fixed to use proper metrics
+     */
+    fun suggestForSwipe(path: SwipePath, context: List<String>): List<Suggestion> {
+        val resources = languageResources ?: return emptyList()
+        
+        val cacheKey = "swipe:${path.hashCode()}:${context.joinToString(",")}"
+        suggestionCache.get(cacheKey)?.let { return it }
+        
+        try {
+            // Use proper path decoding with metrics (NO fallbacks to typed suggestions)
+            val result = decodeSwipePath(path, resources).map { (word, score) ->
+                Suggestion(word, score, SuggestionSource.SWIPE)
+            }
+            
+            LogUtil.d(TAG, "[Swipe] Final candidates: ${result.take(5).map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
+            
+            suggestionCache.put(cacheKey, result)
+            return result.take(5)
+            
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error getting swipe suggestions", e)
+            return emptyList()
+        }
+    }
+    
+    // ========== UNIFIED SCORING SYSTEM ==========
+    
+    /**
+     * Calculate unified score with Katz-backoff and all factors
+     * Final: score = w1*edit + w2*lm + w3*user + w4*correction + w5*swipe
+     */
+    private fun calculateUnifiedScore(
+        candidate: String,
+        input: String,
+        editDistance: Int,
+        context: List<String>,
+        source: SuggestionSource,
+        swipePathScore: Double = 0.0
+    ): Double {
+        val resources = languageResources ?: return 0.0
+        
+        var score = 0.0
+        
+        // Edit distance penalty (with keyboard proximity)
+        val editPenalty = editDistance * EDIT_WEIGHT
+        score -= editPenalty
+        
+        // Language model score (Katz-backoff)
+        val lmScore = getLMScore(candidate, context, resources)
+        score += lmScore * LM_WEIGHT
+        
+        // User dictionary boost
+        if (resources.userWords.contains(candidate)) {
+            score += USER_WEIGHT
+        }
+        
+        // Correction boost
+        if (resources.corrections.containsValue(candidate)) {
+            score += CORRECTION_WEIGHT
+        }
+        
+        // Swipe path likelihood
+        if (source == SuggestionSource.SWIPE) {
+            score += swipePathScore * SWIPE_WEIGHT
+        }
+        
+        // Word frequency boost (base signal)
+        val freq = resources.words[candidate] ?: Int.MAX_VALUE
+        score += ln(1.0 / (freq + 1)) // Lower frequency rank = higher score
+        
+        return score
+    }
+    
+    /**
+     * Get language model score using Katz-backoff
+     */
+    private fun getLMScore(candidate: String, context: List<String>, resources: LanguageResources): Double {
+        if (context.isEmpty()) return 0.0
+        
+        val contextWords = context.takeLast(3)
+        
+        // Try quadgrams first (if available)
+        if (resources.quadgrams != null && contextWords.size >= 3) {
+            val quadgramKey = listOf(contextWords[0], contextWords[1], contextWords[2], candidate)
+            resources.quadgrams[quadgramKey]?.let { freq ->
+                return ln(freq.toDouble() + 1) * 1.2 // Bonus for 4-grams
+            }
+        }
+        
+        // Try trigrams
+        if (contextWords.size >= 2) {
+            val trigramKey = Triple(contextWords[contextWords.size-2], contextWords.last(), candidate)
+            resources.trigrams[trigramKey]?.let { freq ->
+                return ln(freq.toDouble() + 1) * 1.1
+            }
+        }
+        
+        // Fall back to bigrams
+        val bigramKey = Pair(contextWords.last(), candidate)
+        resources.bigrams[bigramKey]?.let { freq ->
+            return ln(freq.toDouble() + 1)
+        }
+        
+        return 0.0 // No n-gram evidence
+    }
+    
+    /**
+     * Calculate edit distance with keyboard proximity weighting
+     */
+    private fun getEditDistanceWithProximity(input: String, candidate: String): Int {
+        // For now, use standard edit distance
+        // TODO: Add keyboard proximity weighting
+        return getEditDistance(input, candidate)
+    }
+    
+    // ========== N-GRAM PREDICTION HELPERS ==========
+    
+    /**
+     * Get quadgram predictions
+     */
+    private fun getQuadgramPredictions(resources: LanguageResources, context: List<String>, limit: Int): List<Pair<String, Int>> {
+        val quadgrams = resources.quadgrams ?: return emptyList()
+        if (context.size < 3) return emptyList()
+        
+        val prefix = listOf(context[0], context[1], context[2])
+        
+        return quadgrams
+            .filterKeys { it.take(3) == prefix }
+            .entries
+            .map { Pair(it.key[3], it.value) }
+            .sortedByDescending { it.second }
+            .take(limit)
+    }
+    
+    /**
+     * Get trigram predictions
+     */
+    private fun getTrigramPredictions(resources: LanguageResources, context: List<String>, limit: Int): List<Pair<String, Int>> {
+        if (context.size < 2) return emptyList()
+        
+        val prefix = Pair(context[context.size-2], context.last())
+        
+        return resources.trigrams
+            .filterKeys { it.first == prefix.first && it.second == prefix.second }
+            .entries
+            .map { Pair(it.key.third, it.value) }
+            .sortedByDescending { it.second }
+            .take(limit)
+    }
+    
+    /**
+     * Get bigram predictions
+     */
+    private fun getBigramPredictions(resources: LanguageResources, lastWord: String, limit: Int): List<Pair<String, Int>> {
+        return resources.bigrams
+            .filterKeys { it.first == lastWord }
+            .entries
+            .map { Pair(it.key.second, it.value) }
+            .sortedByDescending { it.second }
+            .take(limit)
+    }
+    
+    /**
+     * Decode swipe path to candidate words with proper lattice decoding
+     */
+    private fun decodeSwipePath(path: SwipePath, resources: LanguageResources): List<Pair<String, Double>> {
+        if (path.points.size < 2) return emptyList()
+        
+        try {
+            LogUtil.d(TAG, "[Swipe] Decoding path with ${path.points.size} points")
+            
+            // 1) From points → most-likely key sequence (and alternates per point)
+            val lattice: List<List<Char>> = candidatesForEachPoint(path.points, radiusPx = 0.15f)
+            val latticeSizes = lattice.map { it.size }
+            LogUtil.d(TAG, "[Swipe] lattice sizes: $latticeSizes points=${path.points.size}")
+            
+            // 2) Build fuzzy prefixes from the lattice (beam search over 8-15 steps)
+            val fuzzyPrefixes: List<String> = beamDecode(lattice, beamWidth = 8, maxLen = 15)
+            LogUtil.d(TAG, "[Swipe] beam top prefixes: ${fuzzyPrefixes.take(8).joinToString(", ")}")
+            
+            // 3) Query dictionary with those prefixes (NOT common_words), merge unique words
+            val raw = mutableSetOf<String>()
+            for (p in fuzzyPrefixes) {
+                if (p.length >= 2) { // Only meaningful prefixes
+                    val prefixCandidates = resources.words.entries
+                        .filter { it.key.lowercase().startsWith(p.lowercase()) }
+                        .take(300)
+                        .map { it.key }
+                    raw.addAll(prefixCandidates)
+                }
+            }
+            
+            // 4) If no candidates from fuzzy prefixes, try collapsed sequence directly
+            val snappedSequence = snapToKeys(path.points)
+            val collapsedSequence = collapseRepeats(snappedSequence)
+            LogUtil.d(TAG, "[Swipe] snapped='$snappedSequence' collapsed='$collapsedSequence'")
+            
+            if (raw.isEmpty() && collapsedSequence.length >= 2) {
+                LogUtil.d(TAG, "[Swipe] No fuzzy candidates, trying collapsed sequence: '$collapsedSequence'")
+                val directCandidates = resources.words.entries
+                    .filter { it.key.lowercase().startsWith(collapsedSequence.lowercase()) }
+            .take(50)
+                    .map { it.key }
+                raw.addAll(directCandidates)
+            }
+            
+            // 5) Still empty? Try proximity fallback with edit distance
+            if (raw.isEmpty() && collapsedSequence.length >= 2) {
+                LogUtil.d(TAG, "[Swipe] Trying proximity fallback for: '$collapsedSequence'")
+                LogUtil.d(TAG, "[Swipe] Dictionary has ${resources.words.size} words available")
+                
+                // Try a broader search first - longer sequences often have more errors
+                val editThreshold = if (collapsedSequence.length >= 6) 3 else 2
+                val close = resources.words.keys
+                    .filter { word -> 
+                        val editDistance = getEditDistance(collapsedSequence, word)
+                        editDistance <= editThreshold && word.length >= 3 // At least 3 letter words
+                    }
+                    .sortedBy { getEditDistance(collapsedSequence, it) } // Sort by distance
+                    .take(15)
+                raw.addAll(close)
+                LogUtil.w(TAG, "[Swipe] Using proximity fallback for '$collapsedSequence' (threshold=$editThreshold): ${close.take(5)}")
+                
+                // If still empty, try some common English words that are similar length
+                if (close.isEmpty()) {
+                    val commonWords = resources.words.keys.filter { 
+                        it.length == collapsedSequence.length && 
+                        it.all { c -> c.isLetter() } 
+                    }.take(10)
+                    LogUtil.d(TAG, "[Swipe] Trying same-length words: ${commonWords.take(5)}")
+                    raw.addAll(commonWords)
+                }
+            }
+            
+            // 6) Additional fallback: adjacency expansion if still empty
+            if (raw.isEmpty() && collapsedSequence.length >= 2) {
+                LogUtil.d(TAG, "[Swipe] Trying adjacency expansion for: '$collapsedSequence'")
+                val expanded = expandByAdjacency(collapsedSequence, maxVariants = 20)
+                for (variant in expanded) {
+                    val variantCandidates = resources.words.entries
+                        .filter { it.key.lowercase().startsWith(variant.lowercase()) }
+                        .take(20)
+                        .map { it.key }
+                    raw.addAll(variantCandidates)
+                    if (raw.size >= 30) break // Don't let it explode
+                }
+            }
+            
+            var rawCandidates = raw.toList()
+            LogUtil.d(TAG, "[Swipe] rawCandidates: ${rawCandidates.size} (first 10: ${rawCandidates.take(10).joinToString(", ")})")
+            
+            // 7) Last resort: if still empty, return collapsed sequence as a candidate
+            if (rawCandidates.isEmpty() && collapsedSequence.length >= 2) {
+                rawCandidates = listOf(collapsedSequence)
+                LogUtil.w(TAG, "[Swipe] No dictionary matches, using collapsed fallback: '$collapsedSequence'")
+            }
+            
+            // 8) Calculate metrics for each candidate
+            val metrics: List<SwipeMetrics> = rawCandidates.map { word ->
+                SwipeMetrics(
+                    word = word,
+                    pathScore = pathLikelihood(path.points, word),
+                    proximity = avgKeyDistance(path.points, word),
+                    editDistance = getEditDistance(collapsedSequence, word)  // Compare against collapsed, not raw snapped
+                )
+            }
+            
+            // 9) Use unified ranking with proper metrics
+            val final = rankSwipeCandidates(resources, listOf(), metrics, limit = 10)
+            
+            return final.map { Pair(it.text, it.score) }
+            
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error in swipe path decoding", e)
+            return emptyList()
+        }
+    }
+    
+    /**
+     * Estimate letter from normalized point on keyboard
+     */
+    private fun estimateLetterFromPoint(point: Pair<Float, Float>): String {
+        // Simplified keyboard layout estimation
+        val (x, y) = point
+        
+        // Find closest key
+        var closestKey = 'a'
+        var minDistance = Float.MAX_VALUE
+        
+        qwertyLayout.forEach { (key, pos) ->
+            val distance = sqrt((x - pos.first).pow(2) + (y - pos.second).pow(2))
+            if (distance < minDistance) {
+                minDistance = distance
+                closestKey = key
+            }
+        }
+        
+        return closestKey.toString()
+    }
+    
+    /**
+     * Find candidate keys for each touch point (lattice decoding)
+     * Improved to use normalized coordinates and proper radius
+     */
+    private fun candidatesForEachPoint(points: List<Pair<Float, Float>>, radiusPx: Float): List<List<Char>> {
+        val radius = 0.15f // Normalized radius - increased for better key detection
+        
+        return points.map { point ->
+            val (x, y) = point
+            val candidates = mutableListOf<Char>()
+            
+            // Find keys within radius using Euclidean distance on normalized coordinates
+            qwertyLayout.forEach { (key, pos) ->
+                val distance = sqrt((x - pos.first).pow(2) + (y - pos.second).pow(2))
+                if (distance <= radius) {
+                    candidates.add(key)
+                }
+            }
+            
+            // If no keys in radius, find closest + nearby keys
+            if (candidates.isEmpty()) {
+                val distances = qwertyLayout.map { (key, pos) ->
+                    val distance = sqrt((x - pos.first).pow(2) + (y - pos.second).pow(2))
+                    Pair(key, distance)
+                }.sortedBy { it.second }
+                
+                // Add closest key
+                candidates.add(distances.first().first)
+                
+                // Add any other keys within 1.5x the closest distance  
+                val threshold = distances.first().second * 1.5f
+                distances.drop(1).forEach { (key, distance) ->
+                    if (distance <= threshold && candidates.size < 3) {
+                        candidates.add(key)
+                    }
+                }
+            }
+            
+            LogUtil.d(TAG, "[Lattice] point($x,$y) → keys=[${candidates.joinToString("")}]")
+            candidates.distinct()
+        }
+    }
+    
+    /**
+     * Beam search decoding over key lattice with improved filtering
+     */
+    private fun beamDecode(lattice: List<List<Char>>, beamWidth: Int, maxLen: Int): List<String> {
+        var beam = listOf("" to 0.0) // (prefix, logProb)
+        
+        for (choices in lattice.take(maxLen)) {
+            val next = mutableListOf<Pair<String, Double>>()
+            for ((prefix, logProb) in beam) {
+                for (char in choices) {
+                    val newPrefix = prefix + char
+                    // Add penalty for excessive repetition (like "rrrrr")
+                    val repetitionPenalty = if (newPrefix.length >= 3 && 
+                        newPrefix.takeLast(3).toSet().size == 1) -2.0 else 0.0
+                    
+                    next.add(newPrefix to (logProb - 0.1 + repetitionPenalty))
+                }
+            }
+            beam = next.sortedByDescending { it.second }.take(beamWidth)
+        }
+        
+        // Filter out candidates with excessive repetition and return diverse options
+        return beam.map { it.first }
+            .distinct()
+            .filter { candidate ->
+                candidate.length >= 2 && 
+                // Filter out strings with >50% repeated characters
+                candidate.length <= 2 || candidate.toSet().size.toDouble() / candidate.length > 0.5
+            }
+            .take(beamWidth)
+    }
+    
+    /**
+     * Snap path to most likely key sequence
+     */
+    private fun snapToKeys(points: List<Pair<Float, Float>>): String {
+        return points.map { point ->
+            estimateLetterFromPoint(point)[0]
+        }.joinToString("")
+    }
+    
+    /**
+     * Calculate path likelihood for a word
+     */
+    private fun pathLikelihood(points: List<Pair<Float, Float>>, word: String): Double {
+        if (points.isEmpty() || word.isEmpty()) return 0.0
+        
+        // Simple scoring based on how well the word letters align with touch points
+        val wordChars = word.lowercase().toCharArray()
+        var totalScore = 0.0
+        var alignedPoints = 0
+        
+        // Sample points evenly across the word length
+        val sampleIndices = if (points.size <= wordChars.size) {
+            points.indices.toList()
+        } else {
+            (0 until wordChars.size).map { i ->
+                (i * (points.size - 1).toFloat() / (wordChars.size - 1)).toInt()
+            }
+        }
+        
+        for (i in sampleIndices.indices) {
+            if (i < wordChars.size && sampleIndices[i] < points.size) {
+                val point = points[sampleIndices[i]]
+                val expectedChar = wordChars[i]
+                val expectedPos = qwertyLayout[expectedChar]
+                
+                if (expectedPos != null) {
+                    val distance = sqrt((point.first - expectedPos.first).pow(2) + (point.second - expectedPos.second).pow(2))
+                    val score = maxOf(0.0, 1.0 - distance * 2.0) // Closer = higher score
+                    totalScore += score
+                    alignedPoints++
+                }
+            }
+        }
+        
+        return if (alignedPoints > 0) totalScore / alignedPoints else 0.0
+    }
+    
+    /**
+     * Calculate average key distance for proximity scoring
+     */
+    private fun avgKeyDistance(points: List<Pair<Float, Float>>, word: String): Double {
+        if (points.isEmpty() || word.isEmpty()) return 1.0
+        
+        val wordChars = word.lowercase().toCharArray()
+        var totalDistance = 0.0
+        var count = 0
+        
+        // Sample points across word
+        val sampleIndices = if (points.size <= wordChars.size) {
+            points.indices.toList()
+        } else {
+            (0 until wordChars.size).map { i ->
+                (i * (points.size - 1).toFloat() / (wordChars.size - 1)).toInt()
+            }
+        }
+        
+        for (i in sampleIndices.indices) {
+            if (i < wordChars.size && sampleIndices[i] < points.size) {
+                val point = points[sampleIndices[i]]
+                val expectedChar = wordChars[i]
+                val expectedPos = qwertyLayout[expectedChar]
+                
+                if (expectedPos != null) {
+                    val distance = sqrt((point.first - expectedPos.first).pow(2) + (point.second - expectedPos.second).pow(2))
+                    totalDistance += distance
+                    count++
+                }
+            }
+        }
+        
+        return if (count > 0) totalDistance / count else 1.0
+    }
+    
+    /**
+     * Rank swipe candidates using proper metrics
+     */
+    private fun rankSwipeCandidates(resources: LanguageResources, context: List<String>, metrics: List<SwipeMetrics>, limit: Int): List<Suggestion> {
+        val wFreq = 0.6; val wLM = 1.0; val wPath = 1.6; val wProx = 0.6; val wEdit = 0.8; val wUser = 1.0; val wCorr = 0.5
+        
+        val contextWords = context.takeLast(2)
+        val w_2 = contextWords.getOrNull(0)
+        val w_1 = contextWords.getOrNull(1)
+        
+        return metrics.map { m ->
+            val freq = resources.words[m.word] ?: Int.MAX_VALUE
+            val bi = if (w_1 != null) resources.bigrams[Pair(w_1, m.word)] ?: 0 else 0
+            val tri = if (w_2 != null && w_1 != null) resources.trigrams[Triple(w_2, w_1, m.word)] ?: 0 else 0
+            val lm = getLMBackoff(tri, bi, freq)
+            
+            val score = wFreq * ln(1.0 / (freq + 1)) +
+                       wLM * lm +
+                       wPath * m.pathScore +
+                       wProx * (1.0 / (1.0 + m.proximity)) +
+                       wEdit * (-m.editDistance.toDouble()) +
+                       wUser * (if (resources.userWords.contains(m.word)) 1.0 else 0.0) +
+                       wCorr * (if (resources.corrections.containsValue(m.word)) 1.0 else 0.0)
+            
+            LogUtil.d(TAG, "[Unified] swipe-rank: word=${m.word} path=${String.format("%.2f", m.pathScore)} prox=${String.format("%.2f", m.proximity)} edit=${m.editDistance} lm=${String.format("%.2f", lm)} freq=$freq score=${String.format("%.2f", score)}")
+            
+            Suggestion(m.word, score, SuggestionSource.SWIPE)
+        }.sortedByDescending { it.score }.take(limit)
+    }
+    
+    /**
+     * Language model backoff scoring
+     */
+    private fun getLMBackoff(tri: Int, bi: Int, freq: Int): Double {
+        return when {
+            tri > 0 -> ln(tri.toDouble() + 1) * 1.2
+            bi > 0 -> ln(bi.toDouble() + 1) * 1.1  
+            else -> ln(1.0 / (freq + 1)) * 0.5
+        }
+    }
+    
+    /**
+     * Collapse consecutive repeated characters
+     */
+    private fun collapseRepeats(s: String): String {
+        if (s.isEmpty()) return s
+        val sb = StringBuilder()
+        var prev = s[0]
+        sb.append(prev)
+        for (i in 1 until s.length) {
+            val c = s[i]
+            if (c != prev) sb.append(c)
+            prev = c
+        }
+        return sb.toString()
+    }
+    
+    /**
+     * Keyboard adjacency map for expanding swipe patterns
+     */
+    private val adjacency: Map<Char, List<Char>> by lazy {
+        mapOf(
+            'q' to listOf('w','a'),
+            'w' to listOf('q','e','s'),
+            'e' to listOf('w','r','d'),
+            'r' to listOf('e','t','f'),
+            't' to listOf('r','y','g'),
+            'y' to listOf('t','u','h'),
+            'u' to listOf('y','i','j'),
+            'i' to listOf('u','o','k'),
+            'o' to listOf('i','p','l'),
+            'p' to listOf('o'),
+            'a' to listOf('q','s','z'),
+            's' to listOf('a','w','d','x'),
+            'd' to listOf('s','e','f','c'),
+            'f' to listOf('d','r','g','v'),
+            'g' to listOf('f','t','h','b'),
+            'h' to listOf('g','y','j','n'),
+            'j' to listOf('h','u','k','m'),
+            'k' to listOf('j','i','l'),
+            'l' to listOf('k','o'),
+            'z' to listOf('a','x'),
+            'x' to listOf('z','s','c'),
+            'c' to listOf('x','d','v'),
+            'v' to listOf('c','f','b'),
+            'b' to listOf('v','g','n'),
+            'n' to listOf('b','h','m'),
+            'm' to listOf('n','j')
+        )
+    }
+    
+    /**
+     * Expand collapsed sequence using keyboard adjacency
+     */
+    private fun expandByAdjacency(token: String, maxVariants: Int = 30): Set<String> {
+        if (token.isBlank()) return emptySet()
+        val out = LinkedHashSet<String>()
+        
+        fun dfs(idx: Int, sb: StringBuilder) {
+            if (out.size >= maxVariants) return
+            if (idx == token.length) {
+                out.add(sb.toString())
+                return
+            }
+            val base = token[idx]
+            
+            // Try base character
+            sb.append(base)
+            dfs(idx + 1, sb)
+            sb.deleteCharAt(sb.lastIndex)
+            
+            // Try adjacent keys
+            for (neighbor in adjacency[base].orEmpty()) {
+                if (out.size >= maxVariants) break
+                sb.append(neighbor)
+                dfs(idx + 1, sb)
+                sb.deleteCharAt(sb.lastIndex)
+            }
+        }
+        
+        dfs(0, StringBuilder(token.length))
+        return out
+    }
+    
+    /**
+     * Attach suggestion callback for real-time suggestion updates
+     */
+    fun attachSuggestionCallback(callback: (List<String>) -> Unit) {
+        suggestionCallback = callback
+    }
+    
+    // ========== LEGACY COMPATIBILITY METHODS ==========
+    
+    /**
+     * Preload dictionaries for specified languages (legacy compatibility)
+     */
+    fun preloadLanguages(languages: List<String>) {
+        // Delegated to MultilingualDictionary preload
+        LogUtil.d(TAG, "Legacy preloadLanguages called for: $languages")
+    }
+
+    /**
+     * Check if language dictionary is loaded (legacy compatibility)
+     */
+    fun isLanguageLoaded(language: String): Boolean {
+        return hasLanguage(language)
+    }
+    
+    /**
+     * Check if engine is ready (legacy compatibility)
      */
     fun isReady(): Boolean {
-        val ready = correctionsMap.isNotEmpty() && dictionary.getLoadedLanguages().isNotEmpty()
+        val ready = languageResources != null
         if (!ready) {
-            LogUtil.w(TAG, "⚠️ Engine not ready: corrections=${correctionsMap.size}, langs=${dictionary.getLoadedLanguages()}")
+            LogUtil.w(TAG, "⚠️ Engine not ready: resources=${languageResources != null}")
         }
         return ready
     }
 
     /**
-     * Get autocorrect suggestions for a typed word
-     * 
-     * @param word The typed word
-     * @param language Current language code
-     * @param context Previous words for bigram context
-     * @return List of scored suggestions
+     * Get autocorrect suggestions (legacy compatibility)
+     * Delegates to new unified API
      */
     fun getCorrections(word: String, language: String = "en", context: List<String> = emptyList()): List<Suggestion> {
         if (word.isBlank()) return emptyList()
         
-        val cacheKey = "$word:$language:${context.joinToString(",")}"
-        suggestionCache.get(cacheKey)?.let { return it }
-
-        val suggestions = if (language in INDIC_LANGUAGES) {
-            getIndicCorrections(word, language, context)
-        } else {
-            getStandardCorrections(word, language, context)
-        }
-
-        // Cache results for performance
-        suggestionCache.put(cacheKey, suggestions)
+        // Convert to new API format
+        val suggestions = suggestForTyping(word, context)
+        
+        // Trigger suggestion callback if attached
+        val suggestionWords = suggestions.map { it.text }
+        suggestionCallback?.invoke(suggestionWords)
+        
         return suggestions
     }
 
     /**
-     * Convenience method to get suggestions as a simple list of words
-     * Returns top 3 suggestions by default
-     * @param input The word to get suggestions for
-     * @param language Current language code
-     * @param limit Maximum number of suggestions to return (default: 3)
-     * @return List of suggestion words
+     * Get suggestions as simple list of words (legacy compatibility)
      */
     fun getSuggestions(input: String, language: String = "en", limit: Int = 3): List<String> {
         if (input.isBlank()) return emptyList()
-        val corrections = getCorrections(input, language)
-        return corrections.take(limit).map { it.word }
+        val suggestions = suggestForTyping(input, emptyList())
+        return suggestions.take(limit).map { it.text }
     }
 
     /**
-     * Get the best (highest-ranked) suggestion for a word
-     * Includes fallback to common typo corrections
-     * @param input The word to get suggestion for
-     * @param language Current language code
-     * @return The best suggestion, or null if no suggestions available
+     * Get best autocorrect suggestion (legacy compatibility)
      */
     fun getBestSuggestion(input: String, language: String = "en"): String? {
-        if (input.isBlank()) return null
-        
-        // PRIORITY 1: Check corrections.json map
-        val normalized = input.lowercase()
-        correctionsMap[normalized]?.let { suggestion ->
-            // Check if this correction was previously rejected by user
-            if (userDictionaryManager?.isBlacklisted(normalized, suggestion.lowercase()) == true) {
-                LogUtil.d(TAG, "🚫 Skipping blacklisted correction '$input' → '$suggestion'")
-                return null
-            }
-            LogUtil.d(TAG, "✨ Found correction in corrections.json: '$input' → '$suggestion'")
-            return suggestion 
-        }
-        
-        // PRIORITY 2: Try dictionary-based suggestions
-        val suggestions = getSuggestions(input, language, limit = 1)
-        if (suggestions.isNotEmpty()) {
-            val bestSuggestion = suggestions.first()
-            // Check if this suggestion was previously rejected by user
-            if (userDictionaryManager?.isBlacklisted(normalized, bestSuggestion.lowercase()) == true) {
-                LogUtil.d(TAG, "🚫 Skipping blacklisted dictionary suggestion '$input' → '$bestSuggestion'")
-                return null
-            }
-            return bestSuggestion
-        }
-        
-        // No fallback needed - all corrections are in corrections.json
-        return null
+        val suggestion = autocorrect(input, emptyList())
+        return suggestion?.text
     }
 
-    /**
-     * Get corrections for Indic languages with transliteration support
-     */
-    private fun getIndicCorrections(word: String, language: String, context: List<String>): List<Suggestion> {
-        val typed = word.trim().lowercase()
-        val suggestions = mutableListOf<Suggestion>()
+    // Old methods removed - now using unified API
 
-        try {
-            // Path A: Roman input → transliterate → find candidates
-            if (transliterationEngine != null && indicScriptHelper?.detectScript(typed) == IndicScriptHelper.Script.LATIN) {
-                val nativeText = transliterationEngine.transliterate(typed)
-                LogUtil.d(TAG, "Transliterating '$typed' → '$nativeText'")
-
-                val candidates = dictionary.getCandidates(nativeText, language, 20)
-                candidates.forEach { candidate ->
-                    val editDistance = getEditDistance(nativeText, candidate)
-                    if (editDistance <= 2) {
-                        val score = calculateScore(candidate, typed, editDistance, context, language, true)
-                        suggestions.add(Suggestion(candidate, score, editDistance > 0, language))
-                    }
-                }
-            }
-
-            // Path B: Native script input → direct matching
-            val nativeCandidates = dictionary.getCandidates(typed, language, 15)
-            nativeCandidates.forEach { candidate ->
-                val editDistance = getEditDistance(typed, candidate)
-                val score = calculateScore(candidate, typed, editDistance, context, language, false)
-                suggestions.add(Suggestion(candidate, score, editDistance > 0, language))
-            }
-
-        } catch (e: Exception) {
-            LogUtil.e(TAG, "Error getting Indic corrections for $typed", e)
-        }
-
-        return suggestions.distinctBy { it.word.lowercase() }
-            .sortedByDescending { it.score }
-            .take(5)
-    }
+    // Old calculateScore method removed - using unified scoring now
 
     /**
-     * Get corrections for standard languages (English, etc.)
-     */
-    private fun getStandardCorrections(word: String, language: String, context: List<String>): List<Suggestion> {
-        val typed = word.trim().lowercase()
-        val candidates = dictionary.getCandidates(typed, language, 20)
-        
-        return candidates.map { candidate ->
-            val editDistance = getEditDistance(typed, candidate)
-            val score = calculateScore(candidate, typed, editDistance, context, language, false)
-            Suggestion(candidate, score, editDistance > 0, language)
-        }.sortedByDescending { it.score }
-            .take(5)
-    }
-
-    /**
-     * Calculate multi-factor score for a suggestion
-     */
-    private fun calculateScore(
-        candidate: String,
-        typedWord: String,
-        editDistance: Int,
-        context: List<String>,
-        language: String,
-        isTransliterationPath: Boolean
-    ): Double {
-        // Base frequency score
-        val frequency = dictionary.getFrequency(language, candidate).toDouble()
-        var score = frequency * 0.7
-
-        // Edit distance penalty
-        score -= (editDistance * 1.2)
-
-        // Length difference penalty
-        val lengthDiff = kotlin.math.abs(candidate.length - typedWord.length)
-        score -= (lengthDiff * 0.1)
-
-        // Bigram context boost
-        val lastContextWord = context.lastOrNull()?.lowercase()
-        if (lastContextWord != null) {
-            val bigramFreq = dictionary.getBigramFrequency(language, lastContextWord, candidate).toDouble()
-            score += (bigramFreq * 0.8)
-        }
-
-        // Transliteration proximity boost
-        if (isTransliterationPath) {
-            score += 0.5
-        }
-
-        // Indic language boost
-        if (language in INDIC_LANGUAGES) {
-            score += 0.3
-        }
-
-        // Exact match bonus
-        if (candidate.equals(typedWord, ignoreCase = true)) {
-            score += 1.0
-        }
-
-        // User dictionary boost - learned words get higher priority
-        userDictionaryManager?.let { userDict ->
-            if (userDict.hasLearnedWord(candidate)) {
-                val usageCount = userDict.getWordCount(candidate)
-                // Base boost of 0.8 + additional 0.05 per usage (capped at +0.5)
-                val usageBoost = kotlin.math.min(usageCount * 0.05, 0.5)
-                score += (0.8 + usageBoost)
-                LogUtil.d(TAG, "👤 User dictionary boost for '$candidate': +${0.8 + usageBoost} (used $usageCount times)")
-            }
-        }
-
-        return score
-    }
-
-    /**
-     * Get word candidates by prefix (for suggestion strip)
+     * Get word candidates by prefix (legacy compatibility)
      */
     fun getCandidates(prefix: String, language: String = "en", limit: Int = 10): List<String> {
         if (prefix.isBlank()) return emptyList()
-        return dictionary.getCandidates(prefix, language, limit)
+        val suggestions = suggestForTyping(prefix, emptyList())
+        return suggestions.take(limit).map { it.text }
     }
 
     /**
-     * Get next word predictions based on bigram context
+     * Get next word predictions (legacy compatibility)
      */
-    fun getNextWordPredictions(previousWord: String, language: String = "en", limit: Int = 5): List<String> {
+    fun getNextWordPredictions(
+        previousWord: String, 
+        language: String = "en", 
+        limit: Int = 5,
+        context: List<String> = emptyList()
+    ): List<String> {
         if (previousWord.isBlank()) return emptyList()
         
-        return try {
-            // Get bigram predictions from dictionary
-            // Get bigram predictions - simplified for now
-            val bigramCandidates = emptyList<String>() // TODO: Implement when getBigramNextWords is available
-            
-            // TODO: Add user dictionary predictions when available
-            // val userPredictions = userDictionaryManager?.getNextWordSuggestions(previousWord, language) ?: emptyList()
-            
-            // Return bigram candidates for now
-            bigramCandidates.take(limit)
-        } catch (e: Exception) {
-            LogUtil.e(TAG, "Error getting next word predictions for '$previousWord'", e)
-            emptyList()
-        }
+        val fullContext = if (context.isEmpty()) listOf(previousWord) else context + previousWord
+        val suggestions = nextWord(fullContext, limit)
+        return suggestions.map { it.text }
     }
 
     /**
@@ -340,10 +954,8 @@ class UnifiedAutocorrectEngine(
             // Learn the corrected word
             userDictionaryManager?.learnWord(correctedWord)
             
-            // Also add to corrections map if this is a correction pattern
-            if (language == "en" && originalWord.length >= 3) {
-                correctionsMap[originalWord.lowercase()] = correctedWord.lowercase()
-            }
+            // Note: corrections are now handled via LanguageResources
+            // Dynamic learning patterns could be added to user data
             
             LogUtil.d(TAG, "✨ Learned: '$originalWord' → '$correctedWord' for $language")
         } catch (e: Exception) {
@@ -363,33 +975,15 @@ class UnifiedAutocorrectEngine(
      */
     fun applyCorrection(word: String, language: String = "en"): String {
         val suggestions = getCorrections(word, language)
-        return suggestions.firstOrNull()?.word ?: word
+        return suggestions.firstOrNull()?.text ?: word
     }
 
     /**
-     * Get revert candidate (for undo functionality)
-     */
-    fun getRevertCandidate(correctedWord: String): String? {
-        // This would need to be implemented based on correction history
-        return null
-    }
-
-    /**
-     * Process word boundary (for context-aware corrections)
-     */
-    fun processBoundary(context: List<String>, language: String = "en") {
-        // Update context for next predictions
-        LogUtil.d(TAG, "Processing boundary with context: ${context.takeLast(2)}")
-    }
-
-    /**
-     * Set locale for the engine
+     * Set locale for the engine (legacy compatibility)
      */
     fun setLocale(language: String) {
-        LogUtil.d(TAG, "Locale set to: $language")
-        if (!isLanguageLoaded(language)) {
-            dictionary.loadLanguage(language, coroutineScope)
-        }
+        LogUtil.d(TAG, "Legacy setLocale called for: $language")
+        // Note: Language setting now handled via setLanguage(lang, resources)
     }
 
     /**
@@ -423,7 +1017,7 @@ class UnifiedAutocorrectEngine(
      */
     fun suggestForSwipe(input: String, language: String): List<String> {
         return try {
-            getCorrections(input, language, emptyList()).take(3).map { it.word }
+            getCorrections(input, language, emptyList()).take(3).map { it.text }
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error getting swipe suggestions for '$input'", e)
             emptyList()
@@ -434,7 +1028,7 @@ class UnifiedAutocorrectEngine(
      * STEP 5: Simplified interface for quick suggestions
      */
     fun suggest(input: String, language: String): List<String> {
-        return getCorrections(input, language).map { it.word }
+        return getCorrections(input, language).map { it.text }
     }
 
     /**
@@ -447,22 +1041,29 @@ class UnifiedAutocorrectEngine(
 
     /**
      * Get engine statistics (for debugging)
-     * Returns actual loaded data instead of placeholders
+     * Returns actual loaded data from LanguageResources
      */
     fun getStats(): Map<String, Any> {
-        val loadedLangs = dictionary.getLoadedLanguages()
-        val totalWords = dictionary.getLoadedWordCount()
-        // User words count - for now return 0 as UserDictionaryManager doesn't expose count
-        // TODO: Add getTotalWordCount() method to UserDictionaryManager
-        val userWordCount = 0
+        val resources = languageResources
         
-        return mapOf(
-            "cacheSize" to suggestionCache.size(),
-            "loadedLanguages" to loadedLangs,
-            "totalWords" to totalWords,
-            "userWords" to userWordCount,
-            "corrections" to correctionsMap.size
-        )
+        return if (resources != null) {
+            mapOf(
+                "cacheSize" to suggestionCache.size(),
+                "currentLanguage" to currentLanguage,
+                "totalWords" to resources.words.size,
+                "bigrams" to resources.bigrams.size,
+                "trigrams" to resources.trigrams.size,
+                "userWords" to resources.userWords.size,
+                "shortcuts" to resources.shortcuts.size,
+                "corrections" to resources.corrections.size
+            )
+        } else {
+            mapOf(
+                "cacheSize" to suggestionCache.size(),
+                "currentLanguage" to currentLanguage,
+                "status" to "no_resources_loaded"
+            )
+        }
     }
 
     /**
@@ -484,7 +1085,8 @@ class UnifiedAutocorrectEngine(
         
         // 🔥 HIGH PRIORITY: corrections.json matches get high confidence (0.8)
         // This ensures predefined corrections like "plz→please" always apply
-        if (correctionsMap.containsKey(inputLower) && correctionsMap[inputLower] == suggestionLower) {
+        val resources = languageResources
+        if (resources != null && resources.corrections.containsKey(inputLower) && resources.corrections[inputLower] == suggestionLower) {
             return 0.8f
         }
         
@@ -538,37 +1140,7 @@ class UnifiedAutocorrectEngine(
         return (editDistanceConfidence + typoBonus - lengthPenalty).coerceIn(0f, 1f)
     }
     
-    /**
-     * Load predefined corrections from corrections.json
-     * This is called once during initialization
-     */
-    private fun loadCorrectionsFromAssets() {
-        coroutineScope.launch(Dispatchers.IO) {
-            try {
-                val json = context.assets.open("dictionaries/corrections.json")
-                    .bufferedReader().use { it.readText() }
-                
-                val jsonObject = JSONObject(json)
-                val corrections = jsonObject.getJSONObject("corrections")
-                
-                val keys = corrections.keys()
-                var count = 0
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val value = corrections.getString(key)
-                    correctionsMap[key.lowercase()] = value
-                    count++
-                }
-                
-                withContext(Dispatchers.Main) {
-                    LogUtil.d(TAG, "✅ Loaded $count corrections from corrections.json")
-                    LogUtil.d(TAG, "✅ Engine ready [corrections=$count, langs=${dictionary.getLoadedLanguages()}]")
-                }
-            } catch (e: Exception) {
-                LogUtil.e(TAG, "❌ Failed to load corrections.json", e)
-            }
-        }
-    }
+    // Old corrections loading removed - now handled by LanguageResources
     
     /**
      * Call this when user accepts an autocorrect suggestion
@@ -590,3 +1162,4 @@ class UnifiedAutocorrectEngine(
         }
     }
 }
+

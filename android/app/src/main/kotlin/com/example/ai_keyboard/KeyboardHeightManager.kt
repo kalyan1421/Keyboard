@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Point
 import android.os.Build
-import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Display
 import android.view.View
@@ -13,8 +12,6 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Manages keyboard height calculations and navigation bar detection
@@ -27,18 +24,17 @@ class KeyboardHeightManager(private val context: Context) {
         private const val TAG = "KeyboardHeightManager"
         
         // Keyboard height constants (in dp)
-        private const val MIN_KEYBOARD_HEIGHT_DP = 320
-        private const val MAX_KEYBOARD_HEIGHT_DP = 380
-        private const val DEFAULT_KEYBOARD_HEIGHT_DP = 340
-        private const val KEYBOARD_HEIGHT_PERCENTAGE = 0.35f // 35% of screen height
+        private const val MIN_KEYBOARD_HEIGHT_DP = 260  // Reduced from 280 (minimized)
+        private const val MAX_KEYBOARD_HEIGHT_DP = 310  // Reduced from 340 (minimized)
+        private const val DEFAULT_KEYBOARD_HEIGHT_DP = 285  // Reduced from 310 (minimized)
+        private const val KEYBOARD_HEIGHT_PERCENTAGE = 0.24f // 24% of screen height (minimized to eliminate space)
         
         // Toolbar and suggestion bar heights
-        private const val TOOLBAR_HEIGHT_DP = 64
+        private const val TOOLBAR_HEIGHT_DP = 72  // Increased from 64 for better visibility
         private const val SUGGESTION_BAR_HEIGHT_DP = 44
     }
     
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val metrics = DisplayMetrics()
     private val density = context.resources.displayMetrics.density
     
     /**
@@ -101,8 +97,8 @@ class KeyboardHeightManager(private val context: Context) {
             return navBarHeight
         }
         
-        // Fallback: calculate based on screen dimensions
-        return calculateNavigationBarHeightFallback()
+        // Fallback to default navigation bar height (48dp)
+        return dpToPx(48)
     }
     
     /**
@@ -119,28 +115,8 @@ class KeyboardHeightManager(private val context: Context) {
             return false
         }
         
-        // Check using display metrics
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            hasNavigationBarAndroid11()
-        } else {
-            hasNavigationBarLegacy()
-        }
-    }
-    
-    /**
-     * Gets the status bar height
-     * @return Status bar height in pixels
-     */
-    fun getStatusBarHeight(): Int {
-        val resourceId = context.resources.getIdentifier(
-            "status_bar_height", "dimen", "android"
-        )
-        
-        return if (resourceId > 0) {
-            context.resources.getDimensionPixelSize(resourceId)
-        } else {
-            dpToPx(24) // Default status bar height
-        }
+        // Use Android 11+ insets API or fallback to display metrics
+        return hasNavigationBarAndroid11()
     }
     
     /**
@@ -215,20 +191,6 @@ class KeyboardHeightManager(private val context: Context) {
         Log.d(TAG, "Adjusted panel height: $adjustedHeight px, nav bar padding: $navBarHeight px")
     }
     
-    /**
-     * Gets consistent panel height for all keyboard panels
-     * This ensures all panels (letters, symbols, emojis, grammar) have the same height
-     */
-    fun getConsistentPanelHeight(): Int {
-        val keyboardHeight = calculateKeyboardHeight(
-            includeToolbar = false,  // Toolbar is separate
-            includeSuggestions = false // Suggestions are separate
-        )
-        
-        // Return consistent height for all panels
-        return keyboardHeight
-    }
-    
     // Private helper methods
     
     private fun dpToPx(dp: Int): Int {
@@ -254,79 +216,20 @@ class KeyboardHeightManager(private val context: Context) {
             val navBarInsets = insets.getInsets(WindowInsets.Type.navigationBars())
             navBarInsets.bottom > 0
         } else {
-            false
-        }
-    }
-    
-    private fun hasNavigationBarLegacy(): Boolean {
-        val display = windowManager.defaultDisplay
-        val realSize = Point()
-        val size = Point()
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            display.getRealSize(realSize)
-            display.getSize(size)
+            // Fallback for pre-Android 11: Check display dimensions
+            val display = windowManager.defaultDisplay
+            val realSize = Point()
+            val size = Point()
             
-            // Navigation bar is present if real size differs from display size
-            return realSize.y > size.y || realSize.x > size.x
-        }
-        
-        return false
-    }
-    
-    private fun calculateNavigationBarHeightFallback(): Int {
-        val display = windowManager.defaultDisplay
-        val realSize = Point()
-        val size = Point()
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            display.getRealSize(realSize)
-            display.getSize(size)
-            
-            return when {
-                realSize.y > size.y -> realSize.y - size.y // Bottom nav bar
-                realSize.x > size.x -> realSize.x - size.x // Side nav bar (landscape)
-                else -> 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                display.getRealSize(realSize)
+                display.getSize(size)
+                
+                // Navigation bar is present if real size differs from display size
+                realSize.y > size.y || realSize.x > size.x
+            } else {
+                false
             }
         }
-        
-        // Default navigation bar height (48dp)
-        return dpToPx(48)
-    }
-    
-    /**
-     * Handles configuration changes (rotation, split-screen, etc.)
-     * @param newConfig The new configuration
-     * @param onConfigChanged Callback when configuration changes
-     */
-    fun handleConfigurationChange(
-        newConfig: Configuration,
-        onConfigChanged: (isLandscape: Boolean, keyboardHeight: Int) -> Unit
-    ) {
-        val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val newKeyboardHeight = calculateKeyboardHeight()
-        
-        Log.d(TAG, "Configuration changed - Landscape: $isLandscape, " +
-                "New keyboard height: $newKeyboardHeight px")
-        
-        onConfigChanged(isLandscape, newKeyboardHeight)
-    }
-    
-    /**
-     * Debug method to log all relevant measurements
-     */
-    fun logMeasurements() {
-        Log.d(TAG, """
-            === Keyboard Height Manager Measurements ===
-            Screen Height: ${getScreenHeight()} px
-            Navigation Bar Present: ${hasNavigationBar()}
-            Navigation Bar Height: ${getNavigationBarHeight()} px
-            Status Bar Height: ${getStatusBarHeight()} px
-            Keyboard Height (with toolbar): ${calculateKeyboardHeight(true, true)} px
-            Keyboard Height (no toolbar): ${calculateKeyboardHeight(false, false)} px
-            Panel Height: ${getConsistentPanelHeight()} px
-            Density: $density
-            ==========================================
-        """.trimIndent())
     }
 }

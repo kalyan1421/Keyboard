@@ -30,7 +30,7 @@ class SimpleMediaPanel(private val context: Context) : LinearLayout(context) {
         AI_FEATURES
     }
     
-    private lateinit var emojiPanel: GboardEmojiPanel
+    private lateinit var emojiPanel: LinearLayout
     private lateinit var gifPanel: SimpleGifPanel
     private lateinit var stickerPanel: SimpleStickerPanel
     private lateinit var aiFeaturesPanel: AIFeaturesPanel
@@ -42,14 +42,42 @@ class SimpleMediaPanel(private val context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(PANEL_HEIGHT_DP))
-        setBackgroundColor(Color.parseColor("#F0F0F0"))
+        // Remove hardcoded background - will be set by theme
         
         setupMediaTabs()
         setupMediaPanels()
         
         showPanel(MediaType.EMOJI) // Default to emoji
         
+        // Apply theme after setup
+        applyTheme()
+        
         Log.d(TAG, "SimpleMediaPanel initialized")
+    }
+    
+    /**
+     * Apply theme to match keyboard colors
+     */
+    fun applyTheme() {
+        try {
+            // Get theme manager from AIKeyboardService
+            val service = context as? AIKeyboardService
+            val themeManager = service?.themeManager
+            
+            if (themeManager != null) {
+                val palette = themeManager.getCurrentPalette()
+                
+                // Apply main background
+                setBackgroundColor(palette.keyboardBg)
+                
+                // Apply theme to emoji panel (using SimpleEmojiPanel)
+                // SimpleEmojiPanel doesn't have applyTheme method
+                
+                LogUtil.d(TAG, "✅ SimpleMediaPanel theme applied")
+            }
+        } catch (e: Exception) {
+            LogUtil.w(TAG, "Error applying theme to SimpleMediaPanel", e)
+        }
     }
     
     private fun setupMediaTabs() {
@@ -120,18 +148,8 @@ class SimpleMediaPanel(private val context: Context) : LinearLayout(context) {
     }
     
     private fun setupMediaPanels() {
-        // Create emoji panel
-        emojiPanel = GboardEmojiPanel(context).apply {
-            setOnEmojiSelectedListener { emoji ->
-                Log.d(TAG, "Emoji selected: $emoji")
-                onMediaSelected?.invoke(MediaType.EMOJI, emoji, null)
-            }
-            setOnKeyboardSwitchRequestedListener {
-                Log.d(TAG, "Keyboard switch requested from emoji panel")
-                onKeyboardSwitchRequested?.invoke()
-            }
-            visibility = VISIBLE
-        }
+        // Create emoji panel placeholder (emoji handled by EmojiPanelController)
+        emojiPanel = createEmojiPanelPlaceholder()
         
         // Create GIF panel
         gifPanel = SimpleGifPanel(context).apply {
@@ -216,6 +234,27 @@ class SimpleMediaPanel(private val context: Context) : LinearLayout(context) {
     fun switchToSticker() {
         showPanel(MediaType.STICKER)
         updateTabSelection(MediaType.STICKER)
+    }
+    
+    /**
+     * Create emoji panel placeholder since main emoji functionality is in EmojiPanelController
+     */
+    private fun createEmojiPanelPlaceholder(): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = VERTICAL
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(PANEL_HEIGHT_DP))
+            
+            // Add simple message
+            val messageText = TextView(context).apply {
+                text = "Emoji panel handled by main controller"
+                textSize = 16f
+                gravity = Gravity.CENTER
+                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+            }
+            addView(messageText)
+            
+            visibility = VISIBLE
+        }
     }
     
     private fun dpToPx(dp: Int): Int {

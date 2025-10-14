@@ -85,16 +85,6 @@ class LanguageLayoutAdapter(private val context: Context) {
     }
     
     /**
-     * Build complete keyboard layout for a language (legacy method - letters mode only)
-     * 
-     * @param languageCode ISO 639-1 language code (e.g., "en", "hi", "te")
-     * @return LayoutModel with all keys configured
-     */
-    suspend fun buildLayoutFor(languageCode: String): LayoutModel {
-        return buildLayoutFor(languageCode, KeyboardMode.LETTERS, false)
-    }
-    
-    /**
      * Build complete keyboard layout for a language with mode support
      * 
      * @param languageCode ISO 639-1 language code (e.g., "en", "hi", "te")
@@ -109,7 +99,13 @@ class LanguageLayoutAdapter(private val context: Context) {
         val templateName = when (mode) {
             KeyboardMode.LETTERS -> {
                 val keymap = loadKeymap(languageCode)
-                keymap.optString("template", getDefaultTemplate(languageCode))
+                // Get template from keymap or use default based on language
+                val defaultTemplate = when (languageCode) {
+                    in listOf("hi", "te", "ta", "ml", "gu", "bn", "kn", "or", "pa") -> "inscript_template.json"
+                    in listOf("ar", "ur", "fa") -> "arabic_template.json"
+                    else -> "qwerty_template.json"
+                }
+                keymap.optString("template", defaultTemplate)
             }
             KeyboardMode.SYMBOLS -> "symbols_template.json"
             KeyboardMode.EXTENDED_SYMBOLS -> "extended_symbols_template.json"
@@ -437,17 +433,6 @@ class LanguageLayoutAdapter(private val context: Context) {
     }
     
     /**
-     * Get default template name for a language
-     */
-    private fun getDefaultTemplate(languageCode: String): String {
-        return when (languageCode) {
-            in listOf("hi", "te", "ta", "ml", "gu", "bn", "kn", "or", "pa") -> "inscript_template.json"
-            in listOf("ar", "ur", "fa") -> "arabic_template.json"
-            else -> "qwerty_template.json"
-        }
-    }
-    
-    /**
      * Create fallback template for error cases
      */
     private fun createFallbackTemplate(): JSONObject {
@@ -466,9 +451,17 @@ class LanguageLayoutAdapter(private val context: Context) {
      */
     private fun createFallbackKeymap(languageCode: String): JSONObject {
         Log.w(TAG, "⚠️ Using fallback keymap for: $languageCode")
+        
+        // Determine appropriate template based on language
+        val templateName = when (languageCode) {
+            in listOf("hi", "te", "ta", "ml", "gu", "bn", "kn", "or", "pa") -> "inscript_template.json"
+            in listOf("ar", "ur", "fa", "ps") -> "arabic_template.json"
+            else -> "qwerty_template.json"
+        }
+        
         return JSONObject().apply {
             put("language", languageCode)
-            put("template", "qwerty_template.json")
+            put("template", templateName)
             put("base", JSONObject().apply {
                 // 1:1 mapping (passthrough)
                 ('a'..'z').forEach { char ->

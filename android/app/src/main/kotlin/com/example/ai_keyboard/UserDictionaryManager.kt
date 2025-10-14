@@ -15,14 +15,28 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+/**
+ * Phase 2: Multi-Language Cloud Sync Support
+ * - Sync per-language dictionaries to Firestore
+ * - Merge cloud + local data without overwriting
+ * - Support language-specific shortcuts and learned words
+ */
 class UserDictionaryManager(private val context: Context) {
     private val TAG = "UserDictionaryManager"
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
     private val userId get() = auth.currentUser?.uid ?: "anonymous"
 
+    // Multi-language support
+    private val userWordsDir = File(context.filesDir, "user_words").apply {
+        if (!exists()) mkdirs()
+    }
+    
+    // Legacy file (backward compatibility)
     private val localFile = File(context.filesDir, "user_words.json")
+    
     private val localMap = mutableMapOf<String, Int>() // word → usageCount
+    private var currentLanguage = "en"
     
     // Rejection blacklist for autocorrect
     private val rejectionBlacklist = mutableSetOf<Pair<String, String>>()
@@ -30,44 +44,81 @@ class UserDictionaryManager(private val context: Context) {
     // Debounced save mechanism
     private var saveJob: Job? = null
     private val saveScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // Observer for user dictionary changes (for LanguageResources refresh)
+    private var changeObserver: (() -> Unit)? = null
 
     init {
+        // Detect current language
+        val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        currentLanguage = prefs.getString("flutter.keyboard_language", "en") ?: "en"
+        
         loadLocalCache()
         loadBlacklist()
     }
 
-    /** Load user words from local JSON file */
+    /** Load user words from local JSON file (language-specific) */
     private fun loadLocalCache() {
-        if (!localFile.exists()) return
-        try {
-            val json = JSONObject(localFile.readText())
-            json.keys().forEach { key ->
-                localMap[key] = json.getInt(key)
+        // Try language-specific file first
+        val langFile = File(userWordsDir, "$currentLanguage.json")
+        if (langFile.exists()) {
+            try {
+                val json = JSONObject(langFile.readText())
+                localMap.clear()
+                json.keys().forEach { key ->
+                    localMap[key] = json.getInt(key)
+                }
+                LogUtil.i(TAG, "✅ Loaded ${localMap.size} learned words for $currentLanguage")
+                return
+            } catch (e: Exception) {
+                LogUtil.w(TAG, "⚠️ Failed to load cache for $currentLanguage: ${e.message}")
             }
-            LogUtil.i(TAG, "✅ Loaded ${localMap.size} learned words from local cache.")
-        } catch (e: Exception) {
-            LogUtil.w(TAG, "⚠️ Failed to load local cache: ${e.message}")
+        }
+        
+        // Fall back to legacy file and migrate
+        if (localFile.exists()) {
+            try {
+                val json = JSONObject(localFile.readText())
+                localMap.clear()
+                json.keys().forEach { key ->
+                    localMap[key] = json.getInt(key)
+                }
+                LogUtil.i(TAG, "✅ Migrated ${localMap.size} words from legacy cache")
+                saveLocalCache() // Save to new format
+            } catch (e: Exception) {
+                LogUtil.w(TAG, "⚠️ Failed to load legacy cache: ${e.message}")
+            }
         }
     }
 
-    /** Save local cache to file */
+    /** Save local cache to file (language-specific) */
     private fun saveLocalCache() {
         try {
+            val langFile = File(userWordsDir, "$currentLanguage.json")
             val json = JSONObject(localMap as Map<*, *>)
-            localFile.writeText(json.toString())
-            // Enhanced single-line logging
-            LogUtil.d(TAG, "💾 Saved user dictionary (${localMap.size} entries)")
+            langFile.writeText(json.toString())
+            LogUtil.d(TAG, "💾 Saved user dictionary for $currentLanguage (${localMap.size} entries)")
         } catch (e: Exception) {
             LogUtil.e(TAG, "❌ Failed to save cache: ${e.message}")
         }
     }
 
+    /**
+     * Set observer for user dictionary changes (for LanguageResources refresh)
+     */
+    fun setChangeObserver(observer: () -> Unit) {
+        this.changeObserver = observer
+    }
+    
     /** Learn a new word (called from TypingSyncAudit or Autocorrect acceptance) */
     fun learnWord(word: String) {
         if (word.length < 2 || word.any { it.isDigit() }) return
         val count = localMap.getOrDefault(word, 0) + 1
         localMap[word] = count
         LogUtil.d(TAG, "✨ Learned '$word' (count=$count)")
+        
+        // Notify observer of changes (for LanguageResources refresh)
+        changeObserver?.invoke()
         
         // Debounced save: only save once after 2 seconds of inactivity
         saveJob?.cancel()
@@ -84,43 +135,219 @@ class UserDictionaryManager(private val context: Context) {
         LogUtil.d(TAG, "🔄 User dictionary flushed to disk")
     }
 
-    /** Push local dictionary to Firestore */
-    fun syncToCloud() {
+    // ==================== PHASE 2: MULTI-LANGUAGE CLOUD SYNC ====================
+    
+    /**
+     * Push local dictionary to Firestore (per language)
+     * @param language Language code (defaults to current language)
+     */
+    fun syncToCloud(language: String = currentLanguage) {
+        if (userId == "anonymous") {
+            LogUtil.w(TAG, "⚠️ Skipping cloud sync (user not logged in)")
+            return
+        }
+        
         val data = localMap.entries.map { mapOf("word" to it.key, "count" to it.value) }
         firestore.collection("users")
             .document(userId)
-            .collection("user_dictionary")
-            .document("words")
-            .set(mapOf("entries" to data))
+            .collection("dictionary")
+            .document(language)
+            .set(mapOf("entries" to data, "lastModified" to System.currentTimeMillis()))
             .addOnSuccessListener {
-                LogUtil.i(TAG, "☁️ Synced ${localMap.size} user words to Firestore.")
+                LogUtil.i(TAG, "☁️ Synced ${localMap.size} words to cloud for $language")
             }
             .addOnFailureListener {
-                LogUtil.w(TAG, "⚠️ Firestore sync failed: ${it.message}")
+                LogUtil.e(TAG, "❌ Failed cloud sync for $language: ${it.message}")
             }
     }
 
-    /** Pull from Firestore and merge */
-    fun syncFromCloud() {
+    /**
+     * Pull from Firestore and merge (per language)
+     * Merges frequencies without overwriting higher local counts
+     * @param language Language code (defaults to current language)
+     */
+    fun syncFromCloud(language: String = currentLanguage) {
+        if (userId == "anonymous") {
+            LogUtil.w(TAG, "⚠️ Skipping cloud pull (user not logged in)")
+            return
+        }
+        
         firestore.collection("users")
             .document(userId)
-            .collection("user_dictionary")
-            .document("words")
+            .collection("dictionary")
+            .document(language)
             .get()
             .addOnSuccessListener { doc ->
-                val entries = (doc.get("entries") as? List<Map<String, Any>>) ?: return@addOnSuccessListener
-                for (entry in entries) {
-                    val w = entry["word"] as? String ?: continue
-                    val c = (entry["count"] as? Long)?.toInt() ?: 1
-                    localMap[w] = (localMap[w] ?: 0) + c
+                if (!doc.exists()) {
+                    LogUtil.i(TAG, "No cloud dictionary found for $language")
+                    return@addOnSuccessListener
                 }
+                
+                val entries = (doc.get("entries") as? List<Map<String, Any>>) ?: return@addOnSuccessListener
+                var merged = 0
+                
+                for (e in entries) {
+                    val w = e["word"] as? String ?: continue
+                    val c = (e["count"] as? Long)?.toInt() ?: 1
+                    
+                    // Merge by summing frequencies (Phase 4: merge logic)
+                    val currentCount = localMap[w] ?: 0
+                    localMap[w] = currentCount + c
+                    merged++
+                }
+                
                 saveLocalCache()
-                LogUtil.i(TAG, "🔄 Merged ${entries.size} cloud words into local cache.")
+                LogUtil.i(TAG, "🔄 Merged $merged cloud words for $language")
             }
             .addOnFailureListener {
-                LogUtil.w(TAG, "⚠️ Firestore download failed: ${it.message}")
+                LogUtil.w(TAG, "⚠️ Failed to pull cloud dictionary for $language: ${it.message}")
             }
     }
+    
+    /**
+     * Sync custom shortcuts to Firebase (per language)
+     * Called from DictionaryManager integration
+     * @param shortcuts Map of shortcut -> expansion
+     * @param language Language code (defaults to current language)
+     */
+    fun syncShortcutsToCloud(shortcuts: Map<String, String>, language: String = currentLanguage) {
+        if (userId == "anonymous") {
+            Log.w(TAG, "Cannot sync shortcuts - user not authenticated")
+            return
+        }
+        
+        try {
+            val data = shortcuts.entries.map { 
+                mapOf("shortcut" to it.key, "expansion" to it.value) 
+            }
+            
+            firestore.collection("users")
+                .document(userId)
+                .collection("shortcuts")
+                .document(language)
+                .set(mapOf(
+                    "shortcuts" to data,
+                    "lastModified" to System.currentTimeMillis()
+                ))
+                .addOnSuccessListener {
+                    Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $language")
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "❌ Failed to sync shortcuts for $language", e)
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing shortcuts to cloud", e)
+        }
+    }
+    
+    /**
+     * Load custom shortcuts from Firebase (per language)
+     * Returns map of shortcut -> expansion
+     * @param language Language code (defaults to current language)
+     */
+    fun loadShortcutsFromCloud(language: String = currentLanguage, callback: (Map<String, String>) -> Unit) {
+        if (userId == "anonymous") {
+            Log.w(TAG, "Cannot load shortcuts - user not authenticated")
+            callback(emptyMap())
+            return
+        }
+        
+        try {
+            firestore.collection("users")
+                .document(userId)
+                .collection("shortcuts")
+                .document(language)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        val shortcuts = mutableMapOf<String, String>()
+                        @Suppress("UNCHECKED_CAST")
+                        val data = document.get("shortcuts") as? List<Map<String, String>>
+                        data?.forEach { entry ->
+                            val shortcut = entry["shortcut"]
+                            val expansion = entry["expansion"]
+                            if (shortcut != null && expansion != null) {
+                                shortcuts[shortcut] = expansion
+                            }
+                        }
+                        Log.d(TAG, "✅ Loaded ${shortcuts.size} shortcuts from cloud for $language")
+                        callback(shortcuts)
+                    } else {
+                        Log.d(TAG, "No shortcuts found in cloud for $language")
+                        callback(emptyMap())
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "❌ Failed to load shortcuts for $language", e)
+                    callback(emptyMap())
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading shortcuts from cloud", e)
+            callback(emptyMap())
+        }
+    }
+    
+    /**
+     * Switch to a different language
+     * Saves current language and loads new language data
+     */
+    fun switchLanguage(newLang: String) {
+        if (newLang == currentLanguage) return
+        
+        // Save current language
+        saveLocalCache()
+        
+        // Switch language
+        currentLanguage = newLang
+        
+        // Load new language cache
+        loadLocalCache()
+        
+        LogUtil.i(TAG, "🌐 Switched to language: $newLang")
+    }
+    
+    /**
+     * Phase 4: Merge cloud words with local dictionary
+     * Called by DictionaryManager after cloud sync
+     * @param words Map of word -> frequency count
+     * @param onComplete Callback when merge is complete
+     */
+    fun mergeCloudWords(words: Map<String, Int>, onComplete: ((Int) -> Unit)? = null) {
+        var mergedCount = 0
+        
+        words.forEach { (word, count) ->
+            val currentCount = localMap[word] ?: 0
+            // Sum frequencies from both sources
+            localMap[word] = currentCount + count
+            mergedCount++
+        }
+        
+        if (mergedCount > 0) {
+            saveLocalCache()
+            LogUtil.i(TAG, "✅ Merged $mergedCount cloud words into local dictionary for $currentLanguage")
+        }
+        
+        onComplete?.invoke(mergedCount)
+    }
+    
+    /**
+     * Get list of available language dictionaries
+     */
+    fun getAvailableLanguages(): List<String> {
+        return try {
+            userWordsDir.listFiles()?.map { it.nameWithoutExtension } ?: emptyList()
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error listing languages: ${e.message}")
+            emptyList()
+        }
+    }
+    
+    /**
+     * Get current language
+     */
+    fun getCurrentLanguage(): String = currentLanguage
+    
+    // ==================== END PHASE 2 ====================
 
     /** Get top learned words for suggestion ranking */
     fun getTopWords(limit: Int = 50): List<String> =

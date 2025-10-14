@@ -37,11 +37,6 @@ class AIServiceBridge private constructor() {
         }
     }
     
-    // Enhanced AI engines
-    private var wordDatabase: WordDatabase? = null
-    private var autocorrectEngine: AutocorrectEngine? = null
-    private var predictiveEngine: PredictiveTextEngine? = null
-    
     // Callback interface for AI results
     interface AICallback {
         fun onSuggestionsReady(suggestions: List<AISuggestion>)
@@ -62,28 +57,15 @@ class AIServiceBridge private constructor() {
     private var methodChannel: MethodChannel? = null
     private var context: Context? = null
     private var isInitialized = false
-    private var isEnhancedMode = true // Use enhanced engines by default
     
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     /**
-     * Initialize the enhanced AI engines
+     * Initialize the enhanced AI engines (deprecated - now using UnifiedAutocorrectEngine)
      */
     private fun initializeEngines(context: Context) {
-        try {
-            wordDatabase = WordDatabase.getInstance(context)
-            autocorrectEngine = AutocorrectEngine.getInstance(context)
-            predictiveEngine = PredictiveTextEngine.getInstance(context)
-            
-            // Initialize database with word data
-            coroutineScope.launch {
-                wordDatabase?.populateInitialData(context)
-                Log.d(TAG, "Enhanced AI engines initialized successfully")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error initializing enhanced AI engines", e)
-            isEnhancedMode = false // Fall back to basic mode
-        }
+        // Legacy initialization removed - now using UnifiedAutocorrectEngine in AIKeyboardService
+        Log.d(TAG, "AIServiceBridge initialized (using built-in fallback logic only)")
     }
     
     // HTTP client for AI API calls
@@ -133,31 +115,18 @@ class AIServiceBridge private constructor() {
         
         coroutineScope.launch {
             try {
-                val suggestions = if (isEnhancedMode && autocorrectEngine != null && predictiveEngine != null) {
-                    generateEnhancedSuggestions(currentWord, context)
-                } else {
-                    generateBuiltInSuggestions(currentWord, context)
-                }
+                // Use built-in suggestions (UnifiedAutocorrectEngine handles the real work)
+                val suggestions = generateBuiltInSuggestions(currentWord, context)
                 
                 withContext(Dispatchers.Main) {
                     callback.onSuggestionsReady(suggestions)
                 }
                 
-                // Handle autocorrect with new API
-                if (isEnhancedMode && autocorrectEngine != null) {
-                    val result = autocorrectEngine!!.processBoundary(currentWord)
-                    if (result.shouldAutoCorrect && result.topCorrection != null) {
-                        withContext(Dispatchers.Main) {
-                            callback.onCorrectionReady(currentWord, result.topCorrection!!, 0.9)
-                        }
-                    }
-                } else {
-                    // Fallback to built-in correction
-                    val correction = getBuiltInCorrection(currentWord)
-                    if (correction != null && correction != currentWord) {
-                        withContext(Dispatchers.Main) {
-                            callback.onCorrectionReady(currentWord, correction, 0.9)
-                        }
+                // Check for built-in corrections
+                val correction = getBuiltInCorrection(currentWord)
+                if (correction != null && correction != currentWord) {
+                    withContext(Dispatchers.Main) {
+                        callback.onCorrectionReady(currentWord, correction, 0.9)
                     }
                 }
                 
@@ -218,66 +187,6 @@ class AIServiceBridge private constructor() {
         suggestions
     }
     
-    /**
-     * Generate enhanced suggestions using the new AI engines
-     */
-    private suspend fun generateEnhancedSuggestions(currentWord: String, context: List<String>): List<AISuggestion> = withContext(Dispatchers.Default) {
-        val suggestions = mutableListOf<AISuggestion>()
-        
-        try {
-            // Get predictive suggestions
-            val predictions = predictiveEngine?.getPredictions(
-                currentWord = currentWord,
-                previousWords = context,
-                includeCompletions = currentWord.isNotEmpty(),
-                includeNextWords = true
-            ) ?: emptyList()
-            
-            // Convert to AISuggestion format
-            predictions.take(5).forEach { prediction ->
-                suggestions.add(AISuggestion(
-                    word = prediction.word,
-                    confidence = (prediction.score * 0.8).coerceIn(0.0, 1.0), // Scale confidence
-                    source = "enhanced_${prediction.type.name.lowercase()}",
-                    isCorrection = prediction.type == PredictionType.USER // Mark user-learned words as corrections
-                ))
-            }
-            
-            // Get autocorrect suggestions using new API
-            if (currentWord.isNotEmpty() && autocorrectEngine != null) {
-                val candidates = autocorrectEngine!!.getCandidates(currentWord)
-                val corrections = candidates.drop(1).map { candidate ->
-                    AutocorrectSuggestion(
-                        word = candidate.word,
-                        confidence = candidate.confidence,
-                        editDistance = candidate.editDistance,
-                        type = CorrectionType.EDIT_DISTANCE
-                    )
-                }
-                
-                corrections.take(2).forEach { correction ->
-                    if (!suggestions.any { it.word == correction.word }) {
-                        suggestions.add(AISuggestion(
-                            word = correction.word,
-                            confidence = correction.confidence,
-                            source = "enhanced_autocorrect",
-                            isCorrection = true
-                        ))
-                    }
-                }
-            }
-            
-            // Sort by confidence
-            suggestions.sortByDescending { it.confidence }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in enhanced suggestions", e)
-            // Fallback to built-in suggestions
-            return@withContext generateBuiltInSuggestions(currentWord, context)
-        }
-        
-        suggestions.take(5)
-    }
     
     /**
      * Get autocorrect suggestion for a specific word using built-in logic

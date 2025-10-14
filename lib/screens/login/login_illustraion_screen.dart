@@ -1,5 +1,6 @@
 import 'package:ai_keyboard/screens/login/mobile_login_screen.dart';
 import 'package:ai_keyboard/screens/login/success_screen.dart';
+import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/orange_button.dart';
@@ -16,7 +17,12 @@ void onTapContinueWithMobile(BuildContext context) {
 
 // This function will be moved inside the StatefulWidget class
 
-void onTapDoItLater(BuildContext context) {}
+void onTapDoItLater(BuildContext context) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => const KeyboardSetupScreen()),
+  );
+}
 
 class LoginIllustraionScreen extends StatefulWidget {
   const LoginIllustraionScreen({super.key});

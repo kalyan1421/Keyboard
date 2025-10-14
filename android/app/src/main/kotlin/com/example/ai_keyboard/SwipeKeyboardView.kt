@@ -3,10 +3,18 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.ColorDrawable
 import android.inputmethodservice.Keyboard
 import android.inputmethodservice.KeyboardView
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.PopupWindow
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -39,7 +47,12 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     interface SwipeListener {
-        fun onSwipeDetected(swipedKeys: List<Int>, swipePattern: String, keySequence: List<Int> = swipedKeys)
+        fun onSwipeDetected(
+            swipedKeys: List<Int>, 
+            swipePattern: String, 
+            keySequence: List<Int> = swipedKeys,
+            swipePath: List<Pair<Float, Float>> = emptyList() // NEW: actual finger coordinates
+        )
         fun onSwipeStarted()
         fun onSwipeEnded()
     }
@@ -129,6 +142,13 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var currentLayoutModel: LanguageLayoutAdapter.LayoutModel? = null
     private var currentNumberRowEnabled = false
     
+    // Dynamic layout long-press handling
+    private var dynamicLongPressKey: DynamicKey? = null
+    private var dynamicLongPressHandler: Handler = Handler(Looper.getMainLooper())
+    private var dynamicLongPressRunnable: Runnable? = null
+    private val DYNAMIC_LONG_PRESS_TIMEOUT = 500L
+    private var dynamicAccentPopup: PopupWindow? = null
+    
     // ✅ FIXED: Track current keyboard mode for proper key code mapping
     var currentKeyboardMode: LanguageLayoutAdapter.KeyboardMode = LanguageLayoutAdapter.KeyboardMode.LETTERS
     var currentLangCode: String = "en"
@@ -194,8 +214,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var showLanguageOnSpace = true
     private var currentLanguageLabel = "English"
     private var previewEnabled = true
-    private var keySpacingVerticalDp = 5
-    private var keySpacingHorizontalDp = 2
+    private var keySpacingVerticalDp = 0  // Zero spacing to eliminate gaps
+    private var keySpacingHorizontalDp = 0  // Zero spacing to eliminate gaps
     private var soundEnabled = true
     private var soundIntensityLevel = 1
     private var hapticIntensityLevel = 2
@@ -443,16 +463,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
     
     
     
-    /**
-     * Adjust color brightness for visual hierarchy
-     */
-    private fun adjustColorBrightness(color: Int, factor: Float): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        hsv[2] = (hsv[2] * factor).coerceIn(0f, 1f)
-        return Color.HSVToColor(hsv)
-    }
-    
     override fun onDraw(canvas: Canvas) {
         if (isClipboardMode) {
             drawClipboardLayout(canvas)
@@ -648,12 +658,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     private fun drawThemedKey(canvas: Canvas, key: Keyboard.Key) {
-        val manager = themeManager
-        if (manager == null) {
-            // Fallback to basic key drawing
-            drawBasicKey(canvas, key)
-            return
-        }
+        val manager = themeManager ?: return // Theme manager required for dynamic layout
         
         val palette = manager.getCurrentPalette()
         
@@ -805,39 +810,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 }
             }
     
-    /**
-     * Fallback key drawing when no theme manager available
-     */
-    private fun drawBasicKey(canvas: Canvas, key: Keyboard.Key) {
-        val keyRect = RectF(
-            key.x.toFloat(), key.y.toFloat(),
-            (key.x + key.width).toFloat(), (key.y + key.height).toFloat()
-        )
-        
-        val fillPaint = Paint().apply {
-                    isAntiAlias = true
-                    style = Paint.Style.FILL
-                    color = Color.WHITE // Intentional: Fallback white for swipe dots visibility
-                }
-        
-        val textPaint = Paint().apply {
-                    isAntiAlias = true
-            textAlign = Paint.Align.CENTER
-            textSize = 18f * context.resources.displayMetrics.scaledDensity
-            color = Color.BLACK // Intentional: Fallback default for debugging text
-        }
-        
-        canvas.drawRoundRect(keyRect, 8f, 8f, fillPaint)
-        
-        if (key.label != null) {
-            val centerX = keyRect.centerX()
-            val centerY = keyRect.centerY()
-            val textHeight = textPaint.descent() - textPaint.ascent()
-            val textOffset = (textHeight / 2) - textPaint.descent()
-            canvas.drawText(key.label.toString(), centerX, centerY + textOffset, textPaint)
-        }
-    }
-    
     override fun onTouchEvent(me: MotionEvent): Boolean {
         // Handle clipboard mode first
         if (isClipboardMode) {
@@ -894,8 +866,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
      * This ensures the correct key codes are sent for the current mode
      */
     private fun handleDynamicLayoutTouch(event: MotionEvent): Boolean {
+        // 🔧 FIX: Handle swipe gestures first if swipe typing is enabled
+        if (swipeEnabled) {
+            val swipeHandled = handleSwipeTouch(event)
+            if (swipeHandled) return true
+        }
+        
+        // Handle taps for dynamic keys
         when (event.action) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_DOWN -> {
                 val x = event.x.toInt()
                 val y = event.y.toInt()
                 
@@ -905,15 +884,65 @@ class SwipeKeyboardView @JvmOverloads constructor(
                     y >= key.y && y < (key.y + key.height)
                 }
                 
-                if (tappedKey != null && event.action == MotionEvent.ACTION_UP) {
-                    // Send the key code from the dynamic key
-                    (context as? AIKeyboardService)?.onKey(tappedKey.code, intArrayOf(tappedKey.code))
-                    android.util.Log.d("SwipeKeyboardView", 
-                        "✅ Dynamic key tapped: ${tappedKey.label} | Code: ${tappedKey.code} | Mode: $currentKeyboardMode")
-                    return true
+                if (tappedKey != null) {
+                    // Check if this key has long-press variants
+                    if (!tappedKey.longPressOptions.isNullOrEmpty()) {
+                        dynamicLongPressKey = tappedKey
+                        dynamicLongPressRunnable = Runnable {
+                            showDynamicAccentOptions(tappedKey)
+                        }
+                        dynamicLongPressHandler.postDelayed(dynamicLongPressRunnable!!, DYNAMIC_LONG_PRESS_TIMEOUT)
+                    }
+                    
+                    // Provide haptic and visual feedback
+                    (context as? AIKeyboardService)?.onPress(tappedKey.code)
                 }
                 return true
             }
+            
+            MotionEvent.ACTION_UP -> {
+                val x = event.x.toInt()
+                val y = event.y.toInt()
+                
+                // Find which dynamic key was tapped
+                val tappedKey = dynamicKeys.firstOrNull { key ->
+                    x >= key.x && x < (key.x + key.width) &&
+                    y >= key.y && y < (key.y + key.height)
+                }
+                
+                // Clean up long-press detection
+                dynamicLongPressRunnable?.let { runnable ->
+                    dynamicLongPressHandler.removeCallbacks(runnable)
+                    dynamicLongPressRunnable = null
+                }
+                
+                if (tappedKey != null) {
+                    // Only send key if we're not showing long-press options
+                    if (dynamicLongPressKey == null || !isDynamicAccentPopupShowing()) {
+                        // Send the key code from the dynamic key
+                        (context as? AIKeyboardService)?.onKey(tappedKey.code, intArrayOf(tappedKey.code))
+                        android.util.Log.d("SwipeKeyboardView", 
+                            "✅ Dynamic key tapped: ${tappedKey.label} | Code: ${tappedKey.code} | Mode: $currentKeyboardMode")
+                    }
+                    
+                    // Provide release feedback
+                    (context as? AIKeyboardService)?.onRelease(tappedKey.code)
+                }
+                
+                dynamicLongPressKey = null
+                return true
+            }
+            
+            MotionEvent.ACTION_CANCEL -> {
+                // Clean up on cancel
+                dynamicLongPressRunnable?.let { runnable ->
+                    dynamicLongPressHandler.removeCallbacks(runnable)
+                    dynamicLongPressRunnable = null
+                }
+                dynamicLongPressKey = null
+                return true
+            }
+            
             else -> return false
         }
     }
@@ -1160,7 +1189,18 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Also provide unique keys for backward compatibility
         swipedKeys.addAll(keySequence.distinct())
         
-        swipeListener?.onSwipeDetected(swipedKeys, swipePattern, keySequence)
+        // DIAGNOSTIC: Log view bounds for coordinate analysis
+        android.util.Log.d("SwipeKeyboardView", "📐 bounds w=${width} h=${height} points=${swipePoints.size}")
+        
+        // Convert swipePoints to normalized coordinates before passing to listener
+        val normalizedPath = swipePoints.map { point ->
+            val normalizedX = point[0] / width.toFloat()
+            val normalizedY = point[1] / height.toFloat()
+            android.util.Log.v("SwipeKeyboardView", "📍 raw(${point[0]},${point[1]}) → norm($normalizedX,$normalizedY)")
+            Pair(normalizedX, normalizedY)
+        }
+        
+        swipeListener?.onSwipeDetected(swipedKeys, swipePattern, keySequence, normalizedPath)
     }
     
     /**
@@ -1234,7 +1274,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private fun setupInsetHandling() {
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
             // Don't apply any padding - this causes white space at bottom
-            // The keyboard service and UniversalKeyboardHost handle positioning
+            // The keyboard service handles positioning
             
             android.util.Log.d(
                 "SwipeKeyboardView",
@@ -1335,9 +1375,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         val screenWidth = width
         val screenHeight = height
-        val padding = 8f * context.resources.displayMetrics.density
-        val keyVerticalSpacing = keySpacingVerticalDp * context.resources.displayMetrics.density
-        val keyHorizontalSpacing = keySpacingHorizontalDp * context.resources.displayMetrics.density
+        val padding = 0f  // Zero padding to eliminate all space
+        // Zero spacing to completely eliminate gaps
+        val keyVerticalSpacing = 0f  // No vertical spacing between rows
+        val keyHorizontalSpacing = 0f  // No horizontal spacing between keys
         
         // Build rows list - number row is already included in layout.rows if enabled
         val allRows = mutableListOf<List<LanguageLayoutAdapter.KeyModel>>()
@@ -1348,10 +1389,14 @@ class SwipeKeyboardView @JvmOverloads constructor(
             android.util.Log.d("SwipeKeyboardView", "✅ Number row included in layout (${layout.numberRow.size} keys)")
         }
         
-        // Calculate key dimensions
+        // Calculate key dimensions - FILL AVAILABLE HEIGHT
         val numRows = allRows.size
+        // Calculate key height to fill the entire available screen height
         val availableHeight = screenHeight - (padding * 2)
-        val keyHeight = ((availableHeight - (keyVerticalSpacing * (numRows - 1))) / numRows).toInt()
+        val totalVerticalSpacing = keyVerticalSpacing * (numRows - 1)
+        val keyHeight = ((availableHeight - totalVerticalSpacing) / numRows).toInt()
+        
+        android.util.Log.d("SwipeKeyboardView", "📐 Layout calc: screenH=$screenHeight, rows=$numRows, keyH=$keyHeight, spacing=$keyVerticalSpacing")
         
         var currentY = padding.toInt()
         
@@ -1424,6 +1469,129 @@ class SwipeKeyboardView @JvmOverloads constructor(
     }
     
     /**
+     * Show accent options popup for dynamic key long-press
+     */
+    private fun showDynamicAccentOptions(key: DynamicKey) {
+        val longPressOptions = key.longPressOptions ?: return
+        if (longPressOptions.isEmpty()) return
+        
+        try {
+            // Hide any existing popups first
+            hideDynamicAccentOptions()
+            
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setBackgroundColor(themeManager?.getKeyColor() ?: Color.WHITE)
+                setPadding(8, 8, 8, 8)
+            }
+            
+            // Add original character first
+            addDynamicAccentOption(container, key.label)
+            
+            // Add long-press variants
+            longPressOptions.forEach { variant ->
+                addDynamicAccentOption(container, variant)
+            }
+            
+            dynamicAccentPopup = PopupWindow(
+                container,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setBackgroundDrawable(ColorDrawable(
+                    themeManager?.getKeyColor() ?: Color.WHITE
+                ))
+                
+                isFocusable = false
+                isOutsideTouchable = true
+                isTouchable = true
+                inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
+                elevation = 8f
+                
+                setOnDismissListener {
+                    try {
+                        dynamicLongPressKey = null
+                        dynamicLongPressRunnable?.let { runnable: Runnable ->
+                            dynamicLongPressHandler.removeCallbacks(runnable)
+                        }
+                        dynamicLongPressRunnable = null
+                    } catch (e: Exception) {
+                        // Ignore cleanup errors
+                    }
+                }
+            }
+            
+            // Measure the popup to get its dimensions
+            container.measure(
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val popupWidth = container.measuredWidth
+            val popupHeight = container.measuredHeight
+            
+            // Calculate position: center horizontally above the pressed key
+            val location = IntArray(2)
+            this.getLocationInWindow(location)
+            
+            val popupX = location[0] + key.x + (key.width / 2) - (popupWidth / 2)
+            val popupY = location[1] + key.y - popupHeight - 10 // 10px above the key
+            
+            // Show popup above the pressed key
+            try {
+                dynamicAccentPopup?.showAtLocation(this, Gravity.NO_GRAVITY, popupX, popupY)
+            } catch (e: Exception) {
+                // Fallback positioning
+                dynamicAccentPopup?.showAtLocation(this, Gravity.CENTER_HORIZONTAL or Gravity.TOP, 0, 150)
+            }
+            
+        } catch (e: Exception) {
+            // Ignore accent popup errors and clean up
+            hideDynamicAccentOptions()
+        }
+    }
+    
+    /**
+     * Add accent option to container for dynamic keys
+     */
+    private fun addDynamicAccentOption(container: LinearLayout, accent: String) {
+        val button = Button(context).apply {
+            text = accent
+            textSize = 18f
+            setPadding(16, 8, 16, 8)
+            background = null
+            setTextColor(themeManager?.getTextColor() ?: Color.BLACK)
+            
+            setOnClickListener {
+                // Send the selected accent character
+                val accentCode = accent.codePointAt(0)
+                (context as? AIKeyboardService)?.onKey(accentCode, intArrayOf(accentCode))
+                hideDynamicAccentOptions()
+                android.util.Log.d("SwipeKeyboardView", "✅ Dynamic accent selected: $accent | Code: $accentCode")
+            }
+        }
+        container.addView(button)
+    }
+    
+    /**
+     * Check if dynamic accent popup is showing
+     */
+    private fun isDynamicAccentPopupShowing(): Boolean {
+        return dynamicAccentPopup?.isShowing == true
+    }
+    
+    /**
+     * Hide dynamic accent options popup
+     */
+    private fun hideDynamicAccentOptions() {
+        try {
+            dynamicAccentPopup?.dismiss()
+            dynamicAccentPopup = null
+        } catch (e: Exception) {
+            // Ignore dismissal errors
+        }
+    }
+
+    /**
      * ✅ FIXED: Set keyboard mode and rebuild layout with correct key codes
      * This ensures symbol mode sends correct key codes, not letter codes
      * 
@@ -1471,19 +1639,24 @@ class SwipeKeyboardView @JvmOverloads constructor(
      */
     private fun getKeyWidthFactor(label: String): Float {
         return when {
-            // Space bar - extra wide
-            label == "SPACE" || label.startsWith("space") -> 4.0f
+            // Space bar - extra wide (BIGGER) - check for actual space character
+            label == " " || label == "SPACE" || label.startsWith("space") -> 5.5f
             
-            // Return/Enter key - wider
-            label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
+            // Return/Enter key - wider (BIGGER) - check for return symbol
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 2f
             
-            // Mode switches - slightly wider
-            label == "?123" || label == "ABC" || label == "=<" || label == "1234" -> 1.3f
+            // Mode switches - smaller
+            label == "?123" || label == "ABC" || label == "=<" || label == "1234" -> 1.0f
+            
+            // Globe key - smaller - check for globe emoji
+            label == "🌐" || label == "GLOBE" -> 1f
+            
+            // Comma and period - smaller
+            label == "," || label == "." -> 1f
             
             // Special function keys - moderately wider
-            label == "SHIFT" || label == "⇧" ||
-            label == "DELETE" || label == "⌫" ||
-            label == "GLOBE" || label == "🌐" -> 1.2f
+            label == "⇧" || label == "SHIFT" -> 2f
+            label == "⌫" || label == "DELETE" -> 2f
             
             // Standard keys
             else -> 1.0f

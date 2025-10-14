@@ -1,7 +1,8 @@
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
-import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
+import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'dart:math';
 
 class AnimatedOnboardingScreen extends StatefulWidget {
@@ -108,16 +109,16 @@ class _AnimatedOnboardingScreenState extends State<AnimatedOnboardingScreen>
         _transitionController.reset();
       });
     } else {
-      // Navigate to main screen
+      // Navigate to login screen after onboarding
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const mainscreen()),
+        MaterialPageRoute(builder: (context) => const LoginIllustraionScreen()),
       );
     }
   }
 
   void _skipToEnd() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const mainscreen()),
+      MaterialPageRoute(builder: (context) => const LoginIllustraionScreen()),
     );
   }
 
@@ -140,7 +141,7 @@ class _AnimatedOnboardingScreenState extends State<AnimatedOnboardingScreen>
                   clipBehavior: Clip.none,
                   width: screenWidth,
                   height: screenWidth,
-                  decoration: BoxDecoration(
+                  decoration: _currentPage == 0 ? null : BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       // radius: 0.5,
@@ -175,6 +176,23 @@ class _AnimatedOnboardingScreenState extends State<AnimatedOnboardingScreen>
   }
 
   Widget _buildAnimatedIllustration({required double screenWidth}) {
+    // For the first screen, use Lottie animation
+    if (_currentPage == 0) {
+      return Center(
+        child: SizedBox(
+          width: screenWidth * 0.8,
+          height: screenWidth * 0.8,
+          child: Lottie.asset(
+            'assets/onboarding/Scene-1.json',
+            fit: BoxFit.contain,
+            repeat: true,
+            animate: true,
+          ),
+        ),
+      );
+    }
+    
+    // For other screens, use existing animated illustration
     return Center(
       child: SizedBox(
         width: screenWidth * 0.8,

@@ -11,23 +11,25 @@ import android.util.Log
 object KeyboardHeights {
     private const val TAG = "KeyboardHeights"
     
-    // Base keyboard height ratios
-    private const val PORTRAIT_HEIGHT_RATIO = 0.30f  // 35% of screen height in portrait
-    private const val LANDSCAPE_HEIGHT_RATIO = 0.5f  // 50% of screen height in landscape
+    // Base keyboard height ratios - MINIMIZED to eliminate bottom space
+    private const val PORTRAIT_HEIGHT_RATIO = 0.24f  // 24% of screen height in portrait (reduced from 27%)
+    private const val LANDSCAPE_HEIGHT_RATIO = 0.42f // 42% of screen height in landscape (reduced from 45%)
     
-    // Height constraints in dp
-    private const val MIN_KEYBOARD_HEIGHT_DP = 320
-    private const val MAX_KEYBOARD_HEIGHT_DP = 380
+    // Height constraints in dp - MINIMIZED to fit keys exactly
+    private const val MIN_KEYBOARD_HEIGHT_DP = 260  // Reduced from 280
+    private const val MAX_KEYBOARD_HEIGHT_DP = 310  // Reduced from 340
     
     // Component heights in dp
-    private const val TOOLBAR_HEIGHT_DP = 64
+    private const val TOOLBAR_HEIGHT_DP = 72  // Increased from 64 for better visibility
     private const val SUGGESTIONS_HEIGHT_DP = 44
+    private const val NUMBER_ROW_HEIGHT_DP = 72  // Additional height for number row (increased from 60)
     
     /**
      * Calculates the base keyboard height in pixels
      * This is the height of just the keyboard keys, without toolbar or suggestions
+     * @param withNumberRow If true, adds extra height for the number row
      */
-    fun baseHeightPx(context: Context): Int {
+    fun baseHeightPx(context: Context, withNumberRow: Boolean = false): Int {
         val metrics = context.resources.displayMetrics
         val screenHeight = metrics.heightPixels
         
@@ -46,9 +48,13 @@ object KeyboardHeights {
         val maxHeightPx = (MAX_KEYBOARD_HEIGHT_DP * metrics.density).toInt()
         
         // Clamp to min/max bounds
-        val finalHeight = calculatedHeight.coerceIn(minHeightPx, maxHeightPx)
+        var finalHeight = calculatedHeight.coerceIn(minHeightPx, maxHeightPx)
         
-        Log.d(TAG, "Base height: ${finalHeight}px (screen: ${screenHeight}px, ratio: $ratio)")
+        // Add number row height if enabled (grows upward)
+        if (withNumberRow) {
+            val numberRowHeightPx = (NUMBER_ROW_HEIGHT_DP * metrics.density).toInt()
+            finalHeight += numberRowHeightPx
+        }
         
         return finalHeight
     }
@@ -69,13 +75,15 @@ object KeyboardHeights {
     
     /**
      * Calculates total keyboard height including optional components
+     * @param withNumberRow If true, increases height for number row (grows upward)
      */
     fun totalHeight(
         context: Context,
         includeToolbar: Boolean = true,
-        includeSuggestions: Boolean = true
+        includeSuggestions: Boolean = true,
+        withNumberRow: Boolean = false
     ): Int {
-        var height = baseHeightPx(context)
+        var height = baseHeightPx(context, withNumberRow)
         
         if (includeToolbar) {
             height += toolbarPx(context)
@@ -85,7 +93,6 @@ object KeyboardHeights {
             height += suggestionsPx(context)
         }
         
-        Log.d(TAG, "Total height: ${height}px (toolbar: $includeToolbar, suggestions: $includeSuggestions)")
         
         return height
     }
@@ -93,19 +100,22 @@ object KeyboardHeights {
 
 /**
  * Extension function for easy access to total keyboard height
+ * @param withNumberRow If true, adds extra height for number row (grows upward)
  */
 fun Context.totalKeyboardHeightPx(
     withToolbar: Boolean = true,
-    withSuggestions: Boolean = true
+    withSuggestions: Boolean = true,
+    withNumberRow: Boolean = false
 ): Int {
-    return KeyboardHeights.totalHeight(this, withToolbar, withSuggestions)
+    return KeyboardHeights.totalHeight(this, withToolbar, withSuggestions, withNumberRow)
 }
 
 /**
  * Extension function to get just the base keyboard height
+ * @param withNumberRow If true, adds extra height for number row
  */
-fun Context.baseKeyboardHeightPx(): Int {
-    return KeyboardHeights.baseHeightPx(this)
+fun Context.baseKeyboardHeightPx(withNumberRow: Boolean = false): Int {
+    return KeyboardHeights.baseHeightPx(this, withNumberRow)
 }
 
 /**

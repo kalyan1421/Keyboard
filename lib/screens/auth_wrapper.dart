@@ -10,6 +10,7 @@ import 'package:ai_keyboard/screens/login/mobile_login_screen.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
+import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -135,11 +136,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
       );
     }
 
-    // If it's first launch, show welcome screen
-    if (_isFirstLaunch!) {
-      print('🔵 [AuthWrapper] Showing welcome screen for first launch');
-      return const LoginIllustraionScreen();
-    }
+  // If it's first launch, show onboarding screen first
+  if (_isFirstLaunch!) {
+    print('🔵 [AuthWrapper] Showing onboarding screen for first launch');
+    return const AnimatedOnboardingScreen();
+  }
 
     // For subsequent launches, check authentication status
     return StreamBuilder<User?>(

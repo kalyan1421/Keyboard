@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import com.example.ai_keyboard.managers.BaseManager
+import com.google.firebase.firestore.FirebaseFirestore
 
 /**
  * Manages language switching, preferences, and app-specific language settings
@@ -32,11 +33,11 @@ class LanguageManager(context: Context) : BaseManager(context) {
     
     init {
         loadPreferences()
-        // Enable multiple languages by default for testing
-        if (enabledLanguages.size == 1 && enabledLanguages.contains("en")) {
-            enabledLanguages.addAll(setOf("es", "fr", "de", "hi"))
+        // Default fallback: only English
+        if (enabledLanguages.isEmpty()) {
+            enabledLanguages.add("en")
             saveEnabledLanguages()
-            logW("Enabled multiple languages by default: $enabledLanguages")
+            logW("✅ Default language set: English")
         }
     }
     
@@ -165,12 +166,27 @@ class LanguageManager(context: Context) : BaseManager(context) {
     
     /**
      * Add a language to enabled languages
+     * If language is not yet supported, attempts to fetch from Firebase
      */
     fun enableLanguage(languageCode: String) {
-        if (isLanguageSupported(languageCode) && !enabledLanguages.contains(languageCode)) {
-            enabledLanguages.add(languageCode)
+        if (!isLanguageSupported(languageCode)) {
+            logW("⚠️ Language $languageCode not supported (offline mode - no remote fetch)")
+            return
+        }
+        addAndLoadLanguage(languageCode)
+    }
+    
+    /**
+     * Internal helper to add and load a language
+     */
+    private fun addAndLoadLanguage(code: String) {
+        if (!enabledLanguages.contains(code)) {
+            enabledLanguages.add(code)
             saveEnabledLanguages()
-            logW("Enabled language: $languageCode")
+            logW("✅ Enabled language: $code")
+            
+            // Dictionary will be loaded lazily when language is activated
+            // No need to preload immediately - on-demand loading is more efficient
         }
     }
     
@@ -205,34 +221,6 @@ class LanguageManager(context: Context) : BaseManager(context) {
         return enabledLanguages.contains(languageCode)
     }
     
-    /**
-     * Set app-specific language preference
-     */
-    fun setAppLanguage(packageName: String, languageCode: String) {
-        if (isLanguageSupported(languageCode) && isLanguageEnabled(languageCode)) {
-            prefs.edit()
-                .putString(KEY_APP_PREFIX + packageName, languageCode)
-                .apply()
-            logW("Set app language for $packageName: $languageCode")
-        }
-    }
-    
-    /**
-     * Get app-specific language preference
-     */
-    fun getAppLanguage(packageName: String): String? {
-        return prefs.getString(KEY_APP_PREFIX + packageName, null)
-    }
-    
-    /**
-     * Remove app-specific language preference
-     */
-    fun removeAppLanguage(packageName: String) {
-        prefs.edit()
-            .remove(KEY_APP_PREFIX + packageName)
-            .apply()
-        logW("Removed app language for $packageName")
-    }
     
     /**
      * Set auto-switch enabled

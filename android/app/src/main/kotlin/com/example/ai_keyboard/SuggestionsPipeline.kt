@@ -6,18 +6,20 @@ import com.example.ai_keyboard.utils.LogUtil
 import kotlinx.coroutines.*
 
 /**
- * SuggestionsPipeline: Unified suggestion generation combining:
- * - Dictionary/N-gram (fast, offline)
- * - AI predictions (when available)
- * - Emoji mapper
- * - Clipboard suggestions (time-gated)
+ * SuggestionsPipeline: Unified suggestion facade around UnifiedAutocorrectEngine
+ * Refactored to be a facade that routes all requests through UnifiedAutocorrectEngine
  * 
- * Implements Gboard + CleverType suggestion features
+ * Features:
+ * - Routes empty current token → nextWord(context)
+ * - Routes partial token → suggestForTyping(prefix, context)
+ * - Routes swipe → Unified via Swipe adapter
+ * - Never touches files or other managers directly
+ * - Maintains backward compatibility
  */
 class SuggestionsPipeline(
     private val context: Context,
-    private val dictionaryManager: DictionaryManager,
-    private val clipboardManager: ClipboardHistoryManager
+    private val clipboardManager: ClipboardHistoryManager,
+    private val unifiedAutocorrectEngine: UnifiedAutocorrectEngine? = null
 ) {
     companion object {
         private const val TAG = "SuggestionsPipeline"
@@ -33,23 +35,16 @@ class SuggestionsPipeline(
     
     private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
-    // AI service (optional, may be null if not available)
-    private var advancedAIService: AdvancedAIService? = null
+    // STRIPPED: All direct dictionary dependencies removed
     
-    // Predictive text engine for next-word prediction
-    private var predictiveEngine: PredictiveTextEngine? = null
+    // Optional AI service (kept for additional features if needed)
+    private var advancedAIService: AdvancedAIService? = null
     
     init {
         try {
             advancedAIService = AdvancedAIService(context)
         } catch (e: Exception) {
-            Log.w(TAG, "AI service not available, falling back to dictionary-only suggestions")
-        }
-        
-        try {
-            predictiveEngine = PredictiveTextEngine.getInstance(context)
-        } catch (e: Exception) {
-            Log.w(TAG, "Predictive engine not available")
+            Log.w(TAG, "AI service not available, using unified engine only")
         }
     }
     
@@ -74,7 +69,8 @@ class SuggestionsPipeline(
     )
     
     /**
-     * Build suggestions for current typing context
+     * Build suggestions for current typing context (REFACTORED)
+     * Now routes everything through UnifiedAutocorrectEngine
      * 
      * @param prefix Current word being typed
      * @param previousWords Context words before current word
@@ -84,112 +80,87 @@ class SuggestionsPipeline(
         prefix: String,
         previousWords: List<String> = emptyList()
     ): List<Suggestion> = withContext(Dispatchers.Default) {
+        val unified = unifiedAutocorrectEngine
+        if (unified == null) {
+            Log.w(TAG, "UnifiedAutocorrectEngine not available")
+            return@withContext getOnlyClipboardSuggestions(prefix)
+        }
+        
         val results = mutableListOf<Suggestion>()
         
         try {
-            // 1. Dictionary / n-gram suggestions (always fast, offline)
-            val dictSuggestions = getDictionarySuggestions(prefix, previousWords)
-            results.addAll(dictSuggestions)
-            
-            // 2. AI predictions (if available and enabled)
-            if (aiSuggestionsEnabled && aiAvailable()) {
-                val aiSuggestions = getAISuggestions(prefix, previousWords)
-                results.addAll(aiSuggestions)
+            // Route requests through UnifiedAutocorrectEngine
+            if (prefix.isEmpty()) {
+                // Empty current token → nextWord(context)
+                if (nextWordPredictionEnabled && previousWords.isNotEmpty()) {
+                    val nextWordSuggestions = unified.nextWord(previousWords, MAX_SUGGESTIONS)
+                    nextWordSuggestions.forEach { unifiedSuggestion ->
+                        results.add(convertFromUnified(unifiedSuggestion, SuggestionType.WORD))
+                    }
+                }
+            } else {
+                // Partial token → suggestForTyping(prefix, context)
+                val typingSuggestions = unified.suggestForTyping(prefix, previousWords)
+                typingSuggestions.forEach { unifiedSuggestion ->
+                    results.add(convertFromUnified(unifiedSuggestion, SuggestionType.WORD))
+                }
             }
             
-            // 3. Emoji suggestions (if enabled and relevant)
+            // Add emoji suggestions (if enabled and relevant)
             if (emojiSuggestionsEnabled && prefix.length >= 2) {
                 val emojiSuggestions = getEmojiSuggestions(prefix)
                 results.addAll(emojiSuggestions)
             }
             
-            // 4. Clipboard suggestions (if enabled and within time window)
+            // Add clipboard suggestions (if enabled and within time window)
             if (clipboardSuggestionsEnabled && prefix.isEmpty()) {
                 val clipboardSuggestion = getClipboardSuggestion()
                 clipboardSuggestion?.let { results.add(it) }
             }
             
             // De-duplicate and rank
-            results
+            return@withContext results
                 .distinctBy { it.text.lowercase() }
                 .sortedByDescending { it.score }
                 .take(MAX_SUGGESTIONS)
                 
         } catch (e: Exception) {
             Log.e(TAG, "Error building suggestions", e)
-            emptyList()
+            return@withContext getOnlyClipboardSuggestions(prefix)
         }
     }
     
     /**
-     * Get dictionary-based suggestions
+     * Convert UnifiedAutocorrectEngine.Suggestion to SuggestionsPipeline.Suggestion
      */
-    private suspend fun getDictionarySuggestions(
-        prefix: String,
-        previousWords: List<String>
-    ): List<Suggestion> {
-        if (prefix.isEmpty() && !nextWordPredictionEnabled) {
-            return emptyList()
-        }
-        
-        val suggestions = mutableListOf<Suggestion>()
-        
-        try {
-            // Prefix matching from dictionary shortcuts
-            if (prefix.isNotEmpty()) {
-                val matches = dictionaryManager.getMatchingShortcuts(prefix, 5)
-                matches.forEach { entry ->
-                    suggestions.add(
-                        Suggestion(
-                            text = entry.expansion,
-                            type = SuggestionType.WORD,
-                            score = calculateDictionaryScore(entry.expansion, prefix)
-                        )
-                    )
-                }
-            }
-            
-            // Next-word prediction using predictive engine (if enabled)
-            if (nextWordPredictionEnabled && previousWords.isNotEmpty() && predictiveEngine != null) {
-                try {
-                    val predictions = predictiveEngine!!.getNextWordPredictions(previousWords, 3)
-                    predictions.forEach { pred ->
-                        // Only add if not already present
-                        if (suggestions.none { it.text.equals(pred.word, ignoreCase = true) }) {
-                            suggestions.add(
-                                Suggestion(
-                                    text = pred.word,
-                                    type = SuggestionType.WORD,
-                                    score = pred.score.toFloat()
-                                )
-                            )
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error getting next-word predictions: ${e.message}")
-                }
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting dictionary suggestions", e)
-        }
-        
-        return suggestions
+    private fun convertFromUnified(
+        unifiedSuggestion: com.example.ai_keyboard.Suggestion,
+        type: SuggestionType
+    ): Suggestion {
+        return Suggestion(
+            text = unifiedSuggestion.text,
+            type = type,
+            score = unifiedSuggestion.score.toFloat(),
+            metadata = mapOf("source" to unifiedSuggestion.source.name)
+        )
     }
     
     /**
-     * Get AI-powered suggestions
+     * Fallback when UnifiedAutocorrectEngine is not available
      */
-    private suspend fun getAISuggestions(
-        prefix: String,
-        previousWords: List<String>
-    ): List<Suggestion> {
-        val service = advancedAIService ?: return emptyList()
+    private suspend fun getOnlyClipboardSuggestions(prefix: String): List<Suggestion> {
+        val results = mutableListOf<Suggestion>()
         
-        // For now, return empty - full AI integration can be added later
-        // This is a placeholder for future AI completions
-        return emptyList()
+        if (clipboardSuggestionsEnabled && prefix.isEmpty()) {
+            val clipboardSuggestion = getClipboardSuggestion()
+            clipboardSuggestion?.let { results.add(it) }
+        }
+        
+        return results
     }
+    
+    // === STRIPPED: getDictionarySuggestions removed ===
+    // Dictionary operations now routed through UnifiedAutocorrectEngine
     
     /**
      * Get emoji suggestions based on word/prefix
@@ -285,29 +256,8 @@ class SuggestionsPipeline(
         }
     }
     
-    /**
-     * Calculate dictionary score based on prefix match quality
-     */
-    private fun calculateDictionaryScore(word: String, prefix: String): Float {
-        if (prefix.isEmpty()) return 0.5f
-        
-        val lowerWord = word.lowercase()
-        val lowerPrefix = prefix.lowercase()
-        
-        return when {
-            lowerWord == lowerPrefix -> 1.0f  // Exact match
-            lowerWord.startsWith(lowerPrefix) -> 0.9f - (word.length - prefix.length) * 0.05f
-            else -> 0.5f
-        }.coerceIn(0.5f, 1.0f)
-    }
-    
-    /**
-     * Check if AI is available
-     */
-    private fun aiAvailable(): Boolean {
-        // Check network connectivity and AI service status
-        return advancedAIService != null
-    }
+    // === STRIPPED: calculateDictionaryScore removed ===
+    // Scoring now handled by UnifiedAutocorrectEngine
     
     /**
      * Update settings from config change

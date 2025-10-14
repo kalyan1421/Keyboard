@@ -18,6 +18,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.EditText
@@ -28,6 +29,13 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.ai_keyboard.stickers.StickerServiceAdapter
+import com.example.ai_keyboard.stickers.StickerData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Modern emoji panel controller matching Gboard/CleverType UX
@@ -58,8 +66,14 @@ class EmojiPanelController(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var deleteRepeatRunnable: Runnable? = null
     
+    // Sticker integration
+    private val stickerService = StickerServiceAdapter(context)
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var currentStickerPacks = listOf<com.example.ai_keyboard.stickers.StickerPack>()
+    private var currentStickers = listOf<StickerData>()
+    
     // Integrated emoji panel (reuse existing GboardEmojiPanel logic)
-    private var gboardEmojiPanel: GboardEmojiPanel? = null
+    // gboardEmojiPanel removed - using direct emoji management
     
     // Category selection state
     private var selectedCategoryView: TextView? = null
@@ -79,12 +93,21 @@ class EmojiPanelController(
         emojiCategories = root!!.findViewById(R.id.emojiCategories)
         
         
-        // Set keyboard height to match normal keyboard
+        // Set keyboard height to match normal keyboard with FIXED dimensions
         val keyboardHeight = getKeyboardHeight()
         root!!.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             keyboardHeight
         )
+        
+        // Ensure the root panel itself is completely FIXED - no scrolling at all
+        root!!.isScrollContainer = false
+        root!!.overScrollMode = View.OVER_SCROLL_NEVER
+        
+        // Ensure all parent containers don't scroll
+        (root as? LinearLayout)?.apply {
+            isScrollContainer = false
+        }
         
         setupEmojiGrid()
         setupFooterButtons()
@@ -99,24 +122,24 @@ class EmojiPanelController(
     }
     
     private fun setupEmojiGrid() {
-        emojiGrid?.layoutManager = GridLayoutManager(context, SPAN_COUNT)
-        
-        // Integrate with existing GboardEmojiPanel
-        gboardEmojiPanel = GboardEmojiPanel(context).apply {
-            setOnEmojiSelectedListener { emoji ->
-                onEmojiClicked(emoji)
-            }
-            setOnBackspacePressedListener {
-                backspaceOnce()
-            }
+        emojiGrid?.apply {
+            layoutManager = GridLayoutManager(context, SPAN_COUNT)
+            
+            // CRITICAL: Ensure ONLY this RecyclerView scrolls, not the entire panel
+            isNestedScrollingEnabled = true // Enable scrolling for this RecyclerView
+            overScrollMode = View.OVER_SCROLL_NEVER // Remove overscroll bounce effects
+            setHasFixedSize(true) // Optimize performance
+            isScrollbarFadingEnabled = true // Fade scrollbar for cleaner look
+            scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
+            
+            // Extract emoji grid from GboardEmojiPanel and wire to our RecyclerView
+            val adapter = EmojiAdapter(::onEmojiClicked, ::onEmojiLongClicked)
+            this.adapter = adapter
+            
+            LogUtil.d(TAG, "✅ Emoji grid ONLY scrolls - panel header/footer fixed")
         }
         
-        // Extract emoji grid from GboardEmojiPanel and wire to our RecyclerView
-        // For now, use a simple adapter
-        val adapter = EmojiAdapter(::onEmojiClicked, ::onEmojiLongClicked)
-        emojiGrid?.adapter = adapter
-        
-        LogUtil.d(TAG, "Emoji grid setup complete with ${SPAN_COUNT} columns")
+        // Use EmojiDatabase directly for emoji data (GboardEmojiPanel removed)
     }
     
     private fun setupFooterButtons() {
@@ -153,63 +176,120 @@ class EmojiPanelController(
     }
     
     private fun setupToolbar() {
-        // Search input
-        emojiSearchInput?.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
-                val query = s.toString().trim()
-                if (query.isNotEmpty()) {
-                    performEmojiSearch(query)
-                } else {
-                    // Show default emojis
-                    loadDefaultEmojis()
-                }
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
-        
-        
-        
-        // Setup category tabs
+        // Setup category tabs (CleverType style)
         setupCategories()
         
-        LogUtil.d(TAG, "Toolbar setup complete")
+        LogUtil.d(TAG, "Toolbar setup complete (CleverType style)")
+    }
+    
+    private fun showSearchDialog() {
+        // Create a simple search popup
+        val popup = PopupWindow(context)
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            val palette = themeManager.getCurrentPalette()
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(12).toFloat()
+                setColor(palette.keyBg)
+            }
+            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+            elevation = dpToPx(8).toFloat()
+        }
+        
+        // Add search input
+        val searchInput = EditText(context).apply {
+            hint = "Search emojis..."
+            textSize = 16f
+            setTextColor(themeManager.getCurrentPalette().keyText)
+            setHintTextColor(themeManager.getCurrentPalette().suggestionText)
+            setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(280), dpToPx(48))
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(8).toFloat()
+                setColor(themeManager.getCurrentPalette().keyboardBg)
+            }
+            
+            addTextChangedListener(object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) {
+                    val query = s.toString().trim()
+                    if (query.isNotEmpty()) {
+                        performEmojiSearch(query)
+                    } else {
+                        loadDefaultEmojis()
+                    }
+                }
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            })
+        }
+        layout.addView(searchInput)
+        
+        popup.contentView = layout
+        popup.isOutsideTouchable = true
+        popup.isFocusable = true
+        popup.width = ViewGroup.LayoutParams.WRAP_CONTENT
+        popup.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        popup.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        popup.elevation = dpToPx(8).toFloat()
+        
+        // Show popup at the top of the panel
+        root?.let { rootView ->
+            popup.showAtLocation(rootView, Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, dpToPx(60))
+        }
+        
+        // Request focus on search input
+        searchInput.requestFocus()
+        
+        LogUtil.d(TAG, "Search dialog opened")
     }
     
     private fun setupCategories() {
+        // CleverType style categories matching the reference image + Stickers
         val categories = listOf(
+            "🔍" to "Search",
             "⏰" to "Recent",
-            "😊" to "Smileys",
-            "👤" to "People",
-            "❤️" to "Hearts",
-            "🐶" to "Animals",
+            "😊" to "Smileys", 
+            "📦" to "Stickers",
+            "🏃" to "Activities",
+            "📋" to "Objects",
+            "😃" to "People",
+            "💡" to "Symbols",
             "🍔" to "Food",
-            "⚽" to "Activities",
+            "🐶" to "Animals",
             "🚗" to "Travel",
-            "💡" to "Objects",
             "🏁" to "Flags"
         )
         
         categories.forEachIndexed { index, (icon, name) ->
             val categoryBtn = TextView(context).apply {
                 text = icon
-                textSize = 24f
+                textSize = 28f // Larger icons like CleverType
                 gravity = Gravity.CENTER
-                val size = dpToPx(40)
+                val size = dpToPx(48) // Bigger touch targets
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                    setMargins(dpToPx(6), 0, dpToPx(6), 0)
+                    setMargins(dpToPx(4), 0, dpToPx(4), 0)
                 }
                 tag = name  // Store category name for reference
-                alpha = if (index == 0) 1.0f else 0.6f  // First one selected
+                alpha = if (index == 1) 1.0f else 0.6f  // Recent selected by default (index 1, not search)
+                
                 setOnClickListener {
                     LogUtil.d(TAG, "Category clicked: $name")
-                    selectCategory(name, this)
+                    if (name == "Search") {
+                        // Show search input when search icon is clicked
+                        showSearchDialog()
+                    } else if (name == "Stickers") {
+                        // Load stickers
+                        selectCategory(name, this)
+                        loadStickers()
+                    } else {
+                        selectCategory(name, this)
+                    }
                 }
             }
             emojiCategories?.addView(categoryBtn)
             
-            // Auto-select first category (Recent)
-            if (index == 0) {
+            // Auto-select Recent category (index 1)
+            if (index == 1) {
                 selectedCategoryView = categoryBtn
                 loadCategoryEmojis(name)
             }
@@ -224,43 +304,70 @@ class EmojiPanelController(
         // Apply theme to update selected/unselected states
         applyCategoryTheme()
         
+        // Auto-scroll to selected category if it's off screen
+        scrollToSelectedCategory(view)
+        
         // Load emojis
         loadCategoryEmojis(category)
+    }
+    
+    /**
+     * Scroll the category bar to ensure selected category is visible
+     */
+    private fun scrollToSelectedCategory(selectedView: TextView) {
+        try {
+            val categoryScrollView = root?.findViewById<HorizontalScrollView>(R.id.emojiCategoryScroll)
+            categoryScrollView?.let { scrollView ->
+                // Calculate the position of the selected category
+                val scrollX = selectedView.left - (scrollView.width / 2) + (selectedView.width / 2)
+                
+                // Smooth scroll to center the selected category
+                scrollView.smoothScrollTo(scrollX, 0)
+                
+                LogUtil.d(TAG, "📍 Auto-scrolled to selected category: $currentCategory")
+            }
+        } catch (e: Exception) {
+            LogUtil.w(TAG, "Could not auto-scroll to category", e)
+        }
     }
     
     fun applyTheme() {
         try {
             val palette = themeManager.getCurrentPalette()
             
-            // 1. Apply keyboard background (matches main keyboard)
+            // 1. Apply main background (overrides XML @color/kb_panel_bg)
             root?.setBackgroundColor(palette.keyboardBg)
             
-            // 2. Apply toolbar background (matches keyboard)
-            root?.findViewById<View>(R.id.emojiToolbar)?.setBackgroundColor(palette.toolbarBg)
+            // 2. Apply category bar background (now HorizontalScrollView)
+            root?.findViewById<HorizontalScrollView>(R.id.emojiCategoryScroll)?.apply {
+                setBackgroundColor(palette.keyboardBg)
+                // Ensure smooth horizontal scrolling for categories
+                isSmoothScrollingEnabled = true
+                isHorizontalScrollBarEnabled = false // Hide scrollbar for clean look
+            }
+            root?.findViewById<LinearLayout>(R.id.emojiCategories)?.setBackgroundColor(palette.keyboardBg)
             
-            // 3. Apply category bar background
-           root?.findViewById<View>(R.id.emojiCategoryScroll)?.setBackgroundColor(palette.keyboardBg)
+            // 3. Apply emoji grid background
+            root?.findViewById<View>(R.id.emojiGrid)?.setBackgroundColor(palette.keyboardBg)
             
-            // 4. Apply search input colors
-            emojiSearchInput?.setTextColor(palette.keyText)
-            emojiSearchInput?.setHintTextColor(palette.suggestionText)
-            emojiSearchInput?.setBackgroundColor(Color.TRANSPARENT)
+            // 4. Apply bottom bar background (overrides hardcoded colors)
+            root?.findViewById<View>(R.id.emojiBottomBar)?.setBackgroundColor(palette.keyboardBg)
             
-            // 5. Apply icon tints
-            root?.findViewById<ImageView>(R.id.emojiSearchBtn)?.setColorFilter(palette.keyText)
-            
+            // 5. Apply button text colors (ABC button - overrides @color/kb_text_primary)
+            btnABC?.setTextColor(palette.keyText)
             btnDelete?.setColorFilter(palette.keyText)
             
-            // 6. Apply button text colors (ABC button has transparent background)
-            btnABC?.setTextColor(palette.keyText)
+            // 6. Apply search input colors if visible
+            emojiSearchInput?.apply {
+                setTextColor(palette.keyText)
+                setHintTextColor(palette.keyText)
+                setBackgroundColor(palette.keyBg)
+            }
             
-            // 8. Apply footer background
-            root?.findViewById<View>(R.id.emojiFooter)?.setBackgroundColor(palette.keyboardBg)
-            
-            // 9. Apply category button theming
+            // 7. Apply category button theming
             applyCategoryTheme()
             
-            LogUtil.d(TAG, "Theme applied successfully to emoji panel")
+            LogUtil.d(TAG, "✅ Complete theme applied to emoji panel (overriding XML colors)")
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error applying theme", e)
         }
@@ -268,27 +375,42 @@ class EmojiPanelController(
     
     private fun applyCategoryTheme() {
         val palette = themeManager.getCurrentPalette()
+        
+        // Force override container backgrounds to match keyboard theme
+        emojiCategories?.setBackgroundColor(palette.keyboardBg)
+        root?.findViewById<HorizontalScrollView>(R.id.emojiCategoryScroll)?.setBackgroundColor(palette.keyboardBg)
+        
         emojiCategories?.let { container ->
             for (i in 0 until container.childCount) {
                 val child = container.getChildAt(i) as? TextView ?: continue
                 val isSelected = child == selectedCategoryView
+                val isSearchIcon = child.tag == "Search"
                 
-                // Selected: Use keyBg background
+                // Search icon: No background, no selection
+                // Selected: Use theme accent background for clear visibility
                 // Unselected: Transparent background with reduced opacity
-                if (isSelected) {
+                if (isSearchIcon) {
+                    child.background = null
+                    child.alpha = 1.0f
+                    child.setTextColor(palette.keyText)
+                } else if (isSelected) {
                     val selectedBg = GradientDrawable().apply {
-                        cornerRadius = dpToPx(8).toFloat()
-                        setColor(palette.keyBg)
+                        cornerRadius = dpToPx(16).toFloat()
+                        setColor(palette.specialAccent) // Full accent color
+                        setStroke(2, palette.specialAccent)
                     }
                     child.background = selectedBg
                     child.alpha = 1.0f
+                    child.setTextColor(Color.WHITE) // White text on accent background
                 } else {
                     child.background = null
                     child.alpha = 0.6f
+                    child.setTextColor(palette.keyText)
                 }
-                child.setTextColor(palette.keyText)
             }
         }
+        
+        LogUtil.d(TAG, "✅ Category theme applied - forcing keyboard background colors")
     }
     
     private fun onEmojiClicked(emoji: String) {
@@ -604,13 +726,18 @@ class EmojiPanelController(
             }
             "Smileys" -> EmojiCollection.smileys.map { applyPreferredSkinTone(it, preferredTone) }
             "People" -> EmojiCollection.people.map { applyPreferredSkinTone(it, preferredTone) }
-            "Hearts" -> EmojiCollection.hearts.map { applyPreferredSkinTone(it, preferredTone) }
             "Animals" -> EmojiCollection.animals.map { applyPreferredSkinTone(it, preferredTone) }
             "Food" -> EmojiCollection.food.map { applyPreferredSkinTone(it, preferredTone) }
             "Activities" -> EmojiCollection.activities.map { applyPreferredSkinTone(it, preferredTone) }
             "Travel" -> EmojiCollection.travel.map { applyPreferredSkinTone(it, preferredTone) }
             "Objects" -> EmojiCollection.objects.map { applyPreferredSkinTone(it, preferredTone) }
+            "Symbols" -> (EmojiCollection.hearts + EmojiCollection.flags).map { applyPreferredSkinTone(it, preferredTone) } // Combine hearts + symbols
             "Flags" -> EmojiCollection.flags // Flags don't have skin tones
+            "Stickers" -> {
+                // For stickers, we'll handle this differently in loadStickers()
+                // Return empty list here and let loadStickers() handle the UI
+                return
+            }
             else -> EmojiCollection.popularEmojis.map { applyPreferredSkinTone(it, preferredTone) }
         }
         updateEmojiGrid(emojis)
@@ -791,7 +918,7 @@ class EmojiPanelController(
      * Reload emoji settings and refresh UI
      */
     fun reloadEmojiSettings() {
-        gboardEmojiPanel?.reloadEmojiSettings()
+            // gboardEmojiPanel removed - handle settings directly
         loadCategoryEmojis(currentCategory)
         applyTheme()
         LogUtil.d(TAG, "Emoji settings reloaded")
@@ -840,6 +967,15 @@ class EmojiPanelController(
         
         override fun getItemCount() = emojis.size
         
+        /**
+         * Set a custom click handler for stickers
+         */
+        fun setCustomClickHandler(handler: (Int) -> Unit) {
+            customClickHandler = handler
+        }
+        
+        private var customClickHandler: ((Int) -> Unit)? = null
+        
         class EmojiViewHolder(private val textView: TextView) : RecyclerView.ViewHolder(textView) {
             fun bind(
                 emoji: String, 
@@ -847,11 +983,242 @@ class EmojiPanelController(
                 onLongClick: ((String, View) -> Boolean)? = null
             ) {
                 textView.text = emoji
-                textView.setOnClickListener { onClick(emoji) }
+                textView.setOnClickListener { 
+                    // Check if we have a custom click handler (for stickers)
+                    val adapter = bindingAdapter as? EmojiAdapter
+                    adapter?.customClickHandler?.let { handler ->
+                        handler(adapterPosition)
+                    } ?: run {
+                        onClick(emoji)
+                    }
+                }
                 textView.setOnLongClickListener { view ->
                     onLongClick?.invoke(emoji, view) ?: false
                 }
             }
+        }
+    }
+    
+    // -----------------------------------------------------
+    // 🔥 STICKER INTEGRATION METHODS
+    // -----------------------------------------------------
+    
+    /**
+     * Load stickers from Firebase and display them in the emoji grid
+     */
+    private fun loadStickers() {
+        LogUtil.d(TAG, "Loading stickers from Firebase...")
+        
+        coroutineScope.launch {
+            try {
+                // Show loading state
+                updateEmojiGrid(listOf("⏳"))
+                
+                // Load sticker packs from Firebase
+                val packs = withContext(Dispatchers.IO) {
+                    stickerService.getAvailablePacks()
+                }
+                
+                currentStickerPacks = packs
+                LogUtil.d(TAG, "Loaded ${packs.size} sticker packs")
+                
+                if (packs.isNotEmpty()) {
+                    // Load stickers from the first pack
+                    loadStickersFromPack(packs.first().id)
+                } else {
+                    // Show empty state
+                    updateEmojiGrid(listOf("📦"))
+                    LogUtil.w(TAG, "No sticker packs available")
+                }
+                
+            } catch (e: Exception) {
+                LogUtil.e(TAG, "Error loading stickers", e)
+                // Show error state
+                updateEmojiGrid(listOf("❌"))
+            }
+        }
+    }
+    
+    /**
+     * Load stickers from a specific pack
+     */
+    private fun loadStickersFromPack(packId: String) {
+        coroutineScope.launch {
+            try {
+                val stickers = withContext(Dispatchers.IO) {
+                    stickerService.getStickersFromPack(packId)
+                }
+                
+                currentStickers = stickers
+                LogUtil.d(TAG, "Loaded ${stickers.size} stickers from pack $packId")
+                
+                // Convert stickers to displayable format
+                val stickerEmojis = stickers.map { sticker ->
+                    // Use emoji representation if available, otherwise use a placeholder
+                    if (sticker.emojis.isNotEmpty()) {
+                        sticker.emojis.first()
+                    } else {
+                        "🖼️" // Placeholder for stickers without emoji representation
+                    }
+                }
+                
+                // Update the emoji grid with sticker emojis
+                updateEmojiGrid(stickerEmojis)
+                
+                // Override the adapter's click handler for stickers
+                setupStickerClickHandling()
+                
+            } catch (e: Exception) {
+                LogUtil.e(TAG, "Error loading stickers from pack $packId", e)
+                updateEmojiGrid(listOf("❌"))
+            }
+        }
+    }
+    
+    /**
+     * Setup click handling specifically for stickers
+     */
+    private fun setupStickerClickHandling() {
+        emojiGrid?.adapter?.let { adapter ->
+            if (adapter is EmojiAdapter && currentCategory == "Stickers") {
+                // Set custom click handler for stickers
+                adapter.setCustomClickHandler { position ->
+                    handleStickerClick(position)
+                }
+                LogUtil.d(TAG, "Sticker click handling enabled for ${currentStickers.size} stickers")
+            }
+        }
+    }
+    
+    /**
+     * Handle sticker click - different from emoji click
+     */
+    private fun handleStickerClick(position: Int) {
+        if (position >= 0 && position < currentStickers.size) {
+            val sticker = currentStickers[position]
+            
+            coroutineScope.launch {
+                try {
+                    // Record sticker usage
+                    withContext(Dispatchers.IO) {
+                        stickerService.recordStickerUsage(sticker.id)
+                    }
+                    
+                    // Get local path or use URL
+                    val content = withContext(Dispatchers.IO) {
+                        stickerService.downloadStickerIfNeeded(sticker)
+                    } ?: sticker.imageUrl
+                    
+                    // Insert sticker content into text field
+                    insertStickerContent(content, sticker)
+                    
+                    LogUtil.d(TAG, "Sticker selected: ${sticker.id}")
+                    
+                } catch (e: Exception) {
+                    LogUtil.e(TAG, "Error handling sticker click", e)
+                    // Fallback to emoji if available
+                    if (sticker.emojis.isNotEmpty()) {
+                        insertEmojiDirectly(sticker.emojis.first())
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Insert sticker content (similar to AIKeyboardService.insertStickerContent)
+     */
+    private fun insertStickerContent(content: String, stickerData: StickerData) {
+        val ic = inputConnectionProvider()
+        if (ic == null) {
+            LogUtil.w(TAG, "No input connection available for sticker insertion")
+            return
+        }
+        
+        try {
+            when {
+                content.startsWith("/") && java.io.File(content).exists() -> {
+                    // Local file - try to insert as rich content, fallback to emoji
+                    if (stickerData.emojis.isNotEmpty()) {
+                        ic.commitText(stickerData.emojis.first(), 1)
+                        saveEmojiToHistory(stickerData.emojis.first())
+                    } else {
+                        ic.commitText("[Sticker: ${stickerData.id}]", 1)
+                    }
+                }
+                content.startsWith("http") -> {
+                    // Network URL - fallback to emoji or text
+                    if (stickerData.emojis.isNotEmpty()) {
+                        ic.commitText(stickerData.emojis.first(), 1)
+                        saveEmojiToHistory(stickerData.emojis.first())
+                    } else {
+                        ic.commitText("[Sticker]", 1)
+                    }
+                }
+                else -> {
+                    // Direct content (emoji) or fallback
+                    if (stickerData.emojis.isNotEmpty()) {
+                        insertEmojiDirectly(stickerData.emojis.first())
+                    } else {
+                        ic.commitText(content, 1)
+                    }
+                }
+            }
+            
+            LogUtil.d(TAG, "Inserted sticker content: $content")
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error inserting sticker content", e)
+            // Ultimate fallback
+            ic.commitText("🖼️", 1)
+        }
+    }
+    
+    /**
+     * Insert emoji directly (reuse existing emoji insertion logic)
+     */
+    private fun insertEmojiDirectly(emoji: String) {
+        val ic = inputConnectionProvider()
+        ic?.let {
+            it.commitText(emoji, 1)
+            saveEmojiToHistory(emoji)
+            LogUtil.d(TAG, "Inserted emoji: $emoji")
+        }
+    }
+    
+    /**
+     * Save emoji to history (reuse existing method)
+     */
+    private fun saveEmojiToHistory(emoji: String) {
+        try {
+            val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+            val currentHistory = prefs.getString("emoji_history", "[]") ?: "[]"
+            
+            // Parse and update history (simplified version)
+            val history = mutableListOf<String>()
+            val cleanJson = currentHistory.trim('[', ']')
+            if (cleanJson.isNotEmpty()) {
+                cleanJson.split(",").forEach { item ->
+                    val cleanItem = item.trim().trim('"')
+                    if (cleanItem.isNotEmpty() && cleanItem != emoji) {
+                        history.add(cleanItem)
+                    }
+                }
+            }
+            
+            // Add new emoji to front
+            history.add(0, emoji)
+            
+            // Keep only last 50 emojis
+            if (history.size > 50) {
+                history.subList(50, history.size).clear()
+            }
+            
+            // Save back to preferences
+            val historyJson = history.joinToString(",") { "\"$it\"" }
+            prefs.edit().putString("emoji_history", "[$historyJson]").apply()
+            
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error saving emoji to history", e)
         }
     }
 }

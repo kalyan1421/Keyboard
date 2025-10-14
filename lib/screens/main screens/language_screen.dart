@@ -336,38 +336,38 @@ class _LanguageScreenState extends State<LanguageScreen> {
               ),
             ),
             
-            // Phase 2: Transliteration Toggles
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: SwitchListTile(
-                title: const Text('Transliteration (Roman → Native)'),
-                subtitle: const Text('Type in English to get native script'),
-                value: _transliterationEnabled,
-                onChanged: _toggleTransliteration,
-                activeColor: AppColors.secondary,
-              ),
-            ),
+            // // Phase 2: Transliteration Toggles
+            // Container(
+            //   margin: const EdgeInsets.symmetric(horizontal: 24),
+            //   decoration: BoxDecoration(
+            //     color: Theme.of(context).cardColor,
+            //     borderRadius: BorderRadius.circular(12),
+            //   ),
+            //   child: SwitchListTile(
+            //     title: const Text('Transliteration (Roman → Native)'),
+            //     subtitle: const Text('Type in English to get native script'),
+            //     value: _transliterationEnabled,
+            //     onChanged: _toggleTransliteration,
+            //     activeColor: AppColors.secondary,
+            //   ),
+            // ),
             
-            const SizedBox(height: 12),
+            // const SizedBox(height: 12),
             
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: SwitchListTile(
-                title: const Text('Reverse Transliteration (Native → Roman)'),
-                subtitle: const Text('Convert native script back to English'),
-                value: _reverseTransliterationEnabled,
-                onChanged: _toggleReverseTransliteration,
-                activeColor: AppColors.secondary,
-              ),
-            ),
+            // Container(
+            //   margin: const EdgeInsets.symmetric(horizontal: 24),
+            //   decoration: BoxDecoration(
+            //     color: Theme.of(context).cardColor,
+            //     borderRadius: BorderRadius.circular(12),
+            //   ),
+            //   child: SwitchListTile(
+            //     title: const Text('Reverse Transliteration (Native → Roman)'),
+            //     subtitle: const Text('Convert native script back to English'),
+            //     value: _reverseTransliterationEnabled,
+            //     onChanged: _toggleReverseTransliteration,
+            //     activeColor: AppColors.secondary,
+            //   ),
+            // ),
 
             const SizedBox(height: 24),
 

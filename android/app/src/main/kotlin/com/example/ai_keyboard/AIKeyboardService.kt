@@ -35,6 +35,7 @@ import android.widget.Toast
 import android.widget.PopupWindow
 import android.widget.FrameLayout
 import android.widget.Button
+import android.widget.ScrollView
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.graphics.drawable.ColorDrawable
@@ -42,10 +43,9 @@ import android.graphics.Typeface
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.example.ai_keyboard.ui.common.UniversalKeyboardHost
 import com.example.ai_keyboard.utils.KeyboardHeights
-import com.example.ai_keyboard.utils.totalKeyboardHeightPx
-import com.example.ai_keyboard.utils.baseKeyboardHeightPx
+import com.example.ai_keyboard.utils.*
+import android.inputmethodservice.InputMethodService.Insets
 import kotlinx.coroutines.*
 import kotlin.math.max
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -208,11 +208,10 @@ class AIKeyboardService : InputMethodService(),
     private var keyboardView: SwipeKeyboardView? = null
     private var keyboard: Keyboard? = null
     private lateinit var keyboardHeightManager: KeyboardHeightManager
-    private var universalHost: UniversalKeyboardHost? = null
     private var suggestionContainer: LinearLayout? = null
     private var topContainer: LinearLayout? = null // Container for suggestions + language switch
     private var mediaPanelManager: SimpleMediaPanel? = null
-    private var gboardEmojiPanel: GboardEmojiPanel? = null
+    // gboardEmojiPanel removed - using EmojiPanelController only
     private var emojiPanelController: EmojiPanelController? = null // New XML-based controller
     private var emojiPanelView: View? = null // Inflated emoji panel
     private var keyboardContainer: LinearLayout? = null
@@ -260,6 +259,7 @@ class AIKeyboardService : InputMethodService(),
     
     // Long-press detection for accent characters (spacebar long-press removed)
     private var currentLongPressKey: Int = -1
+    private var currentLongPressKeyObject: Keyboard.Key? = null
     private val longPressHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable {
         if (hasAccentVariants(currentLongPressKey)) {
@@ -387,6 +387,9 @@ class AIKeyboardService : InputMethodService(),
     private lateinit var languageManager: LanguageManager
     private lateinit var languageDetector: LanguageDetector
     
+    // Unified suggestion system
+    private lateinit var suggestionsPipeline: SuggestionsPipeline
+    
     // CleverType components
     private lateinit var cleverTypeService: CleverTypeAIService
     private var cleverTypePreview: CleverTypePreview? = null
@@ -395,16 +398,14 @@ class AIKeyboardService : InputMethodService(),
     
     // Settings and Theme
     private lateinit var settings: SharedPreferences
-    private lateinit var themeManager: ThemeManager
+    lateinit var themeManager: ThemeManager
     private lateinit var settingsManager: SettingsManager
     private var lastLoadedSettingsHash: Int = 0
     
     // Method channels removed for compatibility - using SharedPreferences only for theme updates
     
-    private lateinit var keyboardLayoutManager: KeyboardLayoutManager
     private lateinit var languageLayoutAdapter: LanguageLayoutAdapter
-    private var useDynamicLayout = true  // Enable dynamic JSON-based layouts by default
-    private lateinit var multilingualDictionary: MultilingualDictionary
+    private lateinit var multilingualDictionary: MultilingualDictionaryImpl
     private lateinit var autocorrectEngine: UnifiedAutocorrectEngine
     private var languageSwitchView: LanguageSwitchView? = null
     
@@ -537,7 +538,7 @@ class AIKeyboardService : InputMethodService(),
                                 
                                 // Check if number row setting changed and reload layout
                                 val numberRowEnabled = getNumberRowEnabled()
-                                if (useDynamicLayout && currentKeyboardMode == KeyboardMode.LETTERS) {
+                                if (currentKeyboardMode == KeyboardMode.LETTERS) {
                                     coroutineScope.launch {
                                         loadLanguageLayout(currentLanguage)
                                         Log.d(TAG, "✅ Layout reloaded with numberRow=$numberRowEnabled")
@@ -559,41 +560,41 @@ class AIKeyboardService : InputMethodService(),
                         
                         Log.d(TAG, "🎨 THEME_CHANGED broadcast received! Theme: $themeName ($themeId), V2: $isV2Theme, Has data: $hasThemeData")
                         
-                        // Add small delay to ensure SharedPreferences are fully written
-                        Thread.sleep(50)
-                        
-                        // Force reload theme from SharedPreferences
-                        themeManager.reload()
-                        
-                        // Verify theme was actually loaded
-                        val loadedTheme = themeManager.getCurrentTheme()
-                        Log.d(TAG, "Loaded theme after reload: ${loadedTheme.name} (${loadedTheme.id})")
-                        
-                        // Check if keyboard view is ready
-                        if (keyboardView != null) {
-                            // Apply immediately with full refresh
-                            mainHandler.post {
-                                Log.d(TAG, "⚡ Applying theme update immediately - V2: $isV2Theme")
-                                applyThemeImmediately() // Use the comprehensive theme application
-                                
-                                // Additional refresh for V2 themes
-                                if (isV2Theme) {
-                                    mainHandler.postDelayed({
-                                        keyboardView?.let { view ->
-                                            if (view is SwipeKeyboardView) {
-                                                view.refreshTheme()
-                                                view.invalidate()
+                        // ✅ FIX: Replace Thread.sleep with proper async delay
+                        mainHandler.postDelayed({
+                            // Force reload theme from SharedPreferences
+                            themeManager.reload()
+                            
+                            // Verify theme was actually loaded
+                            val loadedTheme = themeManager.getCurrentTheme()
+                            Log.d(TAG, "Loaded theme after reload: ${loadedTheme.name} (${loadedTheme.id})")
+                            
+                            // Check if keyboard view is ready
+                            if (keyboardView != null) {
+                                // Apply immediately with full refresh
+                                mainHandler.post {
+                                    Log.d(TAG, "⚡ Applying theme update immediately - V2: $isV2Theme")
+                                    applyThemeImmediately() // Use the comprehensive theme application
+                                    
+                                    // Additional refresh for V2 themes
+                                    if (isV2Theme) {
+                                        mainHandler.postDelayed({
+                                            keyboardView?.let { view ->
+                                                if (view is SwipeKeyboardView) {
+                                                    view.refreshTheme()
+                                                    view.invalidate()
+                                                }
                                             }
-                                        }
-                                        Log.d(TAG, "🔄 V2 theme additional refresh completed")
-                                    }, 100)
+                                            Log.d(TAG, "🔄 V2 theme additional refresh completed")
+                                        }, 100)
+                                    }
                                 }
+                            } else {
+                                // Queue for later application
+                                pendingThemeUpdate = true
+                                Log.d(TAG, "Keyboard view not ready, queuing V2 theme update for later")
                             }
-                        } else {
-                            // Queue for later application
-                            pendingThemeUpdate = true
-                            Log.d(TAG, "Keyboard view not ready, queuing V2 theme update for later")
-                        }
+                        }, 50) // Delay 50ms to ensure SharedPreferences are written
                     }
                     "com.example.ai_keyboard.CLIPBOARD_CHANGED" -> {
                         Log.d(TAG, "CLIPBOARD_CHANGED broadcast received!")
@@ -614,11 +615,13 @@ class AIKeyboardService : InputMethodService(),
                                 Log.d(TAG, "Reloading dictionary settings from broadcast...")
                                 reloadDictionarySettings()
                                 
-                                // ✅ Reload dictionary entries from Flutter SharedPreferences
-                                // This ensures shortcuts added in Flutter UI are immediately available
+                                // ✅ Reload dictionary entries and refresh LanguageResources
                                 if (::dictionaryManager.isInitialized) {
                                     dictionaryManager.reloadFromFlutterPrefs()
                                     Log.d(TAG, "✅ Dictionary entries reloaded from Flutter!")
+                                    
+                                    // Refresh LanguageResources with updated user data (NEW UNIFIED APPROACH)
+                                    refreshLanguageResourcesAsync()
                                 } else {
                                     Log.w(TAG, "⚠️ DictionaryManager not initialized yet")
                                 }
@@ -693,7 +696,6 @@ class AIKeyboardService : InputMethodService(),
         
         // Initialize keyboard height manager
         keyboardHeightManager = KeyboardHeightManager(this)
-        keyboardHeightManager.logMeasurements()
         
         // Initialize OpenAI configuration first (critical for AI features)
         try {
@@ -727,15 +729,14 @@ class AIKeyboardService : InputMethodService(),
             }
         })
         
-        // Initialize keyboard layout manager
-        keyboardLayoutManager = KeyboardLayoutManager(this)
+        // Keyboard layouts now handled by LanguageLayoutAdapter (JSON-based)
         
         // CRITICAL: Initialize all core components FIRST before any async operations
         initializeCoreComponents()
         
         // UNIFIED SETTINGS LOAD - replaces loadSettings(), loadEnhancedSettings(), loadKeyboardSettings()
         applyLoadedSettings(settingsManager.loadAll(), logSuccess = true)
-        loadDictionariesAsync()
+        // loadDictionariesAsync() // DISABLED: Using new unified MultilingualDictionary system instead
         
         // Load custom prompts separately (still needed for AI features)
         loadCustomPrompts()
@@ -776,15 +777,19 @@ class AIKeyboardService : InputMethodService(),
         // Initialize Enhanced Caps/Shift Manager
         initializeCapsShiftManager()
         
-        // Initialize clipboard history manager
-        clipboardHistoryManager = ClipboardHistoryManager(this)
-        clipboardHistoryManager.initialize()
-        clipboardHistoryManager.addListener(clipboardHistoryListener)
+        // ClipboardHistoryManager already initialized in initializeCoreComponents()
+        // Just complete setup with listener
+        if (::clipboardHistoryManager.isInitialized) {
+            clipboardHistoryManager.initialize()
+            clipboardHistoryManager.addListener(clipboardHistoryListener)
+        }
         
-        // Initialize dictionary manager
-        dictionaryManager = DictionaryManager(this)
-        dictionaryManager.initialize()
-        dictionaryManager.addListener(dictionaryListener)
+        // DictionaryManager already initialized in initializeCoreComponents()
+        // Just complete setup with listener
+        if (::dictionaryManager.isInitialized) {
+            dictionaryManager.initialize()
+            dictionaryManager.addListener(dictionaryListener)
+        }
         
         // User dictionary manager already initialized in initializeCoreComponents()
         // Phase 3: Multi-language sync integration
@@ -859,7 +864,59 @@ class AIKeyboardService : InputMethodService(),
         // Run diagnostic audit (analysis phase)
         runDiagnosticAudit()
         
-        Log.d(TAG, "✅ AIKeyboardService onCreate completed successfully")
+            // onCreate complete
+    }
+    
+    /**
+     * Override to explicitly control keyboard height including number row
+     * Ensures keyboard grows upward when number row is active, regardless of navigation bar
+     */
+    override fun onComputeInsets(outInsets: Insets?) {
+        super.onComputeInsets(outInsets)
+        
+        outInsets?.let { insets ->
+            // Get the main input view
+            val inputView = mainKeyboardLayout ?: return
+            
+            // Read the current number row setting to ensure consistency
+            val numberRowEnabled = getNumberRowEnabled()
+            
+            // Calculate the desired keyboard height including number row if active
+            val desiredHeight = totalKeyboardHeightPx(
+                withToolbar = true,
+                withSuggestions = true,
+                withNumberRow = numberRowEnabled
+            )
+            
+            // ✅ FIX: Always set all insets to 0 to prevent white space gaps
+            // The keyboard view uses weight layout param to fill available space
+            insets.contentTopInsets = 0
+            insets.visibleTopInsets = 0
+            
+            // ✅ FIX: Remove bottom gap by ensuring touch region extends to bottom edge
+            // Set input view height to exactly fill the available space 
+            val windowHeight = resources.displayMetrics.heightPixels
+            val statusBarHeight = getStatusBarHeight()
+            val navBarHeight = getNavigationBarHeight()
+            val availableHeight = windowHeight - statusBarHeight
+            
+            // Make sure keyboard view fills entire bottom area (no gaps)
+            inputView.layoutParams = inputView.layoutParams.apply {
+                height = desiredHeight
+            }
+            
+            // Ensure touch region covers the entire keyboard
+            insets.touchableInsets = Insets.TOUCHABLE_INSETS_REGION
+            insets.touchableRegion.setEmpty()
+            insets.touchableRegion.op(
+                0, 
+                0,  // Start from top
+                inputView.width, 
+                inputView.height,
+                android.graphics.Region.Op.UNION
+            )
+            
+        }
     }
     
     /**
@@ -882,27 +939,42 @@ class AIKeyboardService : InputMethodService(),
                     // Update current language tracking
                     currentLanguage = newLanguage
                     
-                    // Switch dictionary and autocorrect engine
-                    if (::dictionaryManager.isInitialized) {
-                        dictionaryManager.switchLanguage(newLanguage)
-                    }
-                    
-                    if (::autocorrectEngine.isInitialized) {
-                        autocorrectEngine.setLocale(newLanguage)
-                    }
-                    
-                    if (::userDictionaryManager.isInitialized) {
-                        userDictionaryManager.switchLanguage(newLanguage)
-                    }
-                    
-                    // Reload dynamic layout if active
-                    if (useDynamicLayout && currentKeyboardMode == KeyboardMode.LETTERS) {
-                        coroutineScope.launch {
-                            loadLanguageLayout(newLanguage)
+                    // NEW UNIFIED LANGUAGE SWITCHING
+                    coroutineScope.launch {
+                        try {
+                            // Switch user managers first
+                            if (::dictionaryManager.isInitialized) {
+                                dictionaryManager.switchLanguage(newLanguage)
+                            }
+                            
+                            if (::userDictionaryManager.isInitialized) {
+                                userDictionaryManager.switchLanguage(newLanguage)
+                            }
+                            
+                            // Preload new language resources
+                            multilingualDictionary.preload(newLanguage)
+                            
+                            // Set language in unified engine
+                            val resources = multilingualDictionary.get(newLanguage)
+                            if (resources != null) {
+                                autocorrectEngine.setLanguage(newLanguage, resources)
+                                Log.d("LangSwitch", "✅ UnifiedAutocorrectEngine: Engine ready [langs=[$newLanguage]]")
+                            } else {
+                                Log.w("LangSwitch", "⚠️ Failed to get resources for language: $newLanguage")
+                            }
+                            
+                            withContext(Dispatchers.Main) {
+                                // Reload dynamic layout if active
+                                if (currentKeyboardMode == KeyboardMode.LETTERS) {
+                                    loadLanguageLayout(newLanguage)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("LangSwitch", "❌ Error in unified language switching", e)
                         }
                     }
                     
-                    Log.d("LangSwitch", "✅ Language switch complete: $oldLanguage → $newLanguage")
+                    Log.d("LangSwitch", "✅ Language switch initiated: $oldLanguage → $newLanguage")
                 }
                 
                 override fun onEnabledLanguagesChanged(enabledLanguages: Set<String>) {
@@ -910,13 +982,35 @@ class AIKeyboardService : InputMethodService(),
                 }
             })
             
+            // Initialize clipboard history manager (needed for SuggestionsPipeline)
+            clipboardHistoryManager = ClipboardHistoryManager(this)
+            Log.d(TAG, "✅ ClipboardHistoryManager initialized")
+            
+            // Initialize dictionary manager (for shortcuts/custom mappings)
+            dictionaryManager = DictionaryManager(this)
+            Log.d(TAG, "✅ DictionaryManager initialized")
+            
             // Initialize user dictionary manager
             userDictionaryManager = UserDictionaryManager(this)
             Log.d(TAG, "✅ UserDictionaryManager initialized")
             
-            // Initialize multilingual dictionary
-            multilingualDictionary = MultilingualDictionary(this)
+            // Initialize multilingual dictionary (NEW UNIFIED ARCHITECTURE)
+            multilingualDictionary = MultilingualDictionaryImpl(this)
             Log.d(TAG, "✅ MultilingualDictionary initialized")
+            
+            // Wire managers to feed into MultilingualDictionary
+            multilingualDictionary.setUserDictionaryManager(userDictionaryManager)
+            multilingualDictionary.setDictionaryManager(dictionaryManager)
+            Log.d(TAG, "✅ Dictionary managers wired to MultilingualDictionary")
+            
+            // Wire observers to refresh LanguageResources when user data changes
+            userDictionaryManager.setChangeObserver {
+                refreshLanguageResourcesAsync()
+            }
+            dictionaryManager.setChangeObserver {
+                refreshLanguageResourcesAsync()
+            }
+            Log.d(TAG, "✅ Change observers wired for LanguageResources refresh")
             
             // Initialize transliteration engine for default language
             transliterationEngine = TransliterationEngine(this, "en")
@@ -926,10 +1020,10 @@ class AIKeyboardService : InputMethodService(),
             indicScriptHelper = IndicScriptHelper()
             Log.d(TAG, "✅ IndicScriptHelper initialized")
             
-            // Initialize unified autocorrect engine (depends on above components)
+            // Initialize unified autocorrect engine (NEW UNIFIED API)
             autocorrectEngine = UnifiedAutocorrectEngine(
                 context = this,
-                dictionary = multilingualDictionary,
+                multilingualDictionary = multilingualDictionary,
                 transliterationEngine = transliterationEngine,
                 indicScriptHelper = indicScriptHelper,
                 userDictionaryManager = userDictionaryManager
@@ -942,28 +1036,54 @@ class AIKeyboardService : InputMethodService(),
             }
             Log.d(TAG, "✅ Suggestion callback attached to autocorrect engine")
             
-            // Preload user-enabled languages asynchronously (no hardcoded list)
-            val enabledLangs = languageManager.getEnabledLanguages().toList()
-            Log.d(TAG, "🔄 Preloading user-enabled languages: $enabledLangs")
-            autocorrectEngine.preloadLanguages(enabledLangs)
+            // NEW UNIFIED LANGUAGE LOADING: Preload and set language
+            coroutineScope.launch {
+                try {
+                    Log.d(TAG, "📚 Preloading language resources for: $currentLanguage")
+                    multilingualDictionary.preload(currentLanguage)
+                    
+                    val resources = multilingualDictionary.get(currentLanguage)
+                    if (resources != null) {
+                        autocorrectEngine.setLanguage(currentLanguage, resources)
+                        Log.d(TAG, "✅ UnifiedAutocorrectEngine: Engine ready [langs=[$currentLanguage], corrections=${resources.corrections.size}]")
+                    } else {
+                        Log.w(TAG, "⚠️ Failed to get resources for language: $currentLanguage")
+                    }
+                    
+                    // Preload additional enabled languages in background
+                    val enabledLangs = languageManager.getEnabledLanguages().filter { it != currentLanguage }
+                    enabledLangs.forEach { lang ->
+                        try {
+                            multilingualDictionary.preload(lang)
+                            Log.d(TAG, "📚 Background preloaded: $lang")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "⚠️ Failed to preload $lang: ${e.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error in unified language loading", e)
+                }
+            }
+            
+            // Initialize SuggestionsPipeline with unified engine
+            suggestionsPipeline = SuggestionsPipeline(
+                context = this,
+                clipboardManager = clipboardHistoryManager,
+                unifiedAutocorrectEngine = autocorrectEngine
+            )
+            Log.d(TAG, "✅ SuggestionsPipeline initialized with unified engine")
             
             // Verify loading status asynchronously (don't block onCreate)
             coroutineScope.launch {
                 delay(1000) // Wait for async loads to complete
                 
-                val successCount = enabledLangs.count { lang ->
-                    autocorrectEngine.isLanguageLoaded(lang)
-                }
-                
-                if (successCount == enabledLangs.size) {
-                    Log.i(TAG, "✅ UnifiedAutocorrectEngine loaded $successCount/${enabledLangs.size} languages successfully")
+                if (autocorrectEngine.hasLanguage(currentLanguage)) {
+                    Log.i(TAG, "✅ UnifiedAutocorrectEngine ready for language: $currentLanguage")
                 } else {
-                    val failed = enabledLangs.filter { !autocorrectEngine.isLanguageLoaded(it) }
-                    Log.w(TAG, "⚠️ UnifiedAutocorrectEngine loaded $successCount/${enabledLangs.size} languages (failed: $failed)")
+                    Log.w(TAG, "⚠️ UnifiedAutocorrectEngine not ready for language: $currentLanguage")
                 }
             }
             
-            Log.d(TAG, "✅ Core components initialization COMPLETE")
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error initializing core components", e)
@@ -983,23 +1103,12 @@ class AIKeyboardService : InputMethodService(),
             return false
         }
         
-        // Check if autocorrect engine is fully ready (corrections + dictionaries loaded)
-        if (!autocorrectEngine.isReady()) {
+        // Check if unified engine has current language loaded (NEW UNIFIED READINESS)
+        if (!autocorrectEngine.hasLanguage(currentLanguage)) {
             // Don't log warning here as it's normal during async load
             return false
         }
         
-        return true
-    }
-    
-    /**
-     * Guard helper to ensure AI Bridge is ready before use
-     */
-    private fun ensureAIBridge(): Boolean {
-        if (!::aiBridge.isInitialized) {
-            Log.w(TAG, "⚠️ AIBridge not ready")
-            return false
-        }
         return true
     }
     
@@ -1211,13 +1320,17 @@ class AIKeyboardService : InputMethodService(),
             val numberRowChanged = showNumberRow != numberRow
             if (numberRowChanged) {
                 showNumberRow = numberRow
+                Log.d(TAG, "✅ Number row changed to $numberRow, keyboard height updated")
             }
             
             // Determine font scale and bottom offset based on orientation
             val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
             val fontScale = if (isLandscape) fontScaleL else fontScaleP
-            // ✅ FIX: Bottom offset removed - insets padding handles spacing automatically
-            val bottom = 0
+            // ✅ FIX: NO bottom padding - keys now auto-fill available space
+            val hasNavBar = keyboardHeightManager.hasNavigationBar()
+            val navBarHeight = if (hasNavBar) keyboardHeightManager.getNavigationBarHeight() else 0
+            val bottom = 0  // Always 0 - keys will auto-size to fill space
+            Log.d(TAG, "⚙️ Bottom padding: hasNavBar=$hasNavBar, navBarHeight=$navBarHeight, bottomPadding=$bottom (keys auto-fill)")
             
             // Reload keyboard if number row changed (requires different XML layout)
             if (numberRowChanged) {
@@ -1279,11 +1392,6 @@ class AIKeyboardService : InputMethodService(),
             keyboardContainer?.paddingRight ?: 0,
             bottom
         )
-        
-        Log.d(TAG, "✅ Config applied complete: NumRow=$numberRow HintedRow=$hintedNumberRow " +
-            "HintedSymbols=$hintedSymbols Borderless=$borderless OneHanded=${ohEnabled}@${ohSide}(${(ohWidth * 100).toInt()}%) " +
-            "Scale=${scaleX}x${scaleY} Spacing=${spaceVdp}dp/${spaceHdp}dp FontScale=${fontScale} " +
-            "Popup=$popupPreview LP=${longPressDelay}ms Bottom=${bottom}px Utility=$utilityAction")
         } catch (e: Exception) {
             Log.e(TAG, "⚠ Error applying config", e)
         }
@@ -1340,10 +1448,9 @@ class AIKeyboardService : InputMethodService(),
             languageDetector = LanguageDetector()
             Log.d(TAG, "✓ LanguageDetector initialized")
             
-            // Initialize keyboard layout manager
-            keyboardLayoutManager = KeyboardLayoutManager(this)
+            // Initialize language layout adapter (JSON-based dynamic layouts)
             languageLayoutAdapter = LanguageLayoutAdapter(this)
-            Log.d(TAG, "✓ KeyboardLayoutManager initialized")
+            Log.d(TAG, "✓ LanguageLayoutAdapter initialized")
             
             // 🔍 AUDIT: Verify all key mappings at startup (after languageLayoutAdapter is ready)
             Log.d(TAG, "🔍 Running key mapping verification audit...")
@@ -1367,30 +1474,20 @@ class AIKeyboardService : InputMethodService(),
                 swipeAutocorrectEngine = SwipeAutocorrectEngine.getInstance(this)
                 Log.d(TAG, "✓ SwipeAutocorrectEngine instance created")
                 
-                // Will link to UnifiedAutocorrectEngine later when ready
-                CoroutineScope(Dispatchers.Main).launch {
-                    var attempts = 0
-                    while (attempts < 10) {
-                        delay(500) // Check every 500ms
-                        if (ensureEngineReady()) {
-                            Log.d(TAG, "🔗 UnifiedAutocorrectEngine ready, linking to SwipeAutocorrectEngine...")
-                            try {
-                                swipeAutocorrectEngine.setUnifiedEngine(autocorrectEngine)
-                                CoroutineScope(Dispatchers.IO).launch {
-                                    swipeAutocorrectEngine.initialize()
-                                    Log.d(TAG, "✅ SwipeAutocorrectEngine initialized and linked (attempt ${attempts + 1})")
-                                }
-                                break
-                            } catch (e: Exception) {
-                                Log.e(TAG, "❌ Failed to link/initialize SwipeAutocorrectEngine", e)
-                            }
-                        } else {
-                            Log.d(TAG, "⏳ Waiting for UnifiedAutocorrectEngine... (attempt ${attempts + 1}/10)")
-                        }
-                        attempts++
-                    }
-                    if (attempts >= 10) {
-                        Log.e(TAG, "❌ Failed to link SwipeAutocorrectEngine after 10 attempts (5 seconds)")
+                // ✅ Ensure language dictionary preloaded before attaching swipe engine
+                CoroutineScope(Dispatchers.Default).launch {
+                    Log.d(TAG, "⏳ Preloading 'en' dictionary for swipe engine...")
+                    autocorrectEngine.preloadLanguages(listOf("en"))
+                    
+                    // Wait until dictionary is ready
+                    autocorrectEngine.waitUntilReady("en")
+                    
+                    // Link swipe engine after dictionary ready
+                    try {
+                        swipeAutocorrectEngine.setUnifiedEngine(autocorrectEngine)
+                        swipeAutocorrectEngine.initialize()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Failed to link SwipeAutocorrectEngine", e)
                     }
                 }
             } catch (e: Exception) {
@@ -1435,9 +1532,9 @@ class AIKeyboardService : InputMethodService(),
                     Log.d(TAG, "Autocorrect Test: $result")
                 }
                 
-                // Load additional dictionaries
-                loadDictionariesAsync()
-                Log.d(TAG, "Dictionary initialization completed")
+                // Dictionary loading handled by MultilingualDictionary system
+                // loadDictionariesAsync() // DISABLED: Unified system handles this
+                Log.d(TAG, "Dictionary initialization completed via unified system")
             }
             
             // Set up language change listener
@@ -1460,6 +1557,7 @@ class AIKeyboardService : InputMethodService(),
             }
             
             Log.d(TAG, "Multilingual components initialized successfully")
+            logEngineStatus()
             
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing multilingual components", e)
@@ -1474,36 +1572,13 @@ class AIKeyboardService : InputMethodService(),
         try {
             Log.i(TAG, "[AIKeyboard] Language: $oldLanguage → $newLanguage")
             
-            // Update keyboard layout
-            keyboardLayoutManager.updateCurrentLanguage(newLanguage)
-            
             // Update unified autocorrect engine locale
             autocorrectEngine.setLocale(newLanguage)
             
             // Update keyboard view with new layout
-            if (useDynamicLayout && currentKeyboard == KEYBOARD_LETTERS) {
-                // NEW: Reload dynamic layout for new language
+            // Reload dynamic JSON-based layout for new language
+            if (currentKeyboard == KEYBOARD_LETTERS) {
                 loadDynamicLayout(newLanguage)
-            } else {
-                // LEGACY: Use XML-based layout reload
-                keyboardView?.let { kv ->
-                    val mode = when (currentKeyboard) {
-                        KEYBOARD_LETTERS -> "letters"
-                        KEYBOARD_SYMBOLS -> "symbols" 
-                        KEYBOARD_NUMBERS -> "numbers"
-                        else -> "letters"
-                    }
-                    
-                    val newKeyboard = keyboardLayoutManager.getCurrentKeyboard(mode)
-                    if (newKeyboard != null) {
-                        keyboard = newKeyboard
-                        kv.keyboard = keyboard
-                        kv.invalidateAllKeys()
-                        
-                        // Rebind listener after keyboard reassignment
-                        rebindKeyboardListener()
-                    }
-                }
             }
             
             // Update language switch view
@@ -1535,8 +1610,17 @@ class AIKeyboardService : InputMethodService(),
                 }
             }
             
-            // Preload keyboard layouts
-            keyboardLayoutManager.preloadLayouts(enabledLanguages)
+            // Preload keyboard layouts via LanguageLayoutAdapter
+            coroutineScope.launch {
+                enabledLanguages.forEach { language ->
+                    try {
+                        languageLayoutAdapter.preloadKeymap(language)
+                        Log.d(TAG, "Preloaded keymap for $language")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not preload keymap for $language", e)
+                    }
+                }
+            }
             
             // Update language switch view visibility
             languageSwitchView?.refreshDisplay()
@@ -1547,12 +1631,19 @@ class AIKeyboardService : InputMethodService(),
     }
     
     override fun onCreateInputView(): View {
-        // Create main container
+        // Create main container with NO padding, margins, or spacing
         val mainLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = themeManager.createKeyboardBackground()
             fitsSystemWindows = false
             clipToPadding = false
+            clipToOutline = false
+            setPadding(0, 0, 0, 0)  // Explicitly remove all padding
+            minimumHeight = 0  // No minimum height constraint
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT  // Fill entire available space
+            )
         }
         
         mainKeyboardLayout = mainLayout
@@ -1566,21 +1657,17 @@ class AIKeyboardService : InputMethodService(),
         // Create suggestion bar
         createUnifiedSuggestionBar(mainLayout)
         
-        // Create the Universal Keyboard Host - single container for all panels
-        universalHost = UniversalKeyboardHost(this).apply {
-            withToolbar = false  // Toolbar is separate above
-            withSuggestions = false  // Suggestions are separate above
-            setBackgroundColor(themeManager.getKeyboardBackgroundColor())
-        }
-        
-        // Legacy container wrapper for compatibility
+        // Legacy container wrapper for compatibility - NO padding, margins, or gaps
         val keyboardContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT,  // Fill remaining space
+                1.0f  // Weight to fill remaining space after toolbar/suggestions
             )
-            addView(universalHost)
+            setPadding(0, 0, 0, 0)  // Explicitly remove all padding
+            minimumHeight = 0  // No minimum height constraint
+            background = themeManager.createKeyboardBackground()  // Ensure background fills container
         }
         
         // Initialize keyboard view without additional WindowInsets handling
@@ -1591,6 +1678,7 @@ class AIKeyboardService : InputMethodService(),
         }
         
         keyboardView?.apply {
+            // ✅ HYBRID APPROACH: Start with XML for immediate display, then switch to dynamic layout
             val keyboardResource = getKeyboardResourceForLanguage(currentLanguage.uppercase(), showNumberRow)
             keyboard = Keyboard(this@AIKeyboardService, keyboardResource)
             setKeyboard(keyboard)
@@ -1599,16 +1687,46 @@ class AIKeyboardService : InputMethodService(),
             setSwipeEnabled(swipeTypingEnabled)
             isPreviewEnabled = keyPreviewEnabled
             setKeyboardService(this@AIKeyboardService)
-            // NO additional WindowInsets here - handled by parent
             
-            // ✅ Keyboard height enforcement - prevent inflation
-            minimumHeight = resources.getDimensionPixelSize(R.dimen.keyboard_default_height)
-            layoutParams = android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            // ✅ Let keyboard view fill container - NO margins or spacing
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT  // Fill entire container
+            ).apply {
+                setMargins(0, 0, 0, 0)  // Remove any margins
+            }
+            setPadding(0, 0, 0, 0)  // Remove any internal padding
+            background = themeManager.createKeyboardBackground()  // Ensure themed background
             
-            Log.d(TAG, "[AIKeyboard] Initialized: lang=$currentLanguage, numberRow=$showNumberRow, minHeight=${minimumHeight}px")
+            // ✅ CRITICAL FIX: Immediately load dynamic layout after initial display
+            // This ensures proper 5-row INSCRIPT layout for Hindi/Telugu/Tamil
+            if (this is SwipeKeyboardView && currentLanguage in listOf("hi", "te", "ta")) {
+                currentLangCode = currentLanguage
+                post {
+                    // Load dynamic layout after view is measured and displayed
+                    coroutineScope.launch {
+                        try {
+                            Log.d(TAG, "🔄 Upgrading to dynamic layout for: $currentLanguage")
+                            val layout = languageLayoutAdapter.buildLayoutFor(
+                                currentLanguage, 
+                                LanguageLayoutAdapter.KeyboardMode.LETTERS, 
+                                showNumberRow
+                            )
+                            
+                            // Apply the layout on main thread
+                            withContext(Dispatchers.Main) {
+                                setDynamicLayout(layout, showNumberRow)
+                                setCurrentLanguage(languageManager.getLanguageDisplayName(currentLanguage))
+                                Log.d(TAG, "✅ Upgraded to dynamic layout: ${layout.rows.size} rows for $currentLanguage")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Failed to upgrade to dynamic layout for $currentLanguage", e)
+                        }
+                    }
+                }
+            }
+            
+            Log.d(TAG, "[AIKeyboard] Initialized: lang=$currentLanguage, numberRow=$showNumberRow")
         }
         
         // Create other panels
@@ -1616,8 +1734,8 @@ class AIKeyboardService : InputMethodService(),
         createEmojiPanel()  
         createAIPanel()
         
-        // Add keyboard view to universal host
-        keyboardView?.let { universalHost?.switchContent(it) }
+        // Add keyboard view to container
+        keyboardView?.let { keyboardContainer.addView(it) }
         mainLayout.addView(keyboardContainer)
         this.keyboardContainer = keyboardContainer
         
@@ -1634,30 +1752,19 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Create adaptive keyboard container with CleverType-optimized height
-     * Height = 35% of screen height, range 320-380dp
-     * CleverType spec: More compact than standard 40% for better screen utilization
-     * ✅ FIX: No nav bar subtraction - insets padding handles spacing automatically
-     */
-    private fun createAdaptiveKeyboardContainer(): LinearLayout {
-        // Legacy method - UniversalKeyboardHost handles all height management
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            clipToPadding = false
-            clipChildren = false
-        }
-    }
-    
-    /**
      * Get navigation bar height from system resources
      * Note: This is now only used for reference/debugging, not for height calculations
      */
     private fun getNavigationBarHeight(): Int {
         val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+    }
+    
+    /**
+     * Get status bar height from system resources
+     */
+    private fun getStatusBarHeight(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
         return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
     }
     
@@ -1938,48 +2045,7 @@ class AIKeyboardService : InputMethodService(),
             inputConnectionProvider = { currentInputConnection }
         )
         
-        // Keep old GboardEmojiPanel for backward compatibility
-        gboardEmojiPanel = GboardEmojiPanel(this).apply {
-            // Set emoji selection listener
-            setOnEmojiSelectedListener { emoji ->
-                // Use enhanced emoji insertion with cursor handling
-                insertEmojiWithCursor(emoji)
-                
-                // Log emoji usage for learning
-                EmojiSuggestionEngine.logEmojiUsage(emoji, getCurrentInputText())
-                
-                Log.d(TAG, "Emoji selected from panel: $emoji")
-                
-                // Optionally close emoji panel after selection (like Gboard)
-                // toggleEmojiPanel()
-            }
-            
-            // Set backspace handler for emoji panel
-            setOnBackspacePressedListener {
-                // Handle backspace in emoji mode - should delete text/emojis
-                val ic = currentInputConnection
-                if (ic != null) {
-                    handleBackspace(ic)
-                    Log.d(TAG, "Backspace pressed in emoji panel")
-                } else {
-                    Log.w(TAG, "No input connection available for emoji backspace")
-                }
-            }
-            
-            // Set keyboard switch listener
-            setOnKeyboardSwitchRequestedListener {
-                // Switch back to keyboard when ABC button is tapped
-                if (isEmojiPanelVisible) {
-                    toggleEmojiPanel()
-                }
-            }
-            
-            // Set proper layout params for full keyboard replacement
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
+        // Using EmojiPanelController only - GboardEmojiPanel removed for cleaner architecture
         
         Log.d(TAG, "Comprehensive emoji panel created (not added to layout yet)")
     }
@@ -2204,14 +2270,14 @@ class AIKeyboardService : InputMethodService(),
             
             // Record usage if we have sticker data
             stickerData?.let { sticker ->
-                Thread {
+                coroutineScope.launch {
                     try {
-                        val stickerManager = StickerManager(this)
-                        stickerManager.recordStickerUsage(sticker.id)
+                        val stickerService = com.example.ai_keyboard.stickers.StickerServiceAdapter(this@AIKeyboardService)
+                        stickerService.recordStickerUsage(sticker.id)
                     } catch (e: Exception) {
                         Log.e(TAG, "Error recording sticker usage", e)
                     }
-                }.start()
+                }
             }
             
             Log.d(TAG, "Inserted sticker content: $content")
@@ -2237,7 +2303,6 @@ class AIKeyboardService : InputMethodService(),
         // Reset long-press state
         longPressHandler.removeCallbacks(longPressRunnable)
         currentLongPressKey = -1
-        Log.d(TAG, "✅ Rebound OnKeyboardActionListener after layout change. View=$keyboardView")
     }
     
     /**
@@ -2288,9 +2353,6 @@ class AIKeyboardService : InputMethodService(),
         
         // Update current language index
         currentLanguageIndex = enabledLanguages.indexOf(currentLanguage).coerceAtLeast(0)
-        
-        Log.d(TAG, "✅ Language prefs loaded: enabled=$enabledLanguages, current=$currentLanguage (idx=$currentLanguageIndex), multi=$multilingualEnabled")
-        Log.d(TAG, "✅ Feature flags: translit=$transliterationEnabled, reverse=$reverseTransliterationEnabled")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error loading language preferences", e)
             enabledLanguages = listOf("en")
@@ -2328,41 +2390,6 @@ class AIKeyboardService : InputMethodService(),
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error initializing transliteration for $currentLanguage", e)
-        }
-    }
-    
-    /**
-     * Initialize multilingual dictionary (Phase 2)
-     * TODO: Integrate with existing MultilingualDictionary system
-     */
-    private fun initializeMultilingualDictionary() {
-        // Commented out to avoid conflicts with existing MultilingualDictionary
-        // New Phase 2 implementation in EnhancedAutocorrectEngine.kt is ready for integration
-        Log.d(TAG, "Phase 2 dictionary integration pending - using existing system")
-    }
-    
-    /**
-     * Get merged suggestions from multiple languages (Phase 2: Multilingual Fusion)
-     * TODO: Integrate with existing MultilingualAutocorrectEngine
-     */
-    private fun getMergedSuggestions(typed: String, context: List<String>): List<String> {
-        // Placeholder - existing multilingual system handles this
-        Log.d("Fusion", "Using existing multilingual autocorrect system")
-        return emptyList()
-    }
-    
-    /**
-     * Update suggestion strip with real-time transliteration suggestions (Phase 2)
-     */
-    private fun updateTransliterationSuggestions(suggestions: List<String>) {
-        try {
-            // Display top 3 transliteration suggestions
-            if (suggestions.isNotEmpty()) {
-                Log.d(TAG, "Real-time suggestions: ${suggestions.take(3)}")
-                // TODO: Update actual suggestion strip UI when available
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not update transliteration suggestions", e)
         }
     }
     
@@ -2730,11 +2757,8 @@ class AIKeyboardService : InputMethodService(),
                 toolbar.requestLayout()
             }
             
-            // 4. Update emoji panel theming
-            gboardEmojiPanel?.let { panel ->
-                applyThemeToEmojiPanel(panel, palette)
-                Log.d(TAG, "✅ Emoji panel (legacy) themed")
-            }
+            // 4. Update emoji panel theming (using EmojiPanelController only)
+            // gboardEmojiPanel removed - using EmojiPanelController only
             
             // Apply theme to new emoji panel controller
             emojiPanelController?.applyTheme()
@@ -2743,6 +2767,8 @@ class AIKeyboardService : InputMethodService(),
             // 5. Update media panel theming
             mediaPanelManager?.let { panel ->
                 applyThemeToMediaPanel(panel, palette)
+                // Also call the panel's own theme method
+                (panel as? SimpleMediaPanel)?.applyTheme()
                 Log.d(TAG, "✅ Media panel themed")
             }
             
@@ -2837,58 +2863,6 @@ class AIKeyboardService : InputMethodService(),
         val g = android.graphics.Color.green(color)
         val b = android.graphics.Color.blue(color)
         return android.graphics.Color.argb(a, r, g, b)
-    }
-    
-    /**
-     * Animate background color change with smooth transition
-     */
-    private fun animateBackgroundColor(view: android.view.View, toColor: Int, duration: Long = 200) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            try {
-                val fromColor = (view.background as? android.graphics.drawable.ColorDrawable)?.color ?: toColor
-                val colorAnimation = android.animation.ValueAnimator.ofObject(
-                    android.animation.ArgbEvaluator(),
-                    fromColor,
-                    toColor
-                )
-                colorAnimation.duration = duration
-                colorAnimation.addUpdateListener { animator ->
-                    view.setBackgroundColor(animator.animatedValue as Int)
-                }
-                colorAnimation.start()
-            } catch (e: Exception) {
-                // Fallback to instant color change
-                view.setBackgroundColor(toColor)
-            }
-        } else {
-            view.setBackgroundColor(toColor)
-        }
-    }
-    
-    /**
-     * Animate text color change with smooth transition
-     */
-    private fun animateTextColor(textView: android.widget.TextView, toColor: Int, duration: Long = 200) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            try {
-                val fromColor = textView.currentTextColor
-                val colorAnimation = android.animation.ValueAnimator.ofObject(
-                    android.animation.ArgbEvaluator(),
-                    fromColor,
-                    toColor
-                )
-                colorAnimation.duration = duration
-                colorAnimation.addUpdateListener { animator ->
-                    textView.setTextColor(animator.animatedValue as Int)
-                }
-                colorAnimation.start()
-            } catch (e: Exception) {
-                // Fallback to instant color change
-                textView.setTextColor(toColor)
-            }
-        } else {
-            textView.setTextColor(toColor)
-        }
     }
     
     /**
@@ -3043,86 +3017,10 @@ class AIKeyboardService : InputMethodService(),
     }
     
     // Theme data verification for debugging
-    private fun verifyThemeData() {
-        try {
-            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            val themeData = prefs.getString("flutter.current_theme_data", null)
-            val themeId = prefs.getString("flutter.current_theme_id", null)
-            
-            Log.d(TAG, "Theme verification - ID: $themeId, Data length: ${themeData?.length}")
-            
-            if (themeData != null) {
-                try {
-                    val json = org.json.JSONObject(themeData)
-                    val themeName = json.optString("name", "Unknown")
-                    val backgroundColor = json.optInt("backgroundColor", 0)
-                    Log.d(TAG, "Theme JSON parsed - Name: $themeName, BG Color: $backgroundColor")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Invalid theme JSON data", e)
-                }
-            } else {
-                Log.w(TAG, "No theme data found in SharedPreferences")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error verifying theme data", e)
-        }
-    }
 
     // Update suggestion bar theme (SIMPLIFIED: text-only, no chips)
-    private fun updateSuggestionBarTheme() {
-        val palette = themeManager.getCurrentPalette()
-        
-        suggestionContainer?.let { container ->
-            container.background = themeManager.createSuggestionBarBackground()
-            container.elevation = 0f
-            
-            // Update text color only - NO chip backgrounds
-            for (i in 0 until container.childCount) {
-                val child = container.getChildAt(i)
-                if (child is TextView) {
-                    child.setTextColor(palette.keyText)
-                    child.setBackgroundColor(Color.TRANSPARENT)
-                }
-            }
-            container.requestLayout()
-        }
-        
-        topContainer?.let { container ->
-            container.background = themeManager.createSuggestionBarBackground()
-            container.elevation = 0f
-            container.requestLayout()
-        }
-    }
 
     // Show theme update confirmation
-    private fun showThemeUpdateConfirmation() {
-        suggestionContainer?.let { container ->
-            if (container.childCount > 0) {
-                val firstSuggestion = container.getChildAt(0) as? TextView
-                firstSuggestion?.apply {
-                    val themeName = themeManager.getCurrentTheme().name
-                    text = "✨ Theme: $themeName"
-                    setTextColor(themeManager.getAccentColor()) // Use theme accent for success message
-                    visibility = View.VISIBLE
-                }
-                
-                // Reset after 2 seconds
-                mainHandler.postDelayed({
-                    updateAISuggestions()
-                }, 2000)
-            }
-        }
-    }
-    
-    
-    private fun getThemeTextColor(): Int {
-        // Return theme text color or fallback to black
-        return try {
-            themeManager.getTextColor()
-        } catch (e: Exception) {
-            Color.BLACK // Ultimate fallback
-        }
-    }
     
     /**
      * 🔍 DEEP DIAGNOSTIC: Log every key press with full context for audit
@@ -3141,7 +3039,7 @@ class AIKeyboardService : InputMethodService(),
             else -> if (primaryCode > 0 && primaryCode < 128) primaryCode.toChar().toString() else "CODE_$primaryCode"
         }
         
-        Log.d("KeyAudit", "🔍 Key pressed: $keyLabel | Code: $primaryCode | Mode: $currentKeyboardMode | Lang: $currentLanguage | Dynamic: $useDynamicLayout")
+        Log.d("KeyAudit", "🔍 Key pressed: $keyLabel | Code: $primaryCode | Mode: $currentKeyboardMode | Lang: $currentLanguage")
     }
     
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
@@ -3181,7 +3079,6 @@ class AIKeyboardService : InputMethodService(),
                 // CRITICAL FIX: Clear suggestions after sentence completion
                 currentWord = ""
                 updateAISuggestions() // This will clear suggestions for empty word
-                Log.d(TAG, "✅ Suggestions cleared after RETURN key")
             }
             KEYCODE_SPACE -> handleSpace(ic)
             KEYCODE_SYMBOLS -> switchKeyboardMode(KeyboardMode.SYMBOLS)  // ?123 key
@@ -3192,7 +3089,18 @@ class AIKeyboardService : InputMethodService(),
             // REMOVED: XML legacy codes (-3, -2) - all XML files now use consistent codes
             KEYCODE_VOICE -> {
                 // Enhanced voice input with visual feedback
-                handleVoiceInput()
+                try {
+                    showVoiceInputFeedback(true)
+                    Toast.makeText(this, "🎤 Voice input activated", Toast.LENGTH_SHORT).show()
+                    // Reset visual feedback after a delay
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        showVoiceInputFeedback(false)
+                    }, 2000)
+                    Log.d(TAG, "Voice input activated")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error starting voice input", e)
+                    Toast.makeText(this, "Voice input not available", Toast.LENGTH_SHORT).show()
+                }
                 ensureCursorStability()
             }
             KEYCODE_GLOBE -> {
@@ -3261,10 +3169,9 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "Updated currentWord: '$currentWord'")
             
             // Disable undo once user continues typing (accepts the correction)
-            if (undoAvailable && lastCorrection != null) {
-                val (_, corrected) = lastCorrection!!
-                // Only disable if they're typing a NEW character, not continuing the corrected word
-                if (!corrected.startsWith(currentWord, ignoreCase = true)) {
+            // ✅ FIX: Use safe call instead of !!
+            lastCorrection?.let { (_, corrected) ->
+                if (undoAvailable && !corrected.startsWith(currentWord, ignoreCase = true)) {
                     undoAvailable = false
                     Log.d(TAG, "🔒 Undo disabled - user accepted correction and continued typing")
                 }
@@ -3625,19 +3532,6 @@ class AIKeyboardService : InputMethodService(),
         currentWord = ""
     }
     
-    private fun getAutoCorrection(word: String): String? = when (word.lowercase()) {
-        "teh" -> "the"
-        "adn" -> "and"
-        "hte" -> "the"
-        "taht" -> "that"
-        "thier" -> "their"
-        "recieve" -> "receive"
-        "seperate" -> "separate"
-        "definately" -> "definitely"
-        "occured" -> "occurred"
-        "begining" -> "beginning"
-        else -> null
-    }
     
     // For double-backspace revert functionality
     private var lastBackspaceTime = 0L
@@ -3646,35 +3540,36 @@ class AIKeyboardService : InputMethodService(),
         val currentTime = System.currentTimeMillis()
         
         // Handle Gboard-style undo autocorrect on first backspace
-        if (undoAvailable && lastCorrection != null) {
-            val (original, corrected) = lastCorrection!!
-            
-            // Check if the corrected word is still present (user hasn't typed anything else)
-            val textBefore = ic.getTextBeforeCursor(corrected.length + 5, 0)?.toString() ?: ""
-            if (textBefore.endsWith(corrected) || textBefore.endsWith("$corrected ")) {
-                ic.beginBatchEdit()
-                // Delete the corrected word (and trailing space if present)
-                val deleteLength = if (textBefore.endsWith(" ")) corrected.length + 1 else corrected.length
-                ic.deleteSurroundingText(deleteLength, 0)
-                // Restore original word
-                ic.commitText(original, 1)
-                ic.endBatchEdit()
-                
-                Log.d(TAG, "↩️ Undo autocorrect: reverted '$corrected' → '$original'")
-                
-                // Mark as rejected and disable undo
-                correctionRejected = true
-                undoAvailable = false
-                currentWord = original
-                
-                // Phase 5: Learn from rejection
-                onCorrectionRejected(original, corrected)
-                
-                // Update suggestions
-                if (aiSuggestionsEnabled) {
-                    updateAISuggestions()
+        // ✅ FIX: Use safe call instead of !!
+        if (undoAvailable) {
+            lastCorrection?.let { (original, corrected) ->
+                // Check if the corrected word is still present (user hasn't typed anything else)
+                val textBefore = ic.getTextBeforeCursor(corrected.length + 5, 0)?.toString() ?: ""
+                if (textBefore.endsWith(corrected) || textBefore.endsWith("$corrected ")) {
+                    ic.beginBatchEdit()
+                    // Delete the corrected word (and trailing space if present)
+                    val deleteLength = if (textBefore.endsWith(" ")) corrected.length + 1 else corrected.length
+                    ic.deleteSurroundingText(deleteLength, 0)
+                    // Restore original word
+                    ic.commitText(original, 1)
+                    ic.endBatchEdit()
+                    
+                    Log.d(TAG, "↩️ Undo autocorrect: reverted '$corrected' → '$original'")
+                    
+                    // Mark as rejected and disable undo
+                    correctionRejected = true
+                    undoAvailable = false
+                    currentWord = original
+                    
+                    // Phase 5: Learn from rejection
+                    onCorrectionRejected(original, corrected)
+                    
+                    // Update suggestions
+                    if (aiSuggestionsEnabled) {
+                        updateAISuggestions()
+                    }
+                    return
                 }
-                return
             }
         }
         
@@ -3684,35 +3579,7 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
-        // Check for double-backspace revert within 1 second
-        val lastWord = currentWord
-        val revertCandidate = autocorrectEngine.getRevertCandidate(lastWord)
-        if (revertCandidate != null && 
-            currentTime - lastBackspaceTime < 1000 && 
-            currentWord.isEmpty()) {
-            
-            Log.d(TAG, "Double-backspace revert: '$revertCandidate'")
-            
-            // Find the corrected word and replace with original
-            val textBefore = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
-            val words = textBefore.split("\\s+".toRegex())
-            
-            if (words.isNotEmpty()) {
-                val lastWord = words.last()
-                ic.deleteSurroundingText(lastWord.length, 0)
-                ic.commitText("$revertCandidate ", 1)
-                
-                // Learn that user rejected the correction
-                coroutineScope.launch {
-                    autocorrectEngine.learnFromUser(revertCandidate.toString(), revertCandidate.toString(), currentLanguage)
-                }
-            }
-            
-            lastBackspaceTime = 0L // Reset to prevent further reverts
-            return
-        }
-        
-        lastBackspaceTime = currentTime
+        lastBackspaceTime = System.currentTimeMillis()
         
         val selectedText = ic.getSelectedText(0)
         if (TextUtils.isEmpty(selectedText)) {
@@ -3739,20 +3606,22 @@ class AIKeyboardService : InputMethodService(),
         }
         
         // Check if user is manually editing a corrected word (rejection signal)
-        if (lastCorrection != null && !correctionRejected) {
-            val (original, corrected) = lastCorrection!!
-            val textBefore = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
-            
-            // If user is deleting characters from the corrected word, mark as rejected
-            if (textBefore.contains(original.take(2)) || currentWord.startsWith(original.take(2))) {
-                correctionRejected = true
-                undoAvailable = false
-                Log.d(TAG, "🚫 User manually rejected autocorrect '$original' → '$corrected'")
+        // ✅ FIX: Use safe call instead of !!
+        if (!correctionRejected) {
+            lastCorrection?.let { (original, corrected) ->
+                val textBefore = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
                 
-                // Phase 5: Learn from rejection
-                onCorrectionRejected(original, corrected)
-                
-                lastCorrection = null
+                // If user is deleting characters from the corrected word, mark as rejected
+                if (textBefore.contains(original.take(2)) || currentWord.startsWith(original.take(2))) {
+                    correctionRejected = true
+                    undoAvailable = false
+                    Log.d(TAG, "🚫 User manually rejected autocorrect '$original' → '$corrected'")
+                    
+                    // Phase 5: Learn from rejection
+                    onCorrectionRejected(original, corrected)
+                    
+                    lastCorrection = null
+                }
             }
         }
         
@@ -3823,55 +3692,6 @@ class AIKeyboardService : InputMethodService(),
             ic.deleteSurroundingText(1, 0)
             return 1
         }
-    }
-    
-    /**
-     * Calculate the length of the last character cluster (handles emojis, surrogate pairs)
-     */
-    private fun getLastCharacterClusterLength(text: String): Int {
-        if (text.isEmpty()) return 0
-        
-        // Handle common emoji patterns
-        val emojiPatterns = listOf(
-            // Family emojis (👨‍👩‍👧‍👦)
-            Regex("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66$"),
-            Regex("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67$"),
-            Regex("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC66$"),
-            // Heart on fire (❤️‍🔥)
-            Regex("❤️\u200D\uD83D\uDD25$"),
-            // Other ZWJ sequences
-            Regex("[\uD800-\uDBFF][\uDC00-\uDFFF](?:\u200D[\uD800-\uDBFF][\uDC00-\uDFFF])+$"),
-            // Emoji with skin tone modifiers
-            Regex("[\uD83C\uDFFB-\uD83C\uDFFF][\uD800-\uDBFF][\uDC00-\uDFFF]$"),
-            // Basic emoji (surrogate pairs)
-            Regex("[\uD800-\uDBFF][\uDC00-\uDFFF]$"),
-            // Emoji with variation selector (❤️)
-            Regex("[\u2600-\u27BF]\uFE0F$")
-        )
-        
-        // Check each pattern to find the longest match
-        for (pattern in emojiPatterns) {
-            val match = pattern.find(text)
-            if (match != null) {
-                val matchLength = match.value.length
-                Log.d(TAG, "Found emoji cluster of length $matchLength: '${match.value}'")
-                return matchLength
-            }
-        }
-        
-        // Check for basic surrogate pair
-        if (text.length >= 2) {
-            val lastChar = text[text.length - 1]
-            val secondLastChar = text[text.length - 2]
-            
-            if (Character.isLowSurrogate(lastChar) && Character.isHighSurrogate(secondLastChar)) {
-                Log.d(TAG, "Found surrogate pair")
-                return 2
-            }
-        }
-        
-        // Default: delete 1 character
-        return 1
     }
     
     private fun rebuildCurrentWord(ic: InputConnection) {
@@ -3959,27 +3779,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Called when a new shortcut is added
-     * Phase 3: Automatic shortcut cloud sync
-     */
-    private fun onShortcutAdded(shortcut: String, expansion: String) {
-        try {
-            if (::dictionaryManager.isInitialized && ::userDictionaryManager.isInitialized) {
-                dictionaryManager.addEntry(shortcut, expansion)
-                
-                // Sync to cloud
-                val currentLang = dictionaryManager.getCurrentLanguage()
-                val allShortcuts = dictionaryManager.getAllEntriesAsMap()
-                userDictionaryManager.syncShortcutsToCloud(allShortcuts, currentLang)
-                
-                Log.d(TAG, "✅ Added shortcut and synced to cloud: $shortcut → $expansion")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add shortcut", e)
-        }
-    }
-    
-    /**
      * Phase 5: Called when user accepts an autocorrect suggestion
      * Positive learning for personalization
      */
@@ -3993,8 +3792,6 @@ class AIKeyboardService : InputMethodService(),
                 if (::autocorrectEngine.isInitialized) {
                     autocorrectEngine.learnFromUser(original, corrected, currentLanguage)
                 }
-                
-                Log.d(TAG, "✅ Accepted correction: '$original' → '$corrected'")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to process accepted correction", e)
@@ -4037,7 +3834,6 @@ class AIKeyboardService : InputMethodService(),
                 val prev2 = if (wordHistory.size >= 2) wordHistory[wordHistory.size - 2] else ""
                 
                 val context = listOfNotNull(prev1, prev2).filter { it.isNotBlank() }
-                autocorrectEngine.processBoundary(context, currentLanguage)
                 
                 // Get suggestions for the current word
                 val allSuggestions = autocorrectEngine.getCorrections(currentWord, currentLanguage, context)
@@ -4045,7 +3841,7 @@ class AIKeyboardService : InputMethodService(),
                 // Phase 5: Filter out blacklisted corrections
                 val suggestions = if (::userDictionaryManager.isInitialized) {
                     allSuggestions.filter { suggestion ->
-                        !userDictionaryManager.isBlacklisted(currentWord, suggestion.word)
+                        !userDictionaryManager.isBlacklisted(currentWord, suggestion.text)
                     }.also { filtered ->
                         val blacklistedCount = allSuggestions.size - filtered.size
                         if (blacklistedCount > 0) {
@@ -4058,9 +3854,9 @@ class AIKeyboardService : InputMethodService(),
                 
                 val topSuggestion = suggestions.firstOrNull()
                 
-                if (topSuggestion != null && topSuggestion.isCorrection) {
+                if (topSuggestion != null && topSuggestion.source == SuggestionSource.CORRECTION) {
                     // Auto-apply correction
-                    val correction = topSuggestion.word
+                    val correction = topSuggestion.text
                     withContext(Dispatchers.Main) {
                         val ic = currentInputConnection
                         if (ic != null) {
@@ -4092,10 +3888,10 @@ class AIKeyboardService : InputMethodService(),
                 withContext(Dispatchers.Main) {
                     // Update suggestion strip with top suggestions
                     val suggestionTexts = suggestions.map { suggestion ->
-                        if (suggestion.isCorrection) {
-                            "✓ ${suggestion.word}" // Mark corrections
+                        if (suggestion.source == SuggestionSource.CORRECTION) {
+                            "✓ ${suggestion.text}" // Mark corrections
                         } else {
-                            suggestion.word
+                            suggestion.text
                         }
                     }
                     updateSuggestionUI(suggestionTexts)
@@ -4278,12 +4074,6 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun getShiftStateName(): String = when (shiftState) {
-        SHIFT_OFF -> "OFF (lowercase)"
-        SHIFT_ON -> "ON (next char uppercase)"
-        SHIFT_CAPS -> "CAPS (all uppercase)"
-        else -> "UNKNOWN"
-    }
     
     /**
      * Switch keyboard mode with CleverType-style cycling
@@ -4299,21 +4089,9 @@ class AIKeyboardService : InputMethodService(),
         
         when (targetMode) {
             KeyboardMode.LETTERS -> {
-                if (useDynamicLayout) {
-                    // NEW: Use dynamic JSON-based layout
-                    coroutineScope.launch {
-                        loadLanguageLayout(currentLanguage)
-                    }
-                } else {
-                    // LEGACY: Use XML-based layout
-                    val lang = currentLanguage.uppercase()
-                    val keyboardResource = getKeyboardResourceForLanguage(lang, showNumberRow)
-                    keyboard = Keyboard(this, keyboardResource)
-                    currentKeyboard = KEYBOARD_LETTERS
-                    keyboardView?.keyboard = keyboard
-                    keyboardView?.showNormalLayout()
-                    rebindKeyboardListener()  // NOTE: Always rebind after layout change
-                    applyTheme()
+                // Use dynamic JSON-based layout
+                coroutineScope.launch {
+                    loadLanguageLayout(currentLanguage)
                 }
             }
             
@@ -4327,47 +4105,18 @@ class AIKeyboardService : InputMethodService(),
             }
             
             KeyboardMode.SYMBOLS -> {
-                if (useDynamicLayout) {
-                    // Use dynamic symbols layout
-                    loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.SYMBOLS)
-                } else {
-                    keyboard = Keyboard(this, R.xml.symbols)
-                    currentKeyboard = KEYBOARD_SYMBOLS
-                    keyboardView?.keyboard = keyboard
-                    keyboardView?.showNormalLayout()
-                    rebindKeyboardListener()
-                    applyTheme()
-                }
+                // Use dynamic symbols layout
+                loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.SYMBOLS)
             }
             
             KeyboardMode.EXTENDED_SYMBOLS -> {
-                if (useDynamicLayout) {
-                    // Use dynamic extended symbols layout
-                    loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.EXTENDED_SYMBOLS)
-                } else {
-                    // Fallback to regular symbols
-                    keyboard = Keyboard(this, R.xml.symbols)
-                    currentKeyboard = KEYBOARD_SYMBOLS
-                    keyboardView?.keyboard = keyboard
-                    keyboardView?.showNormalLayout()
-                    rebindKeyboardListener()
-                    applyTheme()
-                }
+                // Use dynamic extended symbols layout
+                loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.EXTENDED_SYMBOLS)
             }
             
             KeyboardMode.DIALER -> {
-                if (useDynamicLayout) {
-                    // Use dynamic dialer layout
-                    loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.DIALER)
-                } else {
-                    // Fallback to numbers
-                    keyboard = Keyboard(this, R.xml.symbols)
-                    currentKeyboard = KEYBOARD_NUMBERS
-                    keyboardView?.keyboard = keyboard
-                    keyboardView?.showNormalLayout()
-                    rebindKeyboardListener()
-                    applyTheme()
-                }
+                // Use dynamic dialer layout
+                loadDynamicLayout(currentLanguage, LanguageLayoutAdapter.KeyboardMode.DIALER)
             }
             
             KeyboardMode.EMOJI -> {
@@ -4377,7 +4126,6 @@ class AIKeyboardService : InputMethodService(),
         }
         
         currentKeyboardMode = targetMode
-        Log.d(TAG, "✅ Switched to $currentKeyboardMode")
     }
     
     /**
@@ -4407,6 +4155,10 @@ class AIKeyboardService : InputMethodService(),
                         LanguageLayoutAdapter.KeyboardMode.EXTENDED_SYMBOLS -> KEYBOARD_SYMBOLS
                         LanguageLayoutAdapter.KeyboardMode.DIALER -> KEYBOARD_NUMBERS
                     }
+                    
+                    // 🔧 FIX: Rebind swipe listener after layout rebuild
+                    rebindKeyboardListener()
+                    
                     applyTheme()
                     Log.d(TAG, "✅ Dynamic layout loaded for $languageCode (mode: $mode)")
                 }
@@ -4429,19 +4181,11 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Get number row enabled setting from SharedPreferences
+     * ⚡ PERFORMANCE: Use cached value instead of reading SharedPreferences every time
+     * The cache is updated in applyLoadedSettings() when settings change
      */
     private fun getNumberRowEnabled(): Boolean {
-        return try {
-            // Read from the same place as SettingsManager (ai_keyboard_settings)
-            val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-            val enabled = prefs.getBoolean("show_number_row", false)
-            Log.d(TAG, "📊 getNumberRowEnabled: $enabled")
-            enabled
-        } catch (e: Exception) {
-            Log.e(TAG, "Error reading number row setting", e)
-            false
-        }
+        return showNumberRow
     }
     
     /**
@@ -4459,6 +4203,18 @@ class AIKeyboardService : InputMethodService(),
                     view.setKeyboardMode(LanguageLayoutAdapter.KeyboardMode.LETTERS, languageLayoutAdapter, showNumberRow)
                     view.setCurrentLanguage(languageManager.getLanguageDisplayName(langCode))
                     view.refreshTheme()
+                    
+                    // 🔧 FIX: Rebind swipe listener after layout rebuild
+                    rebindKeyboardListener()
+                    
+                    // Force the parent container to remeasure and relayout
+                    keyboardContainer?.requestLayout()
+                    mainKeyboardLayout?.requestLayout()
+                    
+                    // Update the IME window to recalculate insets with new height
+                    updateInputViewShown()
+                    
+                    Log.d(TAG, "✅ Layout loaded for $langCode with numberRow=$showNumberRow")
                 }
             }
         }
@@ -4552,58 +4308,6 @@ class AIKeyboardService : InputMethodService(),
         // Future enhancement: Implement emoji picker popup
         // Toast.makeText(this, "Emoji picker - Feature coming soon!", Toast.LENGTH_SHORT).show()
     }
-    
-    /**
-     * Handle emoji insertion from specific category
-     */
-    private fun handleEmojiFromCategory(category: String) {
-        val ic = currentInputConnection ?: return
-        val emoji = EmojiCollection.getRandomEmojiFromCategory(category)
-        insertEmojiWithCursor(emoji)
-        Log.d(TAG, "Inserted $category emoji: $emoji")
-    }
-    
-    /**
-     * Show emoji quick picker with popular emojis
-     */
-    private fun showEmojiQuickPicker() {
-        try {
-            // Create a popup with popular emojis
-            val popularEmojis = EmojiCollection.popularEmojis.take(12) // Show top 12
-            
-            // For now, just cycle through popular emojis on repeated presses
-            // This is a simple implementation before implementing full emoji picker UI
-            val emoji = popularEmojis.random()
-            insertEmojiWithCursor(emoji)
-            
-            // Show toast with emoji categories available
-            Toast.makeText(this, "🎉 ${popularEmojis.size} popular emojis available! Long press for more categories", Toast.LENGTH_SHORT).show()
-            
-            Log.d(TAG, "Quick emoji picker - inserted: $emoji")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing emoji quick picker", e)
-        }
-    }
-    
-    /**
-     * Show emoji category picker (for long press)
-     */
-    private fun showEmojiCategoryPicker() {
-        try {
-            // Create a simple category selection
-            val categories = listOf("Popular", "Smileys", "Hearts", "Animals", "Food", "Activities")
-            val randomCategory = categories.random()
-            val emoji = EmojiCollection.getRandomEmojiFromCategory(randomCategory)
-            
-            insertEmojiWithCursor(emoji)
-            Toast.makeText(this, "$randomCategory: $emoji", Toast.LENGTH_SHORT).show()
-            
-            Log.d(TAG, "Category picker - $randomCategory: $emoji")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing emoji category picker", e)
-        }
-    }
-    
     
     // PERFORMANCE: Debounced wrapper for suggestion updates
     private fun updateAISuggestions() {
@@ -4712,7 +4416,7 @@ class AIKeyboardService : InputMethodService(),
         try {
             // ✅ ALWAYS try local autocorrect first for instant suggestions (like "teh → the")
             val localSuggestions = if (ensureEngineReady()) {
-                autocorrectEngine.getCorrections(word, currentLanguage).map { it.word }
+                autocorrectEngine.getCorrections(word, currentLanguage).map { it.text }
             } else {
                 emptyList()
             }
@@ -4811,32 +4515,6 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun generateBasicSuggestions(currentWord: String): List<String> {
-        // Basic fallback suggestions when AI is not available - Google style
-        val suggestions = mutableListOf<String>()
-        
-        Log.d(TAG, "Generating basic suggestions for: '$currentWord'")
-        
-        if (currentWord.isEmpty()) {
-            // Default Google-style suggestions
-            suggestions.addAll(listOf("I", "The", "In"))
-        } else {
-            val word = currentWord.lowercase()
-            
-            // Simple prefix matching for common words
-            when {
-                word.startsWith("h") -> suggestions.addAll(listOf("hello", "how", "have"))
-                word.startsWith("w") -> suggestions.addAll(listOf("what", "when", "where"))
-                word.startsWith("t") -> suggestions.addAll(listOf("the", "that", "this"))
-                word.startsWith("i") -> suggestions.addAll(listOf("I", "in", "is"))
-                word.startsWith("a") -> suggestions.addAll(listOf("and", "are", "as"))
-                word.startsWith("o") -> suggestions.addAll(listOf("of", "on", "or"))
-                else -> suggestions.addAll(listOf("I", "The", "In"))
-            }
-        }
-        
-        return suggestions.take(5)
-    }
     
     /**
      * Load dictionaries from assets
@@ -4987,13 +4665,6 @@ class AIKeyboardService : InputMethodService(),
                 }
             }
         }
-    }
-    
-    /**
-     * Get built-in correction for a word using loaded corrections dictionary
-     */
-    private fun getBuiltInCorrection(word: String): String? {
-        return corrections[word.lowercase()]
     }
     
     /**
@@ -5156,22 +4827,39 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    // OPTIMIZED: Fast suggestion UI update
+    // OPTIMIZED: Fast suggestion UI update (main-thread safe)
     private fun updateSuggestionUI(suggestions: List<String>) {
-        suggestionContainer?.let { container ->
-            val childCount = minOf(container.childCount, 3)
-            
-            for (i in 0 until childCount) {
-                val suggestionView = container.getChildAt(i) as? TextView
-                suggestionView?.text = suggestions.getOrNull(i) ?: ""
+        try {
+            // Ensure UI updates happen on main thread to avoid "Posting sync barrier on non-owner thread" warnings
+            mainHandler.post {
+                suggestionContainer?.let { container ->
+                    val childCount = minOf(container.childCount, 3)
+                    
+                    for (i in 0 until childCount) {
+                        val suggestionView = container.getChildAt(i) as? TextView
+                        suggestionView?.apply {
+                            text = suggestions.getOrNull(i) ?: ""
+                            visibility = if (text.isNotEmpty()) View.VISIBLE else View.INVISIBLE
+                            // Ensure consistent text color
+                            val palette = themeManager.getCurrentPalette()
+                            setTextColor(palette.keyText)
+                        }
+                    }
+                    
+                    Log.d(TAG, "Updated suggestion UI: ${suggestions.take(3)}")
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "⚠️ Failed to update suggestion UI", e)
         }
     }
     
     private fun clearSuggestions() {
-        suggestionContainer?.let { container ->
-            for (i in 0 until container.childCount) {
-                (container.getChildAt(i) as? TextView)?.text = ""
+        safeMain {
+            suggestionContainer?.let { container ->
+                for (i in 0 until container.childCount) {
+                    (container.getChildAt(i) as? TextView)?.text = ""
+                }
             }
         }
     }
@@ -5187,13 +4875,6 @@ class AIKeyboardService : InputMethodService(),
         // Clean suggestion text (remove correction indicators)
         val cleanSuggestion = suggestion.replace("✓ ", "").trim()
         Log.d(TAG, "Clean suggestion: '$cleanSuggestion'")
-        
-        // Check for revert request (user tapping original word)
-        val revertCandidate = autocorrectEngine.getRevertCandidate("") // Placeholder for lastWord
-        if (revertCandidate != null && cleanSuggestion == revertCandidate) {
-            Log.d(TAG, "Revert requested: restoring '$revertCandidate'")
-            // This handles the revert case where user taps the original word
-        }
         
         // Check if suggestion is an emoji
         val isEmoji = cleanSuggestion.length <= 8 && cleanSuggestion.matches(Regex(".*[\\p{So}\\p{Sk}\\p{Sm}\\p{Sc}\\p{Cn}].*"))
@@ -5301,6 +4982,10 @@ class AIKeyboardService : InputMethodService(),
             // NOTE: Spacebar long-press removed - use globe button for language switching
             if (hasAccentVariants(primaryCode)) {
                 currentLongPressKey = primaryCode
+                // Find and store the key object for positioning the popup
+                currentLongPressKeyObject = view.keyboard?.keys?.find { key ->
+                    key.codes.firstOrNull() == primaryCode
+                }
                 longPressHandler.postDelayed(longPressRunnable, LONG_PRESS_TIMEOUT)
             }
             
@@ -5317,6 +5002,7 @@ class AIKeyboardService : InputMethodService(),
         if (currentLongPressKey == primaryCode) {
             longPressHandler.removeCallbacks(longPressRunnable)
             currentLongPressKey = -1
+            currentLongPressKeyObject = null
         }
         
         // Hide key preview but keep accent options if they're showing
@@ -5327,15 +5013,6 @@ class AIKeyboardService : InputMethodService(),
         // Don't hide accent popup here - let user tap to select or tap outside to dismiss
     }
     
-    private fun animateKeyPress(primaryCode: Int) {
-        // No animation - keep keys stable and constant
-        // Removed all scaling and visual effects
-    }
-    
-    private fun animateKeyRelease(primaryCode: Int) {
-        // No animation - keep keys stable and constant
-        // Removed all scaling and visual effects
-    }
     
     override fun onText(text: CharSequence?) {
         val ic = currentInputConnection ?: return
@@ -5359,15 +5036,19 @@ class AIKeyboardService : InputMethodService(),
                         
                         if (nativeText.isNotEmpty()) {
                             try {
-                                val romanText = transliterationEngine!!.reverseTransliterate(nativeText)
-                                
-                                // Delete buffered native text
-                                ic.deleteSurroundingText(romanBuffer.length, 0)
-                                
-                                // Insert Roman text + punctuation
-                                ic.commitText("$romanText${lastChar}", 1)
-                                
-                                Log.d(TAG, "🔄 Reverse transliterated: '$nativeText' → '$romanText'")
+                                // ✅ FIX: Use safe call instead of !!
+                                val romanText = transliterationEngine?.reverseTransliterate(nativeText)
+                                if (romanText != null) {
+                                    // Delete buffered native text
+                                    ic.deleteSurroundingText(romanBuffer.length, 0)
+                                    
+                                    // Insert Roman text + punctuation
+                                    ic.commitText("$romanText${lastChar}", 1)
+                                    
+                                    Log.d(TAG, "🔄 Reverse transliterated: '$nativeText' → '$romanText'")
+                                } else {
+                                    ic.commitText(it, 1)
+                                }
                             } catch (e: Exception) {
                                 Log.e(TAG, "❌ Reverse transliteration error", e)
                                 ic.commitText(it, 1)
@@ -5388,11 +5069,12 @@ class AIKeyboardService : InputMethodService(),
             }
             
             // **PHASE 1+2: Forward transliteration (Roman → Native) with autocorrect**
+            // ✅ FIX: Use safe call instead of !!
             if (transliterationEnabled && 
                 currentLanguage in listOf("hi", "te", "ta") &&
                 transliterationEngine != null) {
                 
-                val isRomanInput = transliterationEngine!!.isRomanInput(it.toString())
+                val isRomanInput = transliterationEngine?.isRomanInput(it.toString()) ?: false
                 
                 if (isRomanInput) {
                     // Buffer Roman characters
@@ -5419,15 +5101,18 @@ class AIKeyboardService : InputMethodService(),
                             try {
                                 // Transliterate using Phase 1 engine
                                 // Phase 2 autocorrect integration pending
-                                val nativeText = transliterationEngine!!.transliterate(romanText)
+                                // ✅ FIX: Use safe call instead of !!
+                                val nativeText = transliterationEngine?.transliterate(romanText)
                                 
-                                // Delete the buffered Roman text
-                                ic.deleteSurroundingText(romanBuffer.length, 0)
-                                
-                                // Insert transliterated text + punctuation
-                                ic.commitText("$nativeText$lastChar", 1)
-                                
-                                Log.d(TAG, "🔤 Transliterated: '$romanText' → '$nativeText'")
+                                if (nativeText != null) {
+                                    // Delete the buffered Roman text
+                                    ic.deleteSurroundingText(romanBuffer.length, 0)
+                                    
+                                    // Insert transliterated text + punctuation
+                                    ic.commitText("$nativeText$lastChar", 1)
+                                    
+                                    Log.d(TAG, "🔤 Transliterated: '$romanText' → '$nativeText'")
+                                }
                             } catch (e: Exception) {
                                 Log.e(TAG, "❌ Transliteration error", e)
                                 // Fallback: just commit the original text
@@ -5471,7 +5156,8 @@ class AIKeyboardService : InputMethodService(),
             // Continue swipe typing
             processSwipeMovement(-1) // Left direction
         } else {
-            handleBackspace(currentInputConnection!!)
+            // ✅ FIX: Use safe call instead of !!
+            currentInputConnection?.let { handleBackspace(it) }
         }
     }
     
@@ -5572,6 +5258,55 @@ class AIKeyboardService : InputMethodService(),
         return applySwipeCorrections(result)
     }
     
+    /**
+     * Generate a simple fallback when swipe decoder returns nothing
+     */
+    private fun generateSwipeFallback(swipePath: List<Pair<Float, Float>>): String {
+        if (swipePath.isEmpty()) return "swipe"
+        
+        // Simple heuristic: map to rough QWERTY regions
+        val letters = swipePath.mapNotNull { (x, y) ->
+            when {
+                y < 0.33f -> { // Top row
+                    when {
+                        x < 0.2f -> 'q'
+                        x < 0.4f -> 'w' 
+                        x < 0.6f -> 'e'
+                        x < 0.8f -> 'r'
+                        else -> 't'
+                    }
+                }
+                y < 0.66f -> { // Middle row
+                    when {
+                        x < 0.25f -> 'a'
+                        x < 0.5f -> 's'
+                        x < 0.75f -> 'd'
+                        else -> 'f'
+                    }
+                }
+                else -> { // Bottom row
+                    when {
+                        x < 0.33f -> 'z'
+                        x < 0.66f -> 'x'
+                        else -> 'c'
+                    }
+                }
+            }
+        }
+        
+        // Collapse consecutive same letters
+        val collapsed = StringBuilder()
+        var prev: Char? = null
+        for (c in letters) {
+            if (c != prev) {
+                collapsed.append(c)
+                prev = c
+            }
+        }
+        
+        return if (collapsed.length >= 2) collapsed.toString() else "swipe"
+    }
+    
     private fun applySwipeCorrections(swipeWord: String): String {
         // Enhanced swipe pattern to word mapping
         return when (swipeWord.lowercase()) {
@@ -5638,7 +5373,12 @@ class AIKeyboardService : InputMethodService(),
     private var lastCommittedSwipeWord = ""
     
     // Implement SwipeListener interface methods with enhanced autocorrection
-    override fun onSwipeDetected(swipedKeys: List<Int>, swipePattern: String, keySequence: List<Int>) {
+    override fun onSwipeDetected(
+        swipedKeys: List<Int>, 
+        swipePattern: String, 
+        keySequence: List<Int>,
+        swipePath: List<Pair<Float, Float>>
+    ) {
         if (keySequence.isEmpty()) return
         
         // ✅ Safety check: Ensure swipe engine is initialized
@@ -5647,83 +5387,72 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
-        // Use the ordered key sequence for better accuracy
-        val swipeSequence = StringBuilder()
-        keySequence.forEach { keyCode ->
-            if (keyCode > 0 && keyCode < 256) {
-                val c = keyCode.toChar()
-                if (Character.isLetter(c)) {
-                    swipeSequence.append(Character.toLowerCase(c))
-                }
-            }
+        // Skip if path is too short (accidental taps)
+        if (swipePath.size < 2) {
+            Log.d(TAG, "Swipe path too short (${swipePath.size} points), treating as tap")
+            return
         }
         
-        val swipeLetters = swipeSequence.toString()
-        if (swipeLetters.length > 1) {
-            coroutineScope.launch {
-                try {
-                    val startTime = System.currentTimeMillis()
+        Log.d(TAG, "🔍 Processing swipe with ${swipePath.size} coordinate points")
+        Log.d("AIKeyboardService", "🧭 onSwipeDetected: pts=${swipePath.size} first=${swipePath.firstOrNull()} last=${swipePath.lastOrNull()}")
+        
+        coroutineScope.launch {
+            try {
+                val startTime = System.currentTimeMillis()
+                
+                // Get context word for better prediction
+                val prevWord = if (wordHistory.isNotEmpty()) wordHistory.last() else ""
+                
+                // Use path-based swipe decoding (NOT string-based)
+                val candidates = swipeAutocorrectEngine.getUnifiedCandidates(
+                    swipePath = swipePath,
+                    typedSequence = swipePattern,  // Optional fallback pattern
+                    previousWord = prevWord,
+                    currentLanguage = currentLanguage
+                )
                     
-                    // Get context words for better prediction
-                    val prev1 = if (wordHistory.isNotEmpty()) wordHistory.last() else ""
-                    val prev2 = if (wordHistory.size >= 2) wordHistory[wordHistory.size - 2] else ""
+                val processingTime = System.currentTimeMillis() - startTime
+                Log.d(TAG, "🔍 Swipe decoding took ${processingTime}ms, got ${candidates.size} candidates")
+                
+                withContext(Dispatchers.Main) {
+                    // GUARANTEE: Never leave user with empty results
+                    val finalCandidates = if (candidates.isNotEmpty()) {
+                        candidates
+                    } else {
+                        // Last resort: create a simple fallback based on swipe path
+                        val fallback = generateSwipeFallback(swipePath)
+                        Log.w("AIKeyboardService", "⚠️ Swipe decoder empty — emitting fallback='$fallback'")
+                        listOf(fallback)
+                    }
                     
-                    // Use enhanced swipe autocorrect engine
-                    val swipeResult = swipeAutocorrectEngine.getCandidates(swipeLetters, prev1, prev2)
+                    val bestCandidate = finalCandidates.first()
                     
-                    withContext(Dispatchers.Main) {
-                        if (swipeResult.candidates.isNotEmpty()) {
-                            val bestCandidate = swipeResult.bestCandidate!!
-                            
-                            // Auto-commit the best candidate
-                            currentInputConnection?.let { ic ->
-                                ic.commitText("${bestCandidate.word} ", 1)
-                                lastCommittedSwipeWord = bestCandidate.word
-                            }
-                            
-                            // Update word history for context
-                            wordHistory.add(bestCandidate.word)
-                            if (wordHistory.size > 20) {
-                                wordHistory.removeAt(0)
-                            }
-                            
-                            // Show alternatives in suggestion strip
-                            updateEnhancedSwipeSuggestions(swipeResult.candidates.take(3), swipeLetters)
-                            
-                            // Show success feedback with confidence indicator
-                            showSwipeSuccess(bestCandidate.word, bestCandidate.finalScore)
-                            
-                            Log.d(TAG, "Enhanced swipe: '${swipeLetters}' → '${bestCandidate.word}' " +
-                                      "(score: ${bestCandidate.finalScore.format(2)}, " +
-                                      "${swipeResult.candidates.size} alternatives, ${swipeResult.processingTimeMs}ms)")
-                        } else {
-                            // Fallback to original swipe if no candidates
-                            currentInputConnection?.let { ic ->
-                                ic.commitText("$swipeLetters ", 1)
-                                lastCommittedSwipeWord = swipeLetters
-                            }
-                            
-                            updateSuggestionUI(listOf(swipeLetters))
-                            Log.d(TAG, "Swipe fallback: '${swipeLetters}' (no dictionary matches)")
-                        }
+                    // Auto-commit the best candidate  
+                    currentInputConnection?.let { ic ->
+                        ic.commitText("$bestCandidate ", 1)
+                        lastCommittedSwipeWord = bestCandidate
+                    }
+                    
+                    // Update word history for context
+                    wordHistory.add(bestCandidate)
+                    if (wordHistory.size > 20) {
+                        wordHistory.removeAt(0)
+                    }
                         
-                        // Update AI suggestions for next word prediction
-                        updateAISuggestions()
-                    }
+                    // Show alternatives in suggestion strip
+                    updateSuggestionUI(finalCandidates.take(3))
+                        
+                    Log.d(TAG, "✅ Swipe decoded: path(${swipePath.size} points) → '$bestCandidate' (${finalCandidates.size} alternatives, ${processingTime}ms)")
                     
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in enhanced swipe processing", e)
-                    // Fallback to original behavior
-                    withContext(Dispatchers.Main) {
-                        val finalWord = applySwipeCorrections(swipeLetters)
-                        if (finalWord.isNotEmpty()) {
-                            currentInputConnection?.let { ic ->
-                                ic.commitText("$finalWord ", 1)
-                                lastCommittedSwipeWord = finalWord
-                                updateAISuggestions()
-                            }
-                        }
-                    }
+                    // Update AI suggestions for next word prediction
+                    updateAISuggestions()
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in swipe path processing", e)
+                // NO FALLBACK - let user try again or tap individual keys
+                withContext(Dispatchers.Main) {
+                    updateSuggestionUI(emptyList())
                 }
             }
         }
@@ -5812,13 +5541,12 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun showSwipeSuccess(word: String, confidence: Double = 0.0) {
-        // Show the swiped word in the first suggestion slot briefly
+        // Show the swiped word in the first suggestion slot briefly (no icons)
         suggestionContainer?.let { container ->
             if (container.childCount > 0) {
                 val firstSuggestion = container.getChildAt(0) as TextView
-                val confidenceText = if (confidence > 0.5) " (${(confidence * 100).toInt()}%)" else ""
                 firstSuggestion.apply {
-                    text = "✓ $word$confidenceText"
+                    text = word // Remove checkmark icon
                     val palette = themeManager.getCurrentPalette()
                     setTextColor(palette.specialAccent) // Theme accent for success
                     visibility = View.VISIBLE
@@ -5833,20 +5561,9 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun showSwipeIndicator(show: Boolean) {
-        suggestionContainer?.let { container ->
-            if (container.childCount > 1) {
-                val indicator = container.getChildAt(1) as TextView
-                if (show) {
-                    indicator.apply {
-                        text = "🔄 Swipe"
-                        setTextColor(getSwipeTextColor())
-                        visibility = View.VISIBLE
-                    }
-                } else {
-                    indicator.visibility = View.INVISIBLE
-                }
-            }
-        }
+        // Don't show swipe indicator icons, but keep middle suggestion visible
+        // This function no longer sets any swipe indicators to keep suggestions clean
+        // Middle suggestion will be handled by normal suggestion update process
     }
     
     private fun showSwipePrediction(prediction: String) {
@@ -6016,7 +5733,7 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "[KeyboardHeightManager] Applied keyboard height: ${keyboardHeight}px")
         }
         
-        // Height is now managed by UniversalKeyboardHost - no manual adjustment needed
+        // Height is now managed by keyboard container - no manual adjustment needed
     }
     
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -6024,6 +5741,19 @@ class AIKeyboardService : InputMethodService(),
         
         // Apply CleverType config on keyboard activation
         applyConfig()
+        
+        // 🔁 Trigger Unified AI Suggestion update on typing start
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                val beforeCursor = currentInputConnection?.getTextBeforeCursor(50, 0)?.toString() ?: ""
+                val words = beforeCursor.split(" ").filter { it.isNotBlank() }
+                val currentWord = words.lastOrNull() ?: ""
+                val contextWords = if (words.size > 1) words.dropLast(1) else emptyList()
+                updateAISuggestions(currentWord, contextWords)
+            } catch (e: Exception) {
+                Log.e("AIKeyboardService", "⚠️ Failed to trigger updateAISuggestions", e)
+            }
+        }
         
         // Reset keyboard state with enhanced CapsShiftManager
         if (::capsShiftManager.isInitialized) {
@@ -6072,7 +5802,6 @@ class AIKeyboardService : InputMethodService(),
                     }
                     withContext(Dispatchers.Main) {
                         if (autocorrectEngine.isLanguageLoaded(currentLang)) {
-                            Log.d(TAG, "✅ Dictionary loaded for $currentLang, showing suggestions")
                             updateAISuggestions()
                         } else {
                             Log.e(TAG, "❌ Dictionary load timeout for $currentLang after ${retries * 100}ms")
@@ -6102,16 +5831,17 @@ class AIKeyboardService : InputMethodService(),
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         
-        // Handle configuration changes with KeyboardHeightManager
-        keyboardHeightManager.handleConfigurationChange(newConfig) { isLandscape, newHeight ->
-            // Update keyboard height
-            mainKeyboardLayout?.layoutParams?.height = newHeight
-            mainKeyboardLayout?.requestLayout()
-            
-            // Height is now managed by UniversalKeyboardHost - no manual adjustment needed
-            
-            Log.d(TAG, "[KeyboardHeightManager] Configuration changed - Landscape: $isLandscape, Height: $newHeight")
-        }
+        // Recalculate keyboard height for new configuration
+        val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val newHeight = keyboardHeightManager.calculateKeyboardHeight()
+        
+        // Update keyboard height
+        mainKeyboardLayout?.layoutParams?.height = newHeight
+        mainKeyboardLayout?.requestLayout()
+        
+        // Height is now managed by keyboard container - no manual adjustment needed
+        
+        Log.d(TAG, "[KeyboardHeightManager] Configuration changed - Landscape: $isLandscape, Height: $newHeight")
         
         // Reinitialize keyboard for new configuration
         keyboardView?.let { view ->
@@ -6562,6 +6292,7 @@ class AIKeyboardService : InputMethodService(),
                     try {
                         // Clean up but don't affect keyboard focus
                         currentLongPressKey = -1
+                        currentLongPressKeyObject = null
                         longPressHandler.removeCallbacks(longPressRunnable)
                     } catch (e: Exception) {
                         // Ignore cleanup errors
@@ -6569,10 +6300,31 @@ class AIKeyboardService : InputMethodService(),
                 }
             }
             
-            // Show popup above keyboard with safer positioning
+            // Measure the popup to get its dimensions
+            container.measure(
+                android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
+                android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED)
+            )
+            val popupWidth = container.measuredWidth
+            val popupHeight = container.measuredHeight
+            
+            // Show popup above the pressed key if we have its position
             keyboardView?.let { view ->
                 try {
-                    accentPopup?.showAsDropDown(view, 0, -view.height - 150, Gravity.CENTER_HORIZONTAL)
+                    val pressedKey = currentLongPressKeyObject
+                    if (pressedKey != null) {
+                        // Calculate position: center horizontally above the pressed key
+                        val location = IntArray(2)
+                        view.getLocationInWindow(location)
+                        
+                        val popupX = location[0] + pressedKey.x + (pressedKey.width / 2) - (popupWidth / 2)
+                        val popupY = location[1] + pressedKey.y - popupHeight - 10 // 10px above the key
+                        
+                        accentPopup?.showAtLocation(view, Gravity.NO_GRAVITY, popupX, popupY)
+                    } else {
+                        // Fallback: show at top center if key position unknown
+                        accentPopup?.showAsDropDown(view, 0, -view.height - 150, Gravity.CENTER_HORIZONTAL)
+                    }
                 } catch (e: Exception) {
                     // Fallback positioning
                     accentPopup?.showAtLocation(view, Gravity.CENTER_HORIZONTAL or Gravity.TOP, 0, 150)
@@ -6824,25 +6576,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Enhanced voice input handler with Gboard-like functionality
-     */
-    private fun handleVoiceInput() {
-        try {
-            // Provide visual feedback
-            showVoiceInputFeedback(true)
-            
-            // Start voice recognition
-            startVoiceRecognition()
-            
-            Log.d(TAG, "Voice input activated")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error starting voice input", e)
-            showVoiceInputFeedback(false)
-            Toast.makeText(this, "Voice input not available", Toast.LENGTH_SHORT).show()
-        }
-    }
-    
-    /**
      * Show visual feedback for voice input state
      */
     private fun showVoiceInputFeedback(isActive: Boolean) {
@@ -6855,19 +6588,6 @@ class AIKeyboardService : InputMethodService(),
                 Toast.makeText(this, "🎤 Listening...", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-    
-    /**
-     * Start voice recognition
-     */
-    private fun startVoiceRecognition() {
-        // For now, show placeholder - voice recognition would be integrated here
-        Toast.makeText(this, "🎤 Voice input activated", Toast.LENGTH_SHORT).show()
-        
-        // Reset visual feedback after a delay
-        Handler(Looper.getMainLooper()).postDelayed({
-            showVoiceInputFeedback(false)
-        }, 2000)
     }
     
     /**
@@ -6904,8 +6624,9 @@ class AIKeyboardService : InputMethodService(),
                     currentKeyboardMode = KeyboardMode.EMOJI
                     
                     // Use new XML-based emoji panel with fixed toolbar
-                    if (emojiPanelView == null && emojiPanelController != null) {
-                        emojiPanelView = emojiPanelController!!.inflate(container)
+                    // ✅ FIX: Use safe call instead of !!
+                    if (emojiPanelView == null) {
+                        emojiPanelView = emojiPanelController?.inflate(container)
                     }
                     
                     emojiPanelView?.let { panel ->
@@ -6916,6 +6637,12 @@ class AIKeyboardService : InputMethodService(),
                         // Apply theme to emoji panel for consistent look
                         emojiPanelController?.applyTheme()
                         
+                        // Force theme application after brief delay to override XML colors
+                        mainHandler.postDelayed({
+                            emojiPanelController?.applyTheme()
+                            Log.d(TAG, "🎨 Emoji panel theme refreshed")
+                        }, 150)
+                        
                         Log.d(TAG, "😊 Showing emoji panel (saved previous mode: $previousKeyboardMode)")
                     }
                     
@@ -6923,7 +6650,7 @@ class AIKeyboardService : InputMethodService(),
                     topContainer?.visibility = View.VISIBLE
                 } else {
                     // Cleanup emoji panel popups before hiding
-                    gboardEmojiPanel?.dismissAllPopups()
+                    // gboardEmojiPanel removed - using EmojiPanelController only
                     
                     // Return to previous keyboard mode
                     currentKeyboardMode = previousKeyboardMode
@@ -7602,355 +7329,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Create AI Features toolbar with Tone, Rewrite, Emoji, GIF, Clipboard, Settings buttons
-     * Wrapped in HorizontalScrollView for overflow support
-     */
-    private fun createCleverTypeToolbar(): LinearLayout {
-        // Create outer wrapper container
-        val toolbarWrapper = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                resources.getDimensionPixelSize(R.dimen.toolbar_height)
-            )
-            val palette = themeManager.getCurrentPalette()
-            setBackgroundColor(palette.toolbarBg)
-        }
-        
-        // Create scrollable container for right-side buttons
-        val scrollView = android.widget.HorizontalScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                1f
-            )
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-        }
-        
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            )
-            // Minimal padding for cleaner look (4dp horizontal, 6dp vertical)
-            setPadding(dpToPx(4), dpToPx(6), dpToPx(4), dpToPx(6))
-            gravity = Gravity.CENTER_VERTICAL // Center icons vertically
-        }
-        
-        // LEFT SIDE ICONS
-        
-        // Settings button (⚙️ settings)
-        val settingsButton = createToolbarIconButton(
-            icon = "⚙️",
-            description = "Settings",
-            onClick = { handleSettingsAccess() }
-        )
-        
-        // Voice button (🎤 microphone)
-        val voiceButton = createToolbarIconButton(
-            icon = "🎤",
-            description = "Voice",
-            onClick = { handleVoiceInput() }
-        )
-        
-        // Emoji button (😊 emoji_emotions)
-        val emojiButton = createToolbarIconButton(
-            icon = "😊",
-            description = "Emoji",
-            onClick = { toggleEmojiPanel() }
-        )
-        
-        // SPACER - pushes right icons to the end
-        val spacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                1f // Weight = 1 to take all available space
-            )
-        }
-        
-        // RIGHT SIDE ICONS
-        
-        // ChatGPT button
-        val chatGPTButton = createToolbarIconButton(
-            icon = "💬",
-            description = "ChatGPT",
-            onClick = { handleClipboardAccess() }
-        )
-        
-        // Grammar/Rewrite button (✍️ edit_note)
-        val grammarButton = createToolbarIconButton(
-            icon = "✍️",
-            description = "Grammar",
-            onClick = { handleRewriteText() }
-        )
-        
-        // AI Tone button (✨ auto_awesome)
-        val aiToneButton = createToolbarIconButton(
-            icon = "✨",
-            description = "AI Tone",
-            onClick = { handleToneAdjustment() }
-        )
-        
-        // Add LEFT side buttons directly to wrapper (fixed position)
-        toolbarWrapper.addView(settingsButton)
-        toolbarWrapper.addView(voiceButton)
-        toolbarWrapper.addView(emojiButton)
-        
-        // Add RIGHT side buttons to scrollable toolbar
-        toolbar.addView(chatGPTButton)
-        
-        // Add built-in Grammar button if enabled
-        if (builtInActionsEnabled["grammar"] == true) {
-            toolbar.addView(grammarButton)
-        }
-        
-        // Add built-in AI Tone button if enabled
-        if (builtInActionsEnabled["formal"] == true || builtInActionsEnabled["concise"] == true || builtInActionsEnabled["expand"] == true) {
-            toolbar.addView(aiToneButton)
-        }
-        
-        // ═══════════════════════════════════════════════════════════
-        // ✨ AI PANEL BUTTONS - CleverType Style
-        // ═══════════════════════════════════════════════════════════
-        
-        // Grammar Panel Button - opens AI panel with grammar options
-        val grammarPanelBtn = createAdvancedAIButton("✅", "Grammar") {
-            openAIPanel(AIPanelType.GRAMMAR)
-        }
-        toolbar.addView(grammarPanelBtn)
-        
-        // Tone Panel Button - opens AI panel with tone options
-        val tonePanelBtn = createAdvancedAIButton("🎨", "Tone") {
-            openAIPanel(AIPanelType.TONE)
-        }
-        toolbar.addView(tonePanelBtn)
-        
-        // Assistant Panel Button - opens AI panel with custom prompts
-        if (customGrammarPrompts.isNotEmpty() || customTonePrompts.isNotEmpty() || customAssistantPrompts.isNotEmpty()) {
-            val assistantPanelBtn = createAdvancedAIButton("🤖", "Assistant") {
-                openAIPanel(AIPanelType.ASSISTANT)
-            }
-            toolbar.addView(assistantPanelBtn)
-        }
-        
-        // Add toolbar to scrollview, then scrollview to wrapper
-        scrollView.addView(toolbar)
-        toolbarWrapper.addView(scrollView)
-        
-        val allCustomPrompts = customGrammarPrompts + customTonePrompts + customAssistantPrompts
-        val totalCustom = allCustomPrompts.size
-        val hasAssistant = if (totalCustom > 0) 1 else 0
-        val totalAIPanelButtons = 2 + hasAssistant // Grammar + Tone + (optional) Assistant
-        
-        Log.d(TAG, "✨ CleverType AI Toolbar: [Settings | Voice | Emoji] <scroll> [ChatGPT | Grammar | Tone] + $totalAIPanelButtons AI Panel buttons ($totalCustom custom prompts available)")
-        return toolbarWrapper
-    }
-    
-    /**
-     * Create toolbar icon - SIMPLIFIED: Just PNG image, no button background
-     */
-    private fun createToolbarIconButton(
-        icon: String,
-        description: String,
-        onClick: () -> Unit,
-        useAccentColor: Boolean = false  // Ignored - PNGs have their own colors
-    ): ImageView {
-        // Optimal icon size for clean UI (24dp - compact but clear)
-        val iconSize = dpToPx(24)
-        
-        // Map icon emoji to PNG filename (note: folder has trailing space)
-        val iconFileName = when (icon) {
-            "⚙️" -> "setting.png"         // Settings
-            "🎤" -> "voice_input.png"     // Voice/Microphone
-            "😊" -> "emoji.png"           // Emoji
-            "💬" -> "chatGPT.png"         // ChatGPT
-            "✍️" -> "Grammer_correct.png" // Grammar
-            "✨" -> "AI_tone.png"          // AI Tone
-            "📋" -> "clipboard.png"       // Clipboard (if needed)
-            else -> "chatGPT.png"         // Default fallback
-        }
-        
-        val iconView = ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
-                // Better spacing: horizontal 10dp, vertical 8dp
-                setMargins(dpToPx(10), dpToPx(8), dpToPx(10), dpToPx(8))
-            }
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = description
-            tag = "toolbar_icon_$description"
-            
-            // NO BACKGROUND - completely transparent
-            setBackgroundColor(Color.TRANSPARENT)
-            elevation = 0f
-            
-            // Load PNG from assets (note: folder name has trailing space)
-            try {
-                val inputStream = assets.open("toolbar_icons /$iconFileName")
-                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-                setImageBitmap(bitmap)
-                inputStream.close()
-                
-                // NO COLOR FILTER - use PNG as-is with original colors
-                clearColorFilter()
-                imageTintList = null
-                
-                Log.d(TAG, "✓ Loaded toolbar icon: $iconFileName")
-            } catch (e: Exception) {
-                Log.e(TAG, "✗ Failed to load toolbar icon: $iconFileName", e)
-                // Fallback: Create colored circle as placeholder
-                val drawable = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(themeManager.getAccentColor()) // Use theme accent for notification dot
-                    setSize(iconSize / 4, iconSize / 4)
-                }
-                setImageDrawable(drawable)
-            }
-            
-            // Simple click with visual feedback (scale animation)
-            isClickable = true
-            isFocusable = true
-            setOnTouchListener { view, event ->
-                when (event.action) {
-                    android.view.MotionEvent.ACTION_DOWN -> {
-                        animate().scaleX(0.85f).scaleY(0.85f).setDuration(100).start()
-                    }
-                    android.view.MotionEvent.ACTION_UP -> {
-                        animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                        onClick()
-                    }
-                    android.view.MotionEvent.ACTION_CANCEL -> {
-                        animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                    }
-                }
-                true
-            }
-        }
-        
-        return iconView
-    }
-    
-    /**
-     * Create Advanced AI button with icon and label for AdvancedAIService features
-     */
-    private fun createAdvancedAIButton(
-        icon: String,
-        label: String,
-        onClick: () -> Unit
-    ): LinearLayout {
-        val palette = themeManager.getCurrentPalette()
-        
-        // Container for icon + label
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            ).apply {
-                setMargins(dpToPx(6), 0, dpToPx(6), 0)
-            }
-            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.TRANSPARENT)
-            isClickable = true
-            isFocusable = true
-        }
-        
-        // Icon (emoji)
-        val iconView = TextView(this).apply {
-            text = icon
-            textSize = 18f
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dpToPx(2))
-        }
-        
-        // Label text
-        val labelView = TextView(this).apply {
-            text = label
-            textSize = 9f
-            gravity = Gravity.CENTER
-            setTextColor(palette.suggestionText) // Use suggestion text color for consistency
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        
-        container.addView(iconView)
-        container.addView(labelView)
-        
-        // Touch feedback with scale animation
-        container.setOnTouchListener { view, event ->
-            when (event.action) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100).start()
-                }
-                android.view.MotionEvent.ACTION_UP -> {
-                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                    onClick()
-                }
-                android.view.MotionEvent.ACTION_CANCEL -> {
-                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                }
-            }
-            true
-        }
-        
-        return container
-    }
-    
-    /**
-     * Create toolbar button (deprecated - use createToolbarIconButton)
-     */
-    private fun createToolbarButton(
-        text: String,
-        description: String,
-        onClick: () -> Unit
-    ): LinearLayout {
-        val buttonContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(dpToPx(4), 0, dpToPx(4), 0)
-            }
-            setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
-            background = createToolbarButtonBackground(themeManager.getKeyColor()) // Use theme key color
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { onClick() }
-        }
-        
-        val buttonText = TextView(this).apply {
-            this.text = text
-            textSize = 13f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(themeManager.getAccentColor()) // Use theme accent for action text
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            gravity = Gravity.CENTER
-        }
-        
-        val descText = TextView(this).apply {
-            this.text = description
-            textSize = 10f
-            val textColor = themeManager.getTextColor()
-            setTextColor(Color.argb(153, Color.red(textColor), Color.green(textColor), Color.blue(textColor))) // 60% opacity for caption
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            gravity = Gravity.CENTER
-            setPadding(0, dpToPx(2), 0, 0)
-        }
-        
-        buttonContainer.addView(buttonText)
-        buttonContainer.addView(descText)
-        
-        return buttonContainer
-    }
-    
-    /**
      * Handle grammar correction
      */
     private fun handleGrammarCorrection() {
@@ -8013,27 +7391,6 @@ class AIKeyboardService : InputMethodService(),
         
         Log.d(TAG, "Grammar correction requested for entire text: $allText")
         showReplacementUI("grammar")
-    }
-    
-    /**
-     * Handle custom prompt execution
-     */
-    private fun handleCustomPrompt(prompt: CustomPrompt) {
-        val ic = currentInputConnection ?: return
-        val allText = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString() ?: ""
-        
-        if (allText.isEmpty()) {
-            Toast.makeText(this, "📝 Type some text first for ${prompt.title}", Toast.LENGTH_SHORT).show()
-            return
-        }
-        
-        Log.d(TAG, "Custom prompt requested: ${prompt.title}")
-        
-        // Process the prompt by replacing {text} placeholder with actual text
-        val instruction = prompt.instruction.replace("{text}", allText)
-        
-        // Trigger unified AI rewrite
-        triggerAIRewrite(instruction, prompt.title, allText)
     }
     
     /**
@@ -8163,41 +7520,6 @@ class AIKeyboardService : InputMethodService(),
                 "Expanded version with more details and context (Mock mode - configure OpenAI for real results)"
             else -> 
                 "AI processed result (Mock mode - configure OpenAI for real results)"
-        }
-    }
-    
-    /**
-     * Get the current sentence being typed
-     */
-    private fun getCurrentSentence(): String {
-        val ic = currentInputConnection ?: return ""
-        
-        try {
-            // Get text before cursor
-            val beforeCursor = ic.getTextBeforeCursor(100, 0)?.toString() ?: ""
-            // Get text after cursor  
-            val afterCursor = ic.getTextAfterCursor(100, 0)?.toString() ?: ""
-            
-            // Find sentence boundaries (., !, ?, or line breaks)
-            val sentenceStart = beforeCursor.lastIndexOfAny(listOf(".", "!", "?", "\n"))
-            val sentenceEnd = afterCursor.indexOfAny(listOf(".", "!", "?", "\n"))
-            
-            val startText = if (sentenceStart >= 0) {
-                beforeCursor.substring(sentenceStart + 1).trim()
-            } else {
-                beforeCursor.trim()
-            }
-            
-            val endText = if (sentenceEnd >= 0) {
-                afterCursor.substring(0, sentenceEnd).trim()
-            } else {
-                afterCursor.trim()
-            }
-            
-            return (startText + endText).trim()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting current sentence", e)
-            return ""
         }
     }
     
@@ -9003,22 +8325,7 @@ class AIKeyboardService : InputMethodService(),
         // TODO: Implement GIF picker
     }
     
-    /**
-     * Handle clipboard access
-     */
-    private fun handleClipboardAccess() {
-        Log.d(TAG, "Clipboard access requested")
-        
-        try {
-            // Switch to clipboard input mode
-            currentInputMode = INPUT_MODE_CLIPBOARD
-            showClipboardKeyboard()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing clipboard keyboard", e)
-            Toast.makeText(this, "Error accessing clipboard", Toast.LENGTH_SHORT).show()
-        }
-    }
+  
     
     /**
      * Handle settings access - Show mini settings sheet
@@ -9189,6 +8496,36 @@ class AIKeyboardService : InputMethodService(),
                 PanelType.EMOJI -> {
                     title?.text = "Emoji"
                     // No right widget for emoji
+                    
+                    // CRITICAL FIX: Completely disable panel-level scrolling for emoji
+                    // Replace the ScrollView wrapper with a LinearLayout to prevent any panel scrolling
+                    val scrollParent = featurePanel.findViewById<FrameLayout>(R.id.panelBody)?.parent as? ViewGroup
+                    val panelBodyFrame = featurePanel.findViewById<FrameLayout>(R.id.panelBody)
+                    
+                    if (scrollParent is ScrollView && panelBodyFrame != null) {
+                        // Remove panelBody from ScrollView
+                        scrollParent.removeView(panelBodyFrame)
+                        
+                        // Find the parent of ScrollView (should be the main LinearLayout)
+                        val mainLayout = scrollParent.parent as? ViewGroup
+                        val scrollIndex = mainLayout?.indexOfChild(scrollParent) ?: -1
+                        
+                        if (mainLayout != null && scrollIndex >= 0) {
+                            // Remove ScrollView completely
+                            mainLayout.removeView(scrollParent)
+                            
+                            // Add panelBody directly to main layout with proper weight
+                            panelBodyFrame.layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                0,
+                                1f // Take remaining space
+                            )
+                            mainLayout.addView(panelBodyFrame, scrollIndex)
+                            
+                            Log.d(TAG, "🔒 Removed ScrollView wrapper - emoji panel is now FIXED")
+                        }
+                    }
+                    
                     inflateEmojiBody(body)
                 }
             }
@@ -9199,8 +8536,9 @@ class AIKeyboardService : InputMethodService(),
                 restoreKeyboardFromPanel()
             }
             
-            // Switch to panel in universal host
-            universalHost?.switchContent(featurePanel)
+            // Switch to panel in container
+            keyboardContainer?.removeAllViews()
+            keyboardContainer?.addView(featurePanel)
             
             // Hide suggestions and toolbar
             suggestionContainer?.visibility = View.GONE
@@ -9943,18 +9281,36 @@ class AIKeyboardService : InputMethodService(),
                 val currentParent = emojiView.parent as? ViewGroup
                 currentParent?.removeView(emojiView)
                 
-                // Add the emoji view to the container
+                // Add the emoji view to the container (ensure no scrolling wrapper)
                 container.removeAllViews()
+                
+                // CRITICAL: Ensure container is completely fixed - no scrolling at all
+                container.isScrollContainer = false
+                container.overScrollMode = View.OVER_SCROLL_NEVER
+                
+                // Add view with proper layout params for fixed positioning  
+                emojiView.layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
                 container.addView(emojiView)
+                
+                Log.d(TAG, "✅ Emoji panel added - ONLY emoji grid scrolls, panel is FIXED")
                 
                 // Track emoji panel state
                 emojiPanelView = emojiView
                 isEmojiPanelVisible = true
                 
-                // Apply theme
+                // Force apply theme after inflation (overrides XML hardcoded colors)
                 emojiPanelController?.applyTheme()
                 
-                Log.d(TAG, "✅ Emoji panel body inflated")
+                // Force another theme application after a brief delay to ensure it sticks
+                mainHandler.postDelayed({
+                    emojiPanelController?.applyTheme()
+                    Log.d(TAG, "🎨 Emoji panel theme force-applied")
+                }, 100)
+                
+                Log.d(TAG, "✅ Emoji panel body inflated and themed")
             } else {
                 Log.e(TAG, "Failed to inflate emoji panel body")
                 Toast.makeText(this, "Error loading emoji panel", Toast.LENGTH_SHORT).show()
@@ -9976,10 +9332,11 @@ class AIKeyboardService : InputMethodService(),
                 emojiPanelView = null
             }
             
-            // Restore keyboard in universal host
+            // Restore keyboard in container
             keyboardView?.let { 
                 it.visibility = View.VISIBLE
-                universalHost?.switchContent(it)
+                keyboardContainer?.removeAllViews()
+                keyboardContainer?.addView(it)
             }
             
             // Show suggestions and toolbar
@@ -10449,19 +9806,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Create rounded background for toolbar buttons
-     */
-    private fun createToolbarButtonBackground(color: Int): android.graphics.drawable.GradientDrawable {
-        return android.graphics.drawable.GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dpToPx(8).toFloat()
-            setStroke(dpToPx(1), Color.parseColor("#e8eaed"))
-        }
-    }
-    
-    // loadSettings method merged with existing one above
-    
-    /**
      * Save keyboard settings to SharedPreferences
      */
     private fun saveSettings() {
@@ -10609,7 +9953,7 @@ class AIKeyboardService : InputMethodService(),
                 listOfNotNull(prev1, prev2).filter { it.isNotBlank() }
             )
             
-            candidates.addAll(suggestions.map { it.word })
+            candidates.addAll(suggestions.map { it.text })
                 
             val processingTime = System.currentTimeMillis() - startTime
             Log.d(TAG, "Swipe candidates generated in ${processingTime}ms for '$swipeLetters' -> ${candidates.size} candidates")
@@ -10620,16 +9964,6 @@ class AIKeyboardService : InputMethodService(),
             Log.e(TAG, "Error generating swipe candidates", e)
             return@withContext emptyList()
         }
-    }
-    
-    /**
-     * Generate candidates using longest common subsequence matching
-     * DEPRECATED: Legacy function from old AutocorrectEngine - now handled by SwipeAutocorrectEngine
-     */
-    @Deprecated("Use SwipeAutocorrectEngine instead")
-    private fun generatePathMatchingCandidates(swipeLetters: String): List<String> {
-        // Legacy function - now handled by unified swipe engine
-        return emptyList()
     }
     
     /**
@@ -10645,7 +9979,7 @@ class AIKeyboardService : InputMethodService(),
         try {
             // Use enhanced autocorrect engine for edit distance candidates
             val autocorrectCandidates = autocorrectEngine.getCorrections(swipeLetters, currentLanguage, listOfNotNull(prev1, prev2).filter { it.isNotBlank() })
-            return@withContext autocorrectCandidates.map { it.word }
+            return@withContext autocorrectCandidates.map { it.text }
         } catch (e: Exception) {
             Log.e(TAG, "Error in edit distance candidates", e)
             return@withContext emptyList()
@@ -10653,26 +9987,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Calculate longest common subsequence length
-     */
-    private fun longestCommonSubsequence(s1: String, s2: String): Int {
-        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
-        
-        for (i in 1..s1.length) {
-            for (j in 1..s2.length) {
-                if (s1[i-1] == s2[j-1]) {
-                    dp[i][j] = dp[i-1][j-1] + 1
-                } else {
-                    dp[i][j] = maxOf(dp[i-1][j], dp[i][j-1])
-                }
-            }
-        }
-        
-        return dp[s1.length][s2.length]
-    }
-    
-    /**
-     * Update suggestion strip with enhanced swipe candidates
+     * Update suggestion strip with enhanced swipe candidates (clean, no icons)
      */
     private fun updateEnhancedSwipeSuggestions(candidates: List<SwipeCandidate>, originalSwipe: String) {
         try {
@@ -10686,16 +10001,9 @@ class AIKeyboardService : InputMethodService(),
             // Always show original swipe as first option (for reversion)
             suggestionTexts.add(originalSwipe)
             
-            // Add top candidates with source indicators
+            // Add top candidates without any icons or indicators
             candidates.take(2).forEach { candidate ->
-                val indicator = when (candidate.source) {
-                    CandidateSource.EXACT_MATCH -> ""
-                    CandidateSource.EDIT_DISTANCE -> "✓"
-                    CandidateSource.PATTERN_MATCH -> "~"
-                    CandidateSource.USER_DICTIONARY -> "★"
-                    CandidateSource.UNIFIED_ENGINE -> "🔧"
-                }
-                suggestionTexts.add("$indicator${candidate.word}")
+                suggestionTexts.add(candidate.word) // Clean text only, no icons
             }
             
             updateSuggestionUI(suggestionTexts)
@@ -10772,21 +10080,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Delete a clipboard item
-     */
-    private fun deleteClipboardItem(item: ClipboardItem) {
-        try {
-            val deleted = clipboardHistoryManager.deleteItem(item.id)
-            if (deleted) {
-                Toast.makeText(this, "Deleted: ${item.getPreview()}", Toast.LENGTH_SHORT).show()
-                Log.d(TAG, "Deleted clipboard item: ${item.getPreview()}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error deleting clipboard item", e)
-        }
-    }
-    
-    /**
      * Update suggestions to include clipboard items
      */
     private fun updateSuggestionsWithClipboard() {
@@ -10841,7 +10134,7 @@ class AIKeyboardService : InputMethodService(),
     private fun reloadEmojiSettings() {
         try {
             // Reload emoji panel settings (legacy)
-            gboardEmojiPanel?.reloadEmojiSettings()
+                // gboardEmojiPanel removed - using EmojiPanelController only
             
             // Reload settings in new controller (includes theme)
             emojiPanelController?.reloadEmojiSettings()
@@ -10899,191 +10192,10 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    /**
-     * Show clipboard keyboard layout
-     */
-    private fun showClipboardKeyboard() {
-        try {
-            Log.d(TAG, "Showing clipboard keyboard")
-            
-            // Get clipboard items for UI
-            val items = clipboardHistoryManager.getHistoryForUI(20)
-            
-            // Hide suggestion bar during clipboard mode
-            topContainer?.visibility = View.GONE
-            
-            // Switch keyboard to clipboard layout
-            keyboardView?.showClipboardLayout(items)
-            
-            Log.d(TAG, "Clipboard keyboard shown with ${items.size} items")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing clipboard keyboard", e)
-            switchToNormalKeyboard()
-        }
-    }
     
-    /**
-     * Handle clipboard key tap
-     */
-    private fun handleClipboardKeyTap(item: ClipboardItem) {
-        try {
-            Log.d(TAG, "Clipboard key tapped: ${item.getPreview()}")
-            
-            // Commit text to input connection
-            val ic = currentInputConnection
-            if (ic != null) {
-                ic.commitText(item.text, 1)
-                Log.d(TAG, "Pasted clipboard item: ${item.getPreview()}")
-            } else {
-                Log.e(TAG, "No input connection available for paste")
-            }
-            
-            // Switch back to normal keyboard
-            switchToNormalKeyboard()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling clipboard key tap", e)
-        }
-    }
+   
+  
     
-    /**
-     * Handle clipboard back button tap
-     */
-    private fun handleClipboardBackTap() {
-        Log.d(TAG, "Clipboard back button tapped")
-        switchToNormalKeyboard()
-    }
-    
-    /**
-     * Switch to normal keyboard mode
-     */
-    private fun switchToNormalKeyboard() {
-        try {
-            Log.d(TAG, "Switching to normal keyboard")
-            
-            currentInputMode = INPUT_MODE_NORMAL
-            
-            // Show suggestion bar again
-            topContainer?.visibility = View.VISIBLE
-            
-            // Restore normal keyboard layout
-            keyboardView?.showNormalLayout()
-            
-            // Rebind listener to ensure long-press works
-            rebindKeyboardListener()
-            
-            Log.d(TAG, "Normal keyboard restored with listener rebound")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error switching to normal keyboard", e)
-        }
-    }
-    
-    /**
-     * Load enhanced keyboard settings
-     */
-    private fun loadEnhancedSettings() {
-        try {
-            val prefs = getSharedPreferences("keyboard_enhanced_settings", Context.MODE_PRIVATE)
-            
-            // Load bilingual settings
-            bilingualModeEnabled = prefs.getBoolean("bilingual_enabled", false)
-            if (bilingualModeEnabled) {
-                val primary = prefs.getString("primary_language", "en") ?: "en"
-                val secondary = prefs.getString("secondary_language", "es") ?: "es"
-                keyboardLayoutManager?.enableBilingualMode(primary, secondary)
-                Log.d(TAG, "Bilingual mode enabled: $primary + $secondary")
-            }
-            
-            // Load floating keyboard settings
-            floatingModeEnabled = prefs.getBoolean("floating_enabled", false)
-            if (floatingModeEnabled) {
-                keyboardView?.enableFloatingMode(true)
-                Log.d(TAG, "Floating mode enabled")
-            }
-            
-            // Load adaptive sizing settings
-            adaptiveSizingEnabled = prefs.getBoolean("adaptive_sizing_enabled", true)
-            Log.d(TAG, "Adaptive sizing enabled: $adaptiveSizingEnabled")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading enhanced settings", e)
-        }
-    }
-    
-    /**
-     * Handle enhanced language switching with bilingual support
-     * NOTE: Deprecated - now using direct cycleLanguage() call from globe button
-     */
-    @Deprecated("Use cycleLanguage() directly instead")
-    private fun handleEnhancedLanguageSwitch() {
-        try {
-            if (bilingualModeEnabled) {
-                // Toggle between primary and secondary language contexts
-                keyboardLayoutManager?.let { manager ->
-                    val currentText = getCurrentInputTextForLanguageDetection()
-                    val detectedLanguage = manager.detectLanguageContext(currentText)
-                    Log.d(TAG, "Detected language context: $detectedLanguage")
-                }
-            } else {
-                // Standard language switching
-                cycleLanguage()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in enhanced language switch", e)
-        }
-    }
-    
-    /**
-     * Get current input text for language detection
-     */
-    private fun getCurrentInputTextForLanguageDetection(): String {
-        return try {
-            val ic = currentInputConnection
-            val beforeCursor = ic?.getTextBeforeCursor(100, 0)
-            beforeCursor?.toString() ?: ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
-    
-    /**
-     * Enable/disable bilingual typing mode
-     */
-    fun setBilingualMode(enabled: Boolean, primary: String = "en", secondary: String = "es") {
-        bilingualModeEnabled = enabled
-        if (enabled) {
-            keyboardLayoutManager?.enableBilingualMode(primary, secondary)
-        } else {
-            keyboardLayoutManager?.disableBilingualMode()
-        }
-        
-        // Save settings
-        val prefs = getSharedPreferences("keyboard_enhanced_settings", Context.MODE_PRIVATE)
-        prefs.edit().apply {
-            putBoolean("bilingual_enabled", enabled)
-            putString("primary_language", primary)
-            putString("secondary_language", secondary)
-            apply()
-        }
-        
-        Log.d(TAG, "Bilingual mode ${if (enabled) "enabled" else "disabled"}")
-    }
-    
-    /**
-     * Enable/disable floating keyboard mode
-     */
-    fun setFloatingMode(enabled: Boolean) {
-        floatingModeEnabled = enabled
-        keyboardView?.enableFloatingMode(enabled)
-        
-        // Save settings
-        val prefs = getSharedPreferences("keyboard_enhanced_settings", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("floating_enabled", enabled).apply()
-        
-        Log.d(TAG, "Floating mode ${if (enabled) "enabled" else "disabled"}")
-    }
     
     // ====== CLIPBOARD & DICTIONARY ENHANCEMENTS ======
     
@@ -11099,37 +10211,6 @@ class AIKeyboardService : InputMethodService(),
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating clipboard strip", e)
-        }
-    }
-    
-    /**
-     * Show options for clipboard item (pin/unpin, delete)
-     */
-    private fun showClipboardItemOptions(item: ClipboardItem) {
-        try {
-            val options = if (item.isPinned) {
-                arrayOf("Paste", "Unpin", "Delete")
-            } else {
-                arrayOf("Paste", "Pin", "Delete")
-            }
-            
-            // For now, just show a simple action based on first option
-            // In a full implementation, you'd show a popup menu
-            when {
-                !item.isPinned -> {
-                    clipboardHistoryManager.togglePin(item.id)
-                    Toast.makeText(this, "Item pinned", Toast.LENGTH_SHORT).show()
-                }
-                else -> {
-                    clipboardHistoryManager.togglePin(item.id)
-                    Toast.makeText(this, "Item unpinned", Toast.LENGTH_SHORT).show()
-                }
-            }
-            
-            updateClipboardStrip()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing clipboard options", e)
         }
     }
     
@@ -11153,29 +10234,6 @@ class AIKeyboardService : InputMethodService(),
         } catch (e: Exception) {
             Log.e(TAG, "Error getting dictionary suggestions", e)
             emptyList()
-        }
-    }
-    
-    /**
-     * Get previous words from input for contextual autocorrect (Gboard-quality enhancement)
-     * Returns pair of (previousWord, wordBeforePrevious)
-     */
-    private fun getPreviousWordsFromInput(): Pair<String, String> {
-        return try {
-            val ic = currentInputConnection ?: return Pair("", "")
-            val textBefore = ic.getTextBeforeCursor(100, 0)?.toString() ?: ""
-            
-            // Split by word boundaries and get last completed words
-            val words = textBefore.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
-            
-            val prev1 = if (words.size >= 1) words.last() else ""
-            val prev2 = if (words.size >= 2) words[words.size - 2] else ""
-            
-            Log.d(TAG, "🧠 Context words: prev1='$prev1', prev2='$prev2'")
-            Pair(prev1, prev2)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting previous words", e)
-            Pair("", "")
         }
     }
     
@@ -11226,31 +10284,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Integrate dictionary and clipboard into suggestions
-     * Override existing suggestion generation
-     */
-    private fun getEnhancedSuggestions(word: String): List<String> {
-        val suggestions = mutableListOf<String>()
-        
-        try {
-            // 1. Dictionary suggestions (highest priority for exact shortcuts)
-            val dictSuggestions = getDictionarySuggestions(word)
-            suggestions.addAll(dictSuggestions)
-            
-            // 2. Regular AI/autocorrect suggestions
-            // (existing suggestion logic would go here)
-            
-            // 3. User's learned words from database
-            // (existing logic)
-            
-            return suggestions.take(5)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting enhanced suggestions", e)
-            return emptyList()
-        }
-    }
-    
-    /**
      * Reload dictionary settings from Flutter
      */
     private fun reloadDictionarySettings() {
@@ -11286,7 +10319,88 @@ class AIKeyboardService : InputMethodService(),
         }
         
         // Start initial sync after 2 minutes
-        syncHandler?.postDelayed(syncRunnable!!, 2 * 60 * 1000L)
-        Log.d(TAG, "Periodic sync scheduled every ${syncInterval / 1000 / 60} minutes")
+        // ✅ FIX: Use safe call instead of !!
+        syncRunnable?.let { runnable ->
+            syncHandler?.postDelayed(runnable, 2 * 60 * 1000L)
+            Log.d(TAG, "Periodic sync scheduled every ${syncInterval / 1000 / 60} minutes")
+        }
+    }
+    
+    /**
+     * Suspend helper to wait until a specific language dictionary is ready
+     */
+    private suspend fun UnifiedAutocorrectEngine.waitUntilReady(lang: String) {
+        repeat(10) {
+            if (isLanguageLoaded(lang)) {
+                return
+            }
+            delay(300)
+        }
+        Log.w("UnifiedAutocorrectEngine", "⚠️ Timeout waiting for $lang dictionary")
+    }
+    
+    /**
+     * 🔄 Unified AI suggestion updater
+     * Combines offline dictionary + emoji + AI pipeline
+     */
+    private suspend fun updateAISuggestions(currentWord: String, contextWords: List<String>) {
+        try {
+            if (!::autocorrectEngine.isInitialized) return
+            
+            // Get suggestions from unified autocorrect engine
+            // Note: contextWords not directly used by current API, but kept for future enhancement
+            val suggestions = autocorrectEngine.getSuggestions(currentWord, currentLanguage, 5)
+            
+            // updateSuggestionUI() now handles main thread posting internally
+            updateSuggestionUI(suggestions)
+        } catch (e: Exception) {
+            Log.e("AIKeyboardService", "Error updating AI suggestions", e)
+        }
+    }
+    
+    /**
+     * 🧩 Log engine readiness status for debugging
+     */
+    private fun logEngineStatus() {
+        val langReady = if (::autocorrectEngine.isInitialized) autocorrectEngine.isLanguageLoaded("en") else false
+        val swipeLinked = ::swipeAutocorrectEngine.isInitialized
+        Log.d("AIKeyboardService", "🧩 Engine readiness check — Unified=$langReady, SwipeLinked=$swipeLinked")
+    }
+    
+    /**
+     * Thread-safe helper for posting UI updates on the main thread.
+     */
+    private inline fun safeMain(crossinline block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            Handler(Looper.getMainLooper()).post { block() }
+        }
+    }
+    
+    /**
+     * Refresh LanguageResources after user data changes (NEW UNIFIED APPROACH)
+     * Called when user dictionary or shortcuts are updated
+     */
+    private fun refreshLanguageResourcesAsync() {
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "🔄 Refreshing LanguageResources for $currentLanguage with updated user data")
+                
+                // Preload again to get fresh data with user changes
+                multilingualDictionary.preload(currentLanguage)
+                
+                // Update unified engine with fresh resources
+                val resources = multilingualDictionary.get(currentLanguage)
+                if (resources != null) {
+                    autocorrectEngine.setLanguage(currentLanguage, resources)
+                    Log.d(TAG, "✅ LanguageResources refreshed: ${resources.userWords.size} user words, ${resources.shortcuts.size} shortcuts")
+                } else {
+                    Log.w(TAG, "⚠️ Failed to refresh resources for language: $currentLanguage")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error refreshing LanguageResources", e)
+            }
+        }
     }
 }
