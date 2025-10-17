@@ -15,7 +15,7 @@
     <dimen name="toolbar_icon_size">34dp</dimen>
     
     <!-- Toolbar and suggestion bar -->
-    <dimen name="toolbar_height">92dp</dimen>
+    <dimen name="toolbar_height">100dp</dimen>
     <dimen name="suggestion_bar_height">56dp</dimen>
     <dimen name="suggestion_text_size">17sp</dimen>
     

@@ -21,7 +21,6 @@ class AIFeaturesPanel(context: Context) : LinearLayout(context) {
     
     private val advancedAIService = AdvancedAIService(context)
     private val streamingAIService = StreamingAIService(context)
-    private val customToneManager = CustomToneManager(context)
     // toneAdjustmentPanel removed - using normal tone selector instead
     private lateinit var toneSelector: LinearLayout
     private var selectedTone: AdvancedAIService.ToneType = AdvancedAIService.ToneType.FORMAL
@@ -479,6 +478,9 @@ class AIFeaturesPanel(context: Context) : LinearLayout(context) {
         
         val features = advancedAIService.getAvailableFeatures()
         createFeatureButtons(features)
+        
+        // Load custom prompts dynamically
+        loadCustomPrompts()
     }
     
     private fun createFeatureButtons(features: List<AdvancedAIService.ProcessingFeature>) {
@@ -873,6 +875,103 @@ class AIFeaturesPanel(context: Context) : LinearLayout(context) {
         statusText.setTextColor(Color.parseColor("#1a73e8"))
     }
     
+    /**
+     * Load custom prompts dynamically from PromptManager
+     */
+    private fun loadCustomPrompts() {
+        try {
+            val customPrompts = PromptManager.getPrompts("assistant")
+            if (customPrompts.isNotEmpty()) {
+                // Add section divider
+                featuresGrid.addView(createSectionDivider())
+                
+                // Add custom prompts header
+                val customHeader = TextView(context).apply {
+                    text = "🧠 Custom Prompts (${customPrompts.size})"
+                    textSize = 16f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(Color.parseColor("#1a73e8"))
+                    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                    setPadding(dpToPx(4), dpToPx(16), dpToPx(4), dpToPx(12))
+                }
+                featuresGrid.addView(customHeader)
+
+                // Create buttons for custom prompts
+                var currentRow: LinearLayout? = null
+                customPrompts.forEachIndexed { index, prompt ->
+                    if (index % 2 == 0) {
+                        currentRow = LinearLayout(context).apply {
+                            orientation = HORIZONTAL
+                            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                        }
+                        featuresGrid.addView(currentRow)
+                    }
+                    
+                    val promptButton = Button(context).apply {
+                        text = prompt.title
+                        textSize = 13f
+                        setTextColor(Color.parseColor("#202124"))
+                        layoutParams = LinearLayout.LayoutParams(0, dpToPx(40), 1f).apply {
+                            setMargins(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+                        }
+                        setBackgroundResource(R.drawable.bottom_button_background)
+                        setOnClickListener { processCustomPrompt(prompt.prompt) }
+                    }
+                    currentRow?.addView(promptButton)
+                }
+                
+                Log.d(TAG, "✅ Loaded ${customPrompts.size} custom prompts")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error loading custom prompts", e)
+        }
+    }
+
+    /**
+     * Process text with custom prompt
+     */
+    private fun processCustomPrompt(prompt: String) {
+        if (currentInputText.isBlank()) {
+            Toast.makeText(context, "Please enter text first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        showLoading("Applying custom prompt...")
+        scope.launch {
+            try {
+                // Use the new unified approach: Process text with custom prompt as system prompt
+                val fullPrompt = "$prompt\n\nText to process: $currentInputText"
+                
+                // Use AdvancedAIService processText with SIMPLIFY feature
+                val result = advancedAIService.processText(
+                    text = fullPrompt,
+                    feature = AdvancedAIService.ProcessingFeature.SIMPLIFY
+                )
+                
+                withContext(Dispatchers.Main) {
+                    if (result.success) {
+                        showSimplePreview(result.text, "Custom")
+                        statusText.text = "✅ Applied custom prompt"
+                        statusText.setTextColor(Color.parseColor("#34a853"))
+                    } else {
+                        statusText.text = "❌ Error: ${result.error}"
+                        statusText.setTextColor(Color.parseColor("#ea4335"))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error processing custom prompt", e)
+                withContext(Dispatchers.Main) {
+                    statusText.text = "❌ Processing failed"
+                    statusText.setTextColor(Color.parseColor("#ea4335"))
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                }
+            }
+        }
+    }
+
     /**
      * Cleanup resources
      */

@@ -29,6 +29,141 @@ import 'screens/main screens/dictionary_screen.dart';
 import 'screens/main screens/clipboard_screen.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
+/// Language Cache Manager for handling downloaded languages
+class LanguageCacheManager {
+  static const String _cachedLanguagesKey = 'cached_languages';
+  static const String _languageMetadataPrefix = 'lang_meta_';
+  static const MethodChannel _platform = MethodChannel('com.example.ai_keyboard/language');
+  
+  /// Get list of languages that have been cached locally
+  static Future<List<String>> getCachedLanguages() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_cachedLanguagesKey) ?? [];
+  }
+  
+  /// Add a language to the cached languages list
+  static Future<void> addCachedLanguage(String languageCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedLanguages = prefs.getStringList(_cachedLanguagesKey) ?? [];
+    
+    if (!cachedLanguages.contains(languageCode)) {
+      cachedLanguages.add(languageCode);
+      await prefs.setStringList(_cachedLanguagesKey, cachedLanguages);
+      
+      // Store download metadata
+      await prefs.setString(
+        '$_languageMetadataPrefix$languageCode',
+        json.encode({
+          'downloadedAt': DateTime.now().millisecondsSinceEpoch,
+          'version': 1,
+          'languageCode': languageCode,
+        }),
+      );
+      
+      debugPrint('✅ Added $languageCode to cached languages');
+    }
+  }
+  
+  /// Remove a language from cache and delete local files
+  static Future<void> removeCachedLanguage(String languageCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedLanguages = prefs.getStringList(_cachedLanguagesKey) ?? [];
+    
+    cachedLanguages.remove(languageCode);
+    await prefs.setStringList(_cachedLanguagesKey, cachedLanguages);
+    
+    // Remove metadata
+    await prefs.remove('$_languageMetadataPrefix$languageCode');
+    
+    // Call native method to delete cache files
+    try {
+      await _platform.invokeMethod('deleteCachedLanguageData', {'lang': languageCode});
+      debugPrint('🗑️ Removed $languageCode from cache');
+    } catch (e) {
+      debugPrint('Error deleting cached files for $languageCode: $e');
+    }
+  }
+  
+  /// Get metadata for a cached language
+  static Future<Map<String, dynamic>?> getLanguageMetadata(String languageCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final metadataString = prefs.getString('$_languageMetadataPrefix$languageCode');
+    
+    if (metadataString != null) {
+      try {
+        return json.decode(metadataString) as Map<String, dynamic>;
+      } catch (e) {
+        debugPrint('Error parsing metadata for $languageCode: $e');
+      }
+    }
+    return null;
+  }
+  
+  /// Check if a language is cached
+  static Future<bool> isLanguageCached(String languageCode) async {
+    final cachedLanguages = await getCachedLanguages();
+    return cachedLanguages.contains(languageCode);
+  }
+  
+  /// Get cache statistics
+  static Future<Map<String, dynamic>> getCacheStats() async {
+    final cachedLanguages = await getCachedLanguages();
+    final stats = <String, dynamic>{
+      'totalCachedLanguages': cachedLanguages.length,
+      'cachedLanguages': cachedLanguages,
+      'cacheSize': 0, // Could be expanded to calculate actual file sizes
+    };
+    
+    // Add individual language metadata
+    for (final lang in cachedLanguages) {
+      final metadata = await getLanguageMetadata(lang);
+      if (metadata != null) {
+        stats['${lang}_metadata'] = metadata;
+      }
+    }
+    
+    return stats;
+  }
+  
+  /// Clear all cached languages (for reset functionality)
+  static Future<void> clearAllCache() async {
+    final cachedLanguages = await getCachedLanguages();
+    
+    // Remove each language individually to clean up files
+    for (final lang in cachedLanguages) {
+      await removeCachedLanguage(lang);
+    }
+    
+    debugPrint('🗑️ Cleared all language cache');
+  }
+  
+  /// Initialize cache management - called at app startup
+  static Future<void> initialize() async {
+    try {
+      // Get cached languages and ensure they're still valid
+      final cachedLanguages = await getCachedLanguages();
+      
+      if (cachedLanguages.isNotEmpty) {
+        debugPrint('📋 Found ${cachedLanguages.length} cached languages: $cachedLanguages');
+        
+        // Could add validation here to check if cached files still exist
+        // and remove entries for missing files
+        
+        // Notify native side about cached languages for optimization
+        try {
+          await _platform.invokeMethod('updateCachedLanguagesList', {
+            'cachedLanguages': cachedLanguages,
+          });
+        } catch (e) {
+          debugPrint('Error updating native cached languages list: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error initializing language cache manager: $e');
+    }
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -57,6 +192,9 @@ void main() async {
   
   // Initialize theme manager
   await FlutterThemeManager.instance.initialize();
+  
+  // Initialize language cache manager
+  await LanguageCacheManager.initialize();
   
   runApp(const AIKeyboardApp());
 }

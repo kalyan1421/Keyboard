@@ -70,8 +70,9 @@ class KeyboardHeightManager(private val context: Context) {
             totalHeight += dpToPx(SUGGESTION_BAR_HEIGHT_DP)
         }
         
-        Log.d(TAG, "Calculated keyboard height: $totalHeight px (base: $keyboardHeight, " +
-                "toolbar: $includeToolbar, suggestions: $includeSuggestions)")
+        // Log removed to reduce log spam
+        // Log.d(TAG, "Calculated keyboard height: $totalHeight px (base: $keyboardHeight, " +
+        //         "toolbar: $includeToolbar, suggestions: $includeSuggestions)")
         
         return totalHeight
     }
@@ -93,7 +94,7 @@ class KeyboardHeightManager(private val context: Context) {
         
         if (resourceId > 0) {
             val navBarHeight = context.resources.getDimensionPixelSize(resourceId)
-            Log.d(TAG, "Navigation bar height from resources: $navBarHeight px")
+            // Log.d(TAG, "Navigation bar height from resources: $navBarHeight px")
             return navBarHeight
         }
         
@@ -152,8 +153,8 @@ class KeyboardHeightManager(private val context: Context) {
                 bottomInset
             )
             
-            Log.d(TAG, "Applied insets - Top: $topInset, Bottom: $bottomInset, " +
-                    "IME: ${ime.bottom}, NavBar: ${navBars.bottom}")
+            // Log.d(TAG, "Applied insets - Top: $topInset, Bottom: $bottomInset, " +
+            //         "IME: ${ime.bottom}, NavBar: ${navBars.bottom}")
             
             onInsetsApplied?.invoke(topInset, bottomInset)
             
@@ -188,7 +189,7 @@ class KeyboardHeightManager(private val context: Context) {
             panel.clipChildren = false
         }
         
-        Log.d(TAG, "Adjusted panel height: $adjustedHeight px, nav bar padding: $navBarHeight px")
+        // Log.d(TAG, "Adjusted panel height: $adjustedHeight px, nav bar padding: $navBarHeight px")
     }
     
     // Private helper methods
@@ -231,5 +232,24 @@ class KeyboardHeightManager(private val context: Context) {
                 false
             }
         }
+    }
+    
+    /**
+     * Helper method for unified layout controller
+     * Applies calculated height directly to a ViewGroup
+     * 
+     * @param view The view to apply height to
+     */
+    fun applyHeightTo(view: ViewGroup) {
+        val newHeight = calculateKeyboardHeight(
+            includeToolbar = true,
+            includeSuggestions = true
+        )
+        view.layoutParams = view.layoutParams?.apply {
+            height = newHeight
+        } ?: ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, newHeight)
+        view.requestLayout()
+        
+        // Log.d(TAG, "Applied height to view: ${newHeight}px")
     }
 }

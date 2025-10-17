@@ -1,112 +1,117 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Simplified 6-button toolbar for AI Keyboard -->
+<!-- ✅ UNIFIED THEMING: Transparent background for perfect theme matching -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/keyboard_toolbar_simple"
     android:layout_width="match_parent"
     android:layout_height="@dimen/toolbar_height"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:background="@drawable/bg_keyboard_toolbar_themable"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
+    android:background="@android:color/transparent"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
     android:paddingTop="4dp"
     android:paddingBottom="4dp">
 
-    <TextView
-        android:id="@+id/btn_grammar_fix"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="✅"
-        android:textSize="24sp"
-        android:clickable="true"
-        android:focusable="true"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Grammar Fix" />
-
-    <TextView
-        android:id="@+id/btn_word_tone"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="🎨"
-        android:textSize="24sp"
-        android:clickable="true"
-        android:focusable="true"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Word Tone" />
-
-    <TextView
+    <!-- Left Side Icons (Grouped: ChatGPT, Grammar, Tone) -->
+    <ImageView
         android:id="@+id/btn_ai_assistant"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="🤖"
-        android:textSize="24sp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:padding="2dp"
+        android:adjustViewBounds="true"
         android:clickable="true"
         android:focusable="true"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="AI Assistant" />
 
-    <TextView
-        android:id="@+id/btn_clipboard"
+    <Space
+        android:layout_width="2dp"
+        android:layout_height="1dp" />
+
+    <ImageView
+        android:id="@+id/btn_grammar_fix"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:padding="2dp"
+        android:adjustViewBounds="true"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Grammar Fix" />
+
+    <Space
+        android:layout_width="2dp"
+        android:layout_height="1dp" />
+
+    <ImageView
+        android:id="@+id/btn_word_tone"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:padding="2dp"
+        android:adjustViewBounds="true"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Word Tone" />
+
+    <!-- Middle Spacer (Flexible Gap) -->
+    <View
         android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="📋"
-        android:textSize="24sp"
+        android:layout_height="1dp"
+        android:layout_weight="1" />
+
+    <!-- Right Side Icons (Grouped: Clipboard, Emoji, Voice) -->
+    <ImageView
+        android:id="@+id/btn_clipboard"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:padding="2dp"
+        android:adjustViewBounds="true"
         android:clickable="true"
         android:focusable="true"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="Clipboard" />
 
-    <TextView
+    <Space
+        android:layout_width="2dp"
+        android:layout_height="1dp" />
+
+    <ImageView
         android:id="@+id/btn_emoji"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="😊"
-        android:textSize="24sp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:padding="2dp"
+        android:adjustViewBounds="true"
         android:clickable="true"
         android:focusable="true"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="Emoji Panel" />
 
-    <TextView
-        android:id="@+id/btn_more_actions"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="⋮"
-        android:textSize="24sp"
-        android:clickable="true"
-        android:focusable="true"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="More Actions" />
+    <Space
+        android:layout_width="2dp"
+        android:layout_height="1dp" />
 
-    <TextView
-        android:id="@+id/btn_smart_backspace"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_gravity="center_vertical"
-        android:gravity="center"
-        android:text="↩"
-        android:textSize="24sp"
+    <ImageView
+        android:id="@+id/btn_voice"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        android:padding="2dp"
+        android:adjustViewBounds="true"
         android:clickable="true"
         android:focusable="true"
         android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Smart Backspace" />
+        android:contentDescription="Voice Input" />
 </LinearLayout>

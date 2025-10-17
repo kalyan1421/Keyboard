@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ✅ UNIFIED THEMING: Transparent background -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="0dp">
+    android:padding="6dp"
+    android:background="@android:color/transparent">
+
+    
 
     <!-- AI Action Chips -->
     <HorizontalScrollView
+        android:id="@+id/aiAssistantScrollView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:scrollbars="none">
         
         <LinearLayout
+            android:id="@+id/aiAssistantButtonContainer"
             android:orientation="horizontal"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content">
@@ -57,29 +63,21 @@
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- Result Output -->
+    <!-- Result Output - Single (Tap to Replace) -->
     <TextView
         android:id="@+id/aiOutput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:minHeight="80dp"
         android:hint="AI-generated text will appear here..."
         android:textColorHint="@color/kb_text_secondary"
         android:textColor="@color/kb_text_primary"
         android:textSize="16sp"
         android:padding="12dp"
         android:layout_marginTop="12dp"
+        android:clickable="true"
+        android:focusable="true"
         android:background="@drawable/input_text_background"/>
-
-    <!-- Replace Button -->
-    <Button
-        android:id="@+id/btnReplaceAIText"
-        android:text="Replace Text"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end"
-        android:layout_marginTop="12dp"
-        android:paddingHorizontal="24dp"
-        android:background="@drawable/action_button_background"/>
 
 </LinearLayout>
 

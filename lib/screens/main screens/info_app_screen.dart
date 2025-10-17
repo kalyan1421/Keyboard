@@ -22,8 +22,9 @@ class InfoAppScreen extends StatelessWidget {
         ),
       ),
       backgroundColor: AppColors.white,
-      body: Column(
-        children: [
+      body:  SafeArea(child: Padding(padding: const EdgeInsets.all(16.0), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           // Header Section
           // _buildHeader(context),
           // App Info Card
@@ -46,9 +47,10 @@ class InfoAppScreen extends StatelessWidget {
             ),
           ),
           // Bottom Navigation
-          _buildBottomNavigation(context),
-        ],
-      ),
+          // _buildBottomNavigation(context),
+          ],),
+      ))
+    
     );
   }
 

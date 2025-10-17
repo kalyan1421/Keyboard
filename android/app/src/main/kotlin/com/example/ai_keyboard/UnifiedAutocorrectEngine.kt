@@ -58,7 +58,6 @@ class UnifiedAutocorrectEngine(
     private val context: Context,
     private val multilingualDictionary: MultilingualDictionary,
     private val transliterationEngine: TransliterationEngine? = null,
-    private val indicScriptHelper: IndicScriptHelper? = null,
     private val userDictionaryManager: UserDictionaryManager? = null
 ) {
     companion object {
@@ -106,7 +105,9 @@ class UnifiedAutocorrectEngine(
         currentLanguage = lang
         languageResources = resources
         suggestionCache.evictAll() // Clear cache when language changes
-        LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine: Engine ready [langs=[$lang], corrections=${resources.corrections.size}]")
+        LogUtil.d(TAG, "🌐 Firebase language activated: $lang")
+        LogUtil.d(TAG, "📖 Loaded $lang: words=${resources.words.size}, bigrams=${resources.bigrams.size}, trigrams=${resources.trigrams.size}")
+        LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine ready for $lang")
     }
     
     /**
@@ -114,6 +115,28 @@ class UnifiedAutocorrectEngine(
      */
     fun hasLanguage(lang: String): Boolean {
         return currentLanguage == lang && languageResources != null
+    }
+    
+    /**
+     * Get suggestions for prefix (UNIFIED API as specified in requirements)
+     * This method name was requested in the task specification
+     */
+    fun getSuggestionsFor(prefix: String): List<String> {
+        if (prefix.isBlank()) return emptyList()
+        LogUtil.d(TAG, "🔍 Getting suggestions for prefix: '$prefix'")
+        val suggestions = suggestForTyping(prefix, emptyList())
+        return suggestions.map { it.text }
+    }
+    
+    /**
+     * Get next word predictions (UNIFIED API as specified in requirements)
+     * This method name was requested in the task specification
+     */
+    fun getNextWordPredictions(context: List<String>): List<String> {
+        if (context.isEmpty()) return emptyList()
+        LogUtil.d(TAG, "🔮 Getting next word predictions for: $context")
+        val predictions = nextWord(context, 3)
+        return predictions.map { it.text }
     }
     
     /**
@@ -129,6 +152,8 @@ class UnifiedAutocorrectEngine(
         val suggestions = mutableListOf<Suggestion>()
         
         try {
+            LogUtil.d(TAG, "✍️ Getting typing suggestions for prefix '$prefix' (Firebase data)")
+            
             // Find candidate words that start with prefix
             val candidates = resources.words.entries
                 .filter { it.key.lowercase().startsWith(prefix.lowercase()) }
@@ -145,6 +170,7 @@ class UnifiedAutocorrectEngine(
                 .sortedByDescending { it.score }
                 .take(5)
             
+            LogUtil.d(TAG, "📊 Unified typing suggestions: ${result.map { it.text }}")
             suggestionCache.put(cacheKey, result)
             return result
             
@@ -162,10 +188,16 @@ class UnifiedAutocorrectEngine(
         val resources = languageResources ?: return null
         
         // Priority 1: Check corrections map
-        resources.corrections[input.lowercase()]?.let { correction ->
+        val inputLower = input.lowercase()
+        LogUtil.d(TAG, "🔧 Autocorrect: checking '$inputLower' in corrections map (${resources.corrections.size} entries)")
+        
+        resources.corrections[inputLower]?.let { correction ->
             val score = CORRECTION_WEIGHT * 4.0 // High priority for predefined corrections
+            LogUtil.d(TAG, "✅ Correction found: '$inputLower' → '$correction'")
             return Suggestion(correction, score, SuggestionSource.CORRECTION, isAutoCommit = true)
         }
+        
+        LogUtil.d(TAG, "⚠️ No correction found for '$inputLower' in map")
         
         // Priority 2: Check typing suggestions and return best if score is high enough
         val suggestions = suggestForTyping(input, context)
@@ -189,6 +221,8 @@ class UnifiedAutocorrectEngine(
         val suggestions = mutableListOf<Suggestion>()
         
         try {
+            LogUtil.d(TAG, "🔮 Getting next word predictions for context: $context (Firebase data)")
+            
             // Use Katz-backoff: quad→tri→bi→uni
             val contextWords = context.takeLast(3) // Max 3-word context for quadgrams
             
@@ -229,6 +263,7 @@ class UnifiedAutocorrectEngine(
                 .sortedByDescending { it.score }
                 .take(k)
             
+            LogUtil.d(TAG, "📊 Next word predictions: ${result.map { it.text }}")
             suggestionCache.put(cacheKey, result)
             return result
             
@@ -248,12 +283,14 @@ class UnifiedAutocorrectEngine(
         suggestionCache.get(cacheKey)?.let { return it }
         
         try {
+            LogUtil.d(TAG, "🔄 Getting swipe suggestions from Firebase data")
+            
             // Use proper path decoding with metrics (NO fallbacks to typed suggestions)
             val result = decodeSwipePath(path, resources).map { (word, score) ->
                 Suggestion(word, score, SuggestionSource.SWIPE)
             }
             
-            LogUtil.d(TAG, "[Swipe] Final candidates: ${result.take(5).map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
+            LogUtil.d(TAG, "✅ Swipe candidates (Firebase): ${result.take(5).map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
             
             suggestionCache.put(cacheKey, result)
             return result.take(5)
@@ -1012,8 +1049,8 @@ class UnifiedAutocorrectEngine(
     }
 
     /**
-     * Get suggestions optimized for swipe input
-     * Used by SwipeAutocorrectEngine for consistent scoring
+     * Get suggestions optimized for swipe input (legacy method)
+     * Use suggestForSwipe(SwipePath, context) for proper swipe decoding
      */
     fun suggestForSwipe(input: String, language: String): List<String> {
         return try {

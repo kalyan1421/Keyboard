@@ -3,7 +3,6 @@ import 'package:ai_keyboard/screens/main%20screens/home_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/profile_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
 import 'package:ai_keyboard/theme/theme_editor_v2.dart';
-import 'package:ai_keyboard/screens/main%20screens/theme_screen.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/rate_app_modal.dart';
@@ -15,7 +14,9 @@ import 'dart:async';
 import 'package:ai_keyboard/services/firebase_auth_service.dart';
 
 class mainscreen extends StatefulWidget {
+  
   const mainscreen({super.key});
+
 
   @override
   State<mainscreen> createState() => _mainscreenState();
@@ -276,10 +277,9 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
               child: const Icon(Icons.keyboard, size: 32),
             ),
       bottomNavigationBar: 
-      Padding(
-        padding: const EdgeInsets.only(bottom: 5),
+      
         
-      child: Container(
+      Container(
         height: MediaQuery.of(context).size.height * 0.13,
         decoration: BoxDecoration(
           color: AppColors.white,
@@ -352,7 +352,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
           ],
         ),
       ),
-      )
+    
     );
   }
 }

@@ -9,19 +9,29 @@
 import UIKit
 import AudioToolbox
 
-@objc(KeyboardViewController)
 class KeyboardViewController: UIInputViewController {
 
     // MARK: - Properties
     var keyboardView: UIView!
     private var keyboardHeight: CGFloat = 216
     private let settingsManager = SettingsManager.shared
-    var layoutManager: LayoutManager!
+    var layoutManager: LayoutManager?
+    private var isInitialized = false
+    private var darwinObserverAdded = false
     
     // Enhanced Shift State Management (3-State FSM)
     var shiftState: ShiftState = .normal
     private var lastShiftPressTime: TimeInterval = 0
     private var doubleTapTimeout: TimeInterval = 0.3
+    
+    // Layout Management
+    var currentLayoutType: KeyboardLayoutType = .alphabetic
+    
+    enum KeyboardLayoutType {
+        case alphabetic
+        case numeric
+        case symbols
+    }
     
     // Backward compatibility
     private var isShifted: Bool {
@@ -34,22 +44,30 @@ class KeyboardViewController: UIInputViewController {
     // MARK: - Lifecycle Methods
     override func viewDidLoad() {
         super.viewDidLoad()
+        NSLog("🎹 Keyboard launched - viewDidLoad called")
+        setupInputViewIfNeeded()
+        installDarwinObserverSafely()
         
-        // Initialize layout manager
-        layoutManager = LayoutManager(keyboardViewController: self)
+        // Initialize layout manager with error handling
+        do {
+            layoutManager = LayoutManager(keyboardViewController: self)
+        } catch {
+            print("Failed to create LayoutManager: \(error)")
+            layoutManager = nil
+        }
         
         // Setup keyboard with fallback
-        if layoutManager != nil {
+        if let layoutManager = layoutManager {
             setupKeyboard()
         } else {
-            print("Failed to create LayoutManager, using basic setup")
+            print("Using basic keyboard setup due to LayoutManager failure")
             setupBasicKeyboard()
         }
         
         // Load settings
         loadSettings()
         
-        // Auto-capitalize at document start if enabled
+        // Auto-capitalize at document start if enabled (with safe proxy access)
         if settingsManager.autoCapitalizationEnabled {
             let textBefore = textDocumentProxy.documentContextBeforeInput ?? ""
             if textBefore.isEmpty {
@@ -57,32 +75,12 @@ class KeyboardViewController: UIInputViewController {
                 updateShiftKey()
             }
         }
-        
-        // Observe settings changes from main app via Darwin notifications
-        let notificationCenter = CFNotificationCenterGetDarwinNotifyCenter()
-        let notificationName = "com.example.aiKeyboard.settingsChanged" as CFString
-        let observer = UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
-        
-        CFNotificationCenterAddObserver(
-            notificationCenter,
-            observer,
-            { _, observer, name, _, _ in
-                guard let observer = observer else { return }
-                let viewController = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
-                DispatchQueue.main.async {
-                    viewController.loadSettings()
-                    viewController.updateKeyboardAppearance()
-                }
-            },
-            notificationName,
-            nil,
-            .deliverImmediately
-        )
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // Reload settings when keyboard appears
+        NSLog("🎹 Keyboard viewWillAppear called")
+        setupInputViewIfNeeded()
         loadSettings()
         updateKeyboardAppearance()
     }
@@ -98,27 +96,86 @@ class KeyboardViewController: UIInputViewController {
         }
     }
     
+    deinit {
+        if darwinObserverAdded {
+            CFNotificationCenterRemoveEveryObserver(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                Unmanaged.passUnretained(self).toOpaque()
+            )
+        }
+    }
+    
+    // MARK: - Safe Input View Setup
+    private func setupInputViewIfNeeded() {
+        guard !isInitialized else { return }
+        NSLog("🎹 Setting up input view")
+
+        // Always provide an inputView container to avoid blank screen
+        let container = UIInputView(frame: .zero, inputViewStyle: .keyboard)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        self.inputView = container
+
+        let root = UIView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(root)
+        NSLayoutConstraint.activate([
+            root.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            root.topAnchor.constraint(equalTo: container.topAnchor),
+            root.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        self.keyboardView = root
+
+        isInitialized = true
+    }
+    
+    // MARK: - Safe Darwin Observer Setup
+    private func installDarwinObserverSafely() {
+        guard !darwinObserverAdded else { return }
+
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let name = "com.example.aiKeyboard.settingsChanged" as CFString
+
+        // Create a stable holder (avoids lifetime issues)
+        let unmanagedSelf = Unmanaged.passUnretained(self)
+
+        CFNotificationCenterAddObserver(
+            center,
+            unmanagedSelf.toOpaque(),
+            { _, opaqueObserver, _, _, _ in
+                guard let opaqueObserver = opaqueObserver else { return }
+                let vc = Unmanaged<KeyboardViewController>
+                    .fromOpaque(opaqueObserver)
+                    .takeUnretainedValue()
+                DispatchQueue.main.async {
+                    vc.loadSettings()
+                    vc.updateKeyboardAppearance()
+                }
+            },
+            name,
+            nil,
+            .deliverImmediately
+        )
+
+        darwinObserverAdded = true
+    }
+    
     // MARK: - Keyboard Setup (Using LayoutManager)
     private func setupKeyboard() {
-        guard layoutManager != nil else {
+        guard let layoutManager = layoutManager else {
             print("LayoutManager is nil, falling back to basic setup")
             setupBasicKeyboard()
             return
         }
         
-        // Create main keyboard container
-        keyboardView = UIView()
-        keyboardView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardView.backgroundColor = UIColor.systemGray6
-        view.addSubview(keyboardView)
+        // Ensure keyboardView exists from setupInputViewIfNeeded
+        guard keyboardView != nil else {
+            print("KeyboardView is nil, cannot setup keyboard")
+            return
+        }
         
-        // Setup constraints for keyboard view
-        NSLayoutConstraint.activate([
-            keyboardView.topAnchor.constraint(equalTo: view.topAnchor),
-            keyboardView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            keyboardView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            keyboardView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        // Configure appearance
+        keyboardView.backgroundColor = UIColor.systemGray6
         
         // Use LayoutManager to create keyboard layout
         _ = layoutManager.createKeyboardLayout(in: keyboardView)
@@ -129,42 +186,70 @@ class KeyboardViewController: UIInputViewController {
     
     // MARK: - Fallback Basic Keyboard Setup
     private func setupBasicKeyboard() {
-        // Create a simple fallback keyboard if LayoutManager fails
-        keyboardView = UIView()
-        keyboardView.translatesAutoresizingMaskIntoConstraints = false
+        // Ensure keyboardView exists from setupInputViewIfNeeded
+        guard keyboardView != nil else {
+            print("KeyboardView is nil, cannot setup basic keyboard")
+            return
+        }
+        
+        // Configure appearance
         keyboardView.backgroundColor = UIColor.systemGray6
-        view.addSubview(keyboardView)
         
-        // Setup constraints
+        // Create a minimal row so you always see something (prevents "white")
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.alignment = .fill
+        row.distribution = .fillEqually
+        row.spacing = 6
+        row.translatesAutoresizingMaskIntoConstraints = false
+        keyboardView.addSubview(row)
         NSLayoutConstraint.activate([
-            keyboardView.topAnchor.constraint(equalTo: view.topAnchor),
-            keyboardView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            keyboardView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            keyboardView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            row.leadingAnchor.constraint(equalTo: keyboardView.leadingAnchor, constant: 8),
+            row.trailingAnchor.constraint(equalTo: keyboardView.trailingAnchor, constant: -8),
+            row.bottomAnchor.constraint(equalTo: keyboardView.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            row.heightAnchor.constraint(equalToConstant: 44)
         ])
-        
-        // Create a simple "Hello" button for testing
-        let testButton = UIButton(type: .system)
-        testButton.setTitle("Hello", for: .normal)
-        testButton.backgroundColor = UIColor.systemBlue
-        testButton.setTitleColor(.white, for: .normal)
-        testButton.layer.cornerRadius = 8
-        testButton.translatesAutoresizingMaskIntoConstraints = false
-        
-        testButton.addTarget(self, action: #selector(testButtonPressed), for: .touchUpInside)
-        
-        keyboardView.addSubview(testButton)
-        
-        NSLayoutConstraint.activate([
-            testButton.centerXAnchor.constraint(equalTo: keyboardView.centerXAnchor),
-            testButton.centerYAnchor.constraint(equalTo: keyboardView.centerYAnchor),
-            testButton.widthAnchor.constraint(equalToConstant: 100),
-            testButton.heightAnchor.constraint(equalToConstant: 44)
-        ])
+
+        // Add a few visible debug keys; replace with your builder later
+        ["Q","W","E","R","T","Y"].forEach { title in
+            let b = UIButton(type: .system)
+            b.setTitle(title, for: .normal)
+            b.backgroundColor = UIColor.systemBlue
+            b.setTitleColor(.white, for: .normal)
+            b.layer.cornerRadius = 6
+            b.addTarget(self, action: #selector(onKeyTapped(_:)), for: .touchUpInside)
+            row.addArrangedSubview(b)
+        }
     }
     
-    @objc private func testButtonPressed() {
-        textDocumentProxy.insertText("Hello ")
+    @objc private func onKeyTapped(_ sender: UIButton) {
+        guard let title = sender.title(for: .normal) else { return }
+        NSLog("🎹 Key tapped: %@", title)
+        safeInsertText(title.lowercased())
+        // light feedback (optional)
+        AudioServicesPlaySystemSound(0x450)
+    }
+    
+    // MARK: - Safe Text Document Proxy Access
+    func safeInsertText(_ text: String) {
+        guard hasValidTextDocumentProxy() else {
+            print("Warning: textDocumentProxy not available")
+            return
+        }
+        textDocumentProxy.insertText(text)
+    }
+    
+    func safeDeleteBackward() {
+        guard hasValidTextDocumentProxy() else {
+            print("Warning: textDocumentProxy not available")
+            return
+        }
+        textDocumentProxy.deleteBackward()
+    }
+    
+    private func hasValidTextDocumentProxy() -> Bool {
+        // Basic validation that proxy is available
+        return textDocumentProxy.hasText || textDocumentProxy.documentContextBeforeInput != nil || textDocumentProxy.documentContextAfterInput != nil
     }
     
     // MARK: - Settings Management (App Groups Implementation)
@@ -183,9 +268,7 @@ class KeyboardViewController: UIInputViewController {
         keyboardView.backgroundColor = isDarkMode ? UIColor.systemGray6 : UIColor.systemGray5
         
         // Use LayoutManager to update button appearances if available
-        if layoutManager != nil {
-            layoutManager.updateButtonAppearances()
-        }
+        layoutManager?.updateButtonAppearances()
     }
     
     // MARK: - Key Actions (Text Insertion via textDocumentProxy)
@@ -233,7 +316,7 @@ class KeyboardViewController: UIInputViewController {
             character = title.uppercased()
         }
         
-        textDocumentProxy.insertText(character)
+        safeInsertText(character)
     }
     
     @objc func shiftPressed() {
@@ -296,7 +379,7 @@ class KeyboardViewController: UIInputViewController {
     }
     
     @objc private func deletePressed() {
-        textDocumentProxy.deleteBackward()
+        safeDeleteBackward()
         
         if settingsManager.vibrationEnabled {
             let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -316,7 +399,7 @@ class KeyboardViewController: UIInputViewController {
             playKeySound(for: " ")
         }
         
-        textDocumentProxy.insertText(" ")
+        safeInsertText(" ")
         
         // Enhanced auto-capitalize after sentence ending (if enabled)
         if settingsManager.autoCapitalizationEnabled,
@@ -330,7 +413,7 @@ class KeyboardViewController: UIInputViewController {
     }
     
     @objc private func returnPressed() {
-        textDocumentProxy.insertText("\n")
+        safeInsertText("\n")
         
         // Auto-capitalize after new line (if enabled)
         if settingsManager.autoCapitalizationEnabled && shiftState == .normal {
@@ -345,6 +428,14 @@ class KeyboardViewController: UIInputViewController {
             switchToLayout(.numeric)
         } else {
             switchToLayout(.alphabetic)
+        }
+    }
+    
+    func switchToLayout(_ layoutType: KeyboardLayoutType) {
+        currentLayoutType = layoutType
+        // Recreate keyboard layout for the new type
+        if let layoutManager = layoutManager, keyboardView != nil {
+            _ = layoutManager.createKeyboardLayout(in: keyboardView)
         }
     }
     
@@ -374,13 +465,20 @@ class KeyboardViewController: UIInputViewController {
     // MARK: - Text Context Handling
     override func textWillChange(_ textInput: UITextInput?) {
         super.textWillChange(textInput)
+        // Don't touch UI here; environment can be incomplete
     }
     
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
-        updateKeyboardAppearance()
         
-        // Enhanced auto-capitalization logic
+        // Safe appearance update
+        DispatchQueue.main.async {
+            self.updateKeyboardAppearance()
+        }
+        
+        // Enhanced auto-capitalization logic with safe proxy access
+        guard hasValidTextDocumentProxy() else { return }
+        
         if settingsManager.autoCapitalizationEnabled && shiftState == .normal {
             let textBefore = textDocumentProxy.documentContextBeforeInput ?? ""
             
@@ -418,9 +516,7 @@ class KeyboardViewController: UIInputViewController {
             let newOrientation: UIInterfaceOrientation = size.width > size.height ? .landscapeLeft : .portrait
             
             // Only handle orientation change if layoutManager exists
-            if self.layoutManager != nil {
-                self.layoutManager.handleOrientationChange(to: newOrientation)
-            }
+            self.layoutManager?.handleOrientationChange(to: newOrientation)
         })
     }
     

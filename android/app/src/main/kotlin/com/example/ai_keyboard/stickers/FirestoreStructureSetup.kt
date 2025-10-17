@@ -292,3 +292,4 @@ data class FirestoreInfo(
     val stickerCount: Int = 0,
     val lastChecked: Long = 0L
 )
+

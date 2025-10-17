@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'theme_v2.dart';
-// import '/Users/kalyan/AI-keyboard/lib/screens/main screens/theme_screen.dart';
-import 'package:ai_keyboard/screens/main screens/theme_screen.dart';
+
 import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 
 /// Theme Gallery Screen - CleverType style theme selection
@@ -20,27 +20,71 @@ class ThemeGalleryScreen extends StatefulWidget {
 class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
   String _selectedCategory = 'Popular';
   final Map<String, List<KeyboardThemeV2>> _themesByCategory = KeyboardThemeV2.getThemesByCategory();
+  
+  // Sample background images (can be replaced with actual image URLs or assets)
+  final List<BackgroundImage> _backgroundImages = [
+    BackgroundImage(
+      id: 'nature_1',
+      category: 'Nature',
+      imageUrl: 'https://picsum.photos/300/200?random=1',
+      icon: Icons.eco,
+    ),
+    BackgroundImage(
+      id: 'nature_2',
+      category: 'Nature',
+      imageUrl: 'https://picsum.photos/300/200?random=2',
+      icon: Icons.eco,
+    ),
+    BackgroundImage(
+      id: 'nature_3',
+      category: 'Nature',
+      imageUrl: 'https://picsum.photos/300/200?random=3',
+      icon: Icons.eco,
+    ),
+    BackgroundImage(
+      id: 'nature_4',
+      category: 'Nature',
+      imageUrl: 'https://picsum.photos/300/200?random=4',
+      icon: Icons.eco,
+    ),
+    BackgroundImage(
+      id: 'abstract_1',
+      category: 'Abstract',
+      imageUrl: 'https://picsum.photos/300/200?random=5',
+      icon: Icons.auto_awesome,
+    ),
+    BackgroundImage(
+      id: 'abstract_2',
+      category: 'Abstract',
+      imageUrl: 'https://picsum.photos/300/200?random=6',
+      icon: Icons.auto_awesome,
+    ),
+    BackgroundImage(
+      id: 'flowers_1',
+      category: 'Flowers',
+      imageUrl: 'https://picsum.photos/300/200?random=7',
+      icon: Icons.local_florist,
+    ),
+    BackgroundImage(
+      id: 'flowers_2',
+      category: 'Flowers',
+      imageUrl: 'https://picsum.photos/300/200?random=8',
+      icon: Icons.local_florist,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Theme Gallery'),
+        title: const Text('Themes'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add_circle),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ThemeScreen(),
-                ),
-              );
-            },
-            tooltip: 'Create Custom Theme',
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.settings),
             onPressed: () {
               Navigator.push(
                 context,
@@ -49,56 +93,412 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
                 ),
               );
             },
-            tooltip: 'Create Custom Theme',
+            tooltip: 'Theme Settings',
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Category Tabs
-          Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: _themesByCategory.keys.map((category) {
-                final isSelected = category == _selectedCategory;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(category),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _selectedCategory = category;
-                        });
-                      }
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
+      body: CustomScrollView(
+        slivers: [
+          // Image Background Selection Section
+          SliverToBoxAdapter(
+            child: _buildImageBackgroundSection(),
           ),
+          
+          // Category Filters
+          SliverToBoxAdapter(
+            child: _buildCategoryFilters(),
+          ),
+          
           // Theme Grid
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(16),
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverGrid(
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 16,
                 mainAxisSpacing: 16,
                 childAspectRatio: 1.2,
               ),
-              itemCount: _themesByCategory[_selectedCategory]?.length ?? 0,
-              itemBuilder: (context, index) {
-                final theme = _themesByCategory[_selectedCategory]![index];
-                return _buildThemeCard(theme);
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final theme = _themesByCategory[_selectedCategory]![index];
+                  return _buildThemeCard(theme);
+                },
+                childCount: _themesByCategory[_selectedCategory]?.length ?? 0,
+              ),
+            ),
+          ),
+          
+          // Try your theme here section (optional)
+          SliverToBoxAdapter(
+            child: _buildTryThemeSection(),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildImageBackgroundSection() {
+    // Group images by category
+    final Map<String, List<BackgroundImage>> imagesByCategory = {};
+    for (var image in _backgroundImages) {
+      imagesByCategory.putIfAbsent(image.category, () => []).add(image);
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Upload Photo Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: GestureDetector(
+              onTap: _uploadCustomImage,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).primaryColor,
+                    width: 2,
+                    style: BorderStyle.solid,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).primaryColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.add_photo_alternate,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Upload Photo',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Add your own image as keyboard background',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      color: Theme.of(context).primaryColor,
+                      size: 16,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Predefined images by category
+          ...imagesByCategory.entries.map((entry) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Category Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        entry.value.first.icon,
+                        color: Colors.green,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        entry.key,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Horizontal Image Grid
+                SizedBox(
+                  height: 120,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: entry.value.length,
+                    itemBuilder: (context, index) {
+                      final image = entry.value[index];
+                      return _buildImageCard(image);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+  
+  Future<void> _uploadCustomImage() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 90,
+      );
+      
+      if (image != null) {
+        // Copy image to app directory so keyboard service can access it
+        final String savedPath = await _saveImageForKeyboard(File(image.path));
+        
+        // Create a theme with the selected image
+        final customImageTheme = KeyboardThemeV2.createPictureTheme().copyWith(
+          id: 'custom_upload_${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Custom Image Theme',
+          background: ThemeBackground(
+            type: 'image',
+            color: const Color(0xFF000000),
+            imagePath: savedPath,
+            imageOpacity: 0.85,
+            gradient: null,
+            overlayEffects: const [],
+            adaptive: null,
+          ),
+        );
+        
+        await _applyTheme(customImageTheme);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Custom image applied successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to upload image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+  
+  /// Save image to a location accessible by the keyboard service
+  Future<String> _saveImageForKeyboard(File imageFile) async {
+    try {
+      // Get app's external files directory (accessible by keyboard service)
+      final directory = await getExternalStorageDirectory();
+      if (directory == null) {
+        throw Exception('External storage not available');
+      }
+      
+      // Create themes directory if it doesn't exist
+      final themesDir = Directory('${directory.path}/keyboard_themes');
+      if (!await themesDir.exists()) {
+        await themesDir.create(recursive: true);
+      }
+      
+      // Generate unique filename
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final extension = imageFile.path.split('.').last;
+      final targetPath = '${themesDir.path}/bg_$timestamp.$extension';
+      
+      // Copy file
+      await imageFile.copy(targetPath);
+      
+      return targetPath;
+    } catch (e) {
+      // Fallback: return original path
+      return imageFile.path;
+    }
+  }
+  
+  Widget _buildImageCard(BackgroundImage image) {
+    return GestureDetector(
+      onTap: () => _applyImageBackground(image),
+      child: Container(
+        width: 160,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                image.imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[300],
+                    child: const Center(
+                      child: Icon(Icons.image, size: 40, color: Colors.grey),
+                    ),
+                  );
+                },
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    color: Colors.grey[200],
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                },
+              ),
+              // Gradient overlay for better visibility
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.3),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildCategoryFilters() {
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: _themesByCategory.keys.map((category) {
+          final isSelected = category == _selectedCategory;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(category),
+              selected: isSelected,
+              selectedColor: Theme.of(context).primaryColor.withOpacity(0.2),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() {
+                    _selectedCategory = category;
+                  });
+                }
               },
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+  
+  Widget _buildTryThemeSection() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Try your theme here',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Keyboard preview placeholder
+          Container(
+            height: 200,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Icon(
+                Icons.keyboard,
+                size: 60,
+                color: Colors.grey[500],
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+  
+  Future<void> _applyImageBackground(BackgroundImage image) async {
+    try {
+      // Create a theme with the selected image as background
+      final imageTheme = KeyboardThemeV2.createPictureTheme().copyWith(
+        id: 'custom_image_${image.id}',
+        name: '${image.category} Theme',
+        background: ThemeBackground(
+          type: 'image',
+          color: const Color(0xFF000000),
+          imagePath: image.imageUrl,
+          imageOpacity: 0.85,
+          gradient: null,
+          overlayEffects: const [],
+          adaptive: null,
+        ),
+      );
+      
+      await _applyTheme(imageTheme);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to apply image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildThemeCard(KeyboardThemeV2 theme) {
@@ -709,9 +1109,131 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createBlueTheme()),
+                      child: const Text('Blue'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createPinkTheme()),
+                      child: const Text('Pink'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createGreenTheme()),
+                      child: const Text('Green'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createLoveHeartsTheme()),
+                      child: const Text('💕 Hearts'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createGoldStarTheme()),
+                      child: const Text('⭐ Stars'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createNeonTheme()),
+                      child: const Text('✨ Neon'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _generateRandomTheme,
+                      icon: const Icon(Icons.shuffle),
+                      label: const Text('Random Theme'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple.shade100,
+                        foregroundColor: Colors.purple.shade800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _updateTheme(KeyboardThemeV2.createGalaxyTheme()),
+                      icon: const Icon(Icons.auto_awesome),
+                      label: const Text('🌌 Galaxy'),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  /// Generate a random theme with random colors and effects
+  void _generateRandomTheme() {
+    final random = DateTime.now().millisecondsSinceEpoch;
+    final allColors = [
+      Colors.red, Colors.pink, Colors.purple, Colors.blue,
+      Colors.cyan, Colors.teal, Colors.green, Colors.yellow,
+      Colors.orange, Colors.brown, Colors.grey,
+      const Color(0xFF2196F3), const Color(0xFF4CAF50), const Color(0xFF9C27B0),
+      const Color(0xFFFF9800), const Color(0xFFE91E63), const Color(0xFF00BCD4),
+      const Color(0xFF03A9F4), const Color(0xFFCDDC39), const Color(0xFFFFC107),
+    ];
+    
+    final bgColor = allColors[random % allColors.length];
+    final keyColor = Color.lerp(bgColor, Colors.white, 0.3) ?? bgColor;
+    final accentColor = Color.lerp(bgColor, Colors.black, 0.5) ?? bgColor;
+    
+    final presets = ['rounded', 'bordered', 'flat'];
+    final animations = ['ripple', 'glow', 'bounce'];
+    final effects = [<String>[], ['glow'], ['sparkles'], ['hearts'], ['sparkles', 'glow']];
+    
+    final randomTheme = _currentTheme.copyWith(
+      id: 'random_theme_$random',
+      name: 'Random ${random.toString().substring(random.toString().length - 4)}',
+      background: _currentTheme.background.copyWith(color: bgColor),
+      keys: _currentTheme.keys.copyWith(
+        preset: presets[random % presets.length],
+        bg: keyColor,
+        radius: 4.0 + (random % 16).toDouble(),
+      ),
+      specialKeys: _currentTheme.specialKeys.copyWith(accent: accentColor),
+      effects: _currentTheme.effects.copyWith(
+        pressAnimation: animations[random % animations.length],
+        globalEffects: effects[random % effects.length],
+      ),
+    );
+    
+    _updateTheme(randomTheme);
+    _nameController.text = randomTheme.name;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Random theme generated! 🎲'),
+        backgroundColor: accentColor,
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1192,6 +1714,9 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                   DropdownMenuItem(value: 'mechanical', child: Text('Mechanical')),
                   DropdownMenuItem(value: 'clicky', child: Text('Clicky')),
                   DropdownMenuItem(value: 'classic', child: Text('Classic')),
+                  DropdownMenuItem(value: 'typewriter', child: Text('Typewriter')),
+                  DropdownMenuItem(value: 'piano', child: Text('Piano Keys')),
+                  DropdownMenuItem(value: 'pop', child: Text('Pop Sound')),
                   DropdownMenuItem(value: 'silent', child: Text('Silent')),
                 ],
                 onChanged: (value) {
@@ -1447,16 +1972,22 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
-              children: ['glow', 'snow', 'particles'].map((effect) {
+              runSpacing: 8,
+              children: [
+                'glow', 'sparkles', 'hearts', 'snow', 'particles', 'rain', 'leaves', 'stars', 'bubbles', 'flames'
+              ].map((effect) {
                 final isSelected = _currentTheme.effects.globalEffects.contains(effect);
                 return FilterChip(
                   label: Text(effect.toUpperCase()),
                   selected: isSelected,
+                  selectedColor: Colors.blue.shade100,
                   onSelected: (selected) {
                     final newEffects = List<String>.from(_currentTheme.effects.globalEffects);
-                    if (selected && newEffects.isEmpty) {
-                      newEffects.add(effect);
-                    } else if (!selected) {
+                    if (selected) {
+                      if (!newEffects.contains(effect)) {
+                        newEffects.add(effect);
+                      }
+                    } else {
                       newEffects.remove(effect);
                     }
                     _updateTheme(_currentTheme.copyWith(
@@ -1479,6 +2010,10 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                 DropdownMenuItem(value: 'default', child: Text('Default')),
                 DropdownMenuItem(value: 'soft', child: Text('Soft')),
                 DropdownMenuItem(value: 'clicky', child: Text('Clicky')),
+                DropdownMenuItem(value: 'mechanical', child: Text('Mechanical')),
+                DropdownMenuItem(value: 'typewriter', child: Text('Typewriter')),
+                DropdownMenuItem(value: 'piano', child: Text('Piano')),
+                DropdownMenuItem(value: 'pop', child: Text('Pop')),
                 DropdownMenuItem(value: 'silent', child: Text('Silent')),
               ],
               onChanged: (value) {
@@ -1711,12 +2246,18 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                   border: OutlineInputBorder(),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'cute_animals', child: Text('Cute Animals')),
-                  DropdownMenuItem(value: 'valentine', child: Text('Valentine\'s Day')),
-                  DropdownMenuItem(value: 'halloween', child: Text('Halloween')),
-                  DropdownMenuItem(value: 'christmas', child: Text('Christmas')),
-                  DropdownMenuItem(value: 'nature', child: Text('Nature')),
-                  DropdownMenuItem(value: 'space', child: Text('Space')),
+                  DropdownMenuItem(value: 'cute_animals', child: Text('🐱 Cute Animals')),
+                  DropdownMenuItem(value: 'valentine', child: Text('💕 Valentine\'s Day')),
+                  DropdownMenuItem(value: 'halloween', child: Text('🎃 Halloween')),
+                  DropdownMenuItem(value: 'christmas', child: Text('🎄 Christmas')),
+                  DropdownMenuItem(value: 'nature', child: Text('🌿 Nature')),
+                  DropdownMenuItem(value: 'space', child: Text('🚀 Space')),
+                  DropdownMenuItem(value: 'celebration', child: Text('🎉 Celebration')),
+                  DropdownMenuItem(value: 'flowers', child: Text('🌸 Flowers')),
+                  DropdownMenuItem(value: 'food', child: Text('🍕 Food')),
+                  DropdownMenuItem(value: 'sports', child: Text('⚽ Sports')),
+                  DropdownMenuItem(value: 'music', child: Text('🎵 Music')),
+                  DropdownMenuItem(value: 'travel', child: Text('✈️ Travel')),
                 ],
                 onChanged: (value) {
                   if (value != null) {
@@ -1837,15 +2378,23 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Predefined colors
+              // Predefined colors (enhanced with theme-matching colors)
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  // Basic colors
                   Colors.red, Colors.pink, Colors.purple, Colors.blue,
                   Colors.cyan, Colors.teal, Colors.green, Colors.yellow,
                   Colors.orange, Colors.brown, Colors.grey, Colors.black,
                   Colors.white,
+                  // Enhanced palette colors from themes
+                  const Color(0xFF2196F3), const Color(0xFF4CAF50), const Color(0xFF9C27B0),
+                  const Color(0xFFFF9800), const Color(0xFFE91E63), const Color(0xFF00BCD4),
+                  const Color(0xFF03A9F4), const Color(0xFF1565C0), const Color(0xFFCDDC39),
+                  const Color(0xFFFFC107), const Color(0xFF009688), const Color(0xFF3F51B5),
+                  const Color(0xFF795548), const Color(0xFF673AB7), const Color(0xFF8BC34A),
+                  const Color(0xFFFF5722), const Color(0xFFFFD700), const Color(0xFF0A0A0A),
                 ].map((color) {
                   return GestureDetector(
                     onTap: () {
@@ -2039,4 +2588,19 @@ extension ThemeAdvancedCopyWith on ThemeAdvanced {
       materialYouExtract: materialYouExtract ?? this.materialYouExtract,
     );
   }
+}
+
+/// Background Image model for theme gallery
+class BackgroundImage {
+  final String id;
+  final String category;
+  final String imageUrl;
+  final IconData icon;
+
+  BackgroundImage({
+    required this.id,
+    required this.category,
+    required this.imageUrl,
+    required this.icon,
+  });
 }

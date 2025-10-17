@@ -117,11 +117,7 @@ class _LoginIllustraionScreenState extends State<LoginIllustraionScreen> {
                 ),
               ),
               SizedBox(height: 16),
-              OrangeButton(
-                text: 'Continue with Mobile',
-                icon: Icons.mobile_friendly_outlined,
-                onTap: () => onTapContinueWithMobile(context),
-              ),
+              
               SizedBox(height: 16),
               GestureDetector(
                 onTap: _isLoading ? null : _signInWithGoogle,

@@ -45,7 +45,7 @@
         <Key android:codes="3001" android:keyLabel="ற" android:keyWidth="11%p" android:popupCharacters="றா"/>
         <Key android:codes="2985" android:keyLabel="ன" android:keyWidth="11%p" android:popupCharacters="னா"/>
         <Key android:codes="-5"
-             android:keyIcon="@drawable/sym_keyboard_delete"
+             android:keyIcon="@drawable/backspace"
              android:keyWidth="15%p"
              android:keyEdgeFlags="right"
              android:isRepeatable="true"/>
@@ -70,7 +70,7 @@
         <Key android:codes="3019" android:keyLabel="ோ" android:keyWidth="7%p" android:popupCharacters="ஓ"/>
         <Key android:codes="3021" android:keyLabel="்" android:keyWidth="7%p"/>
         <Key android:codes="-5"
-             android:keyIcon="@drawable/sym_keyboard_delete"
+             android:keyIcon="@drawable/backspace"
              android:keyWidth="15%p"
              android:keyEdgeFlags="right"
              android:isRepeatable="true"/>
@@ -78,7 +78,7 @@
 
     <!-- Bottom row: ?123 + Comma + Globe + Space + Period + Enter -->
     <Row android:rowEdgeFlags="bottom">
-        <Key android:codes="-3" android:keyLabel="\?123" android:keyWidth="15%p" android:keyEdgeFlags="left"/>
+        <Key android:codes="-3" android:keyIcon="@drawable/number_symbol" android:keyWidth="15%p" android:keyEdgeFlags="left"/>
         <Key android:codes="44" android:keyLabel="," android:keyWidth="10%p"/>
         <Key android:codes="-14" android:keyLabel="🌐" android:keyWidth="10%p"/>
         <Key android:codes="32" android:keyIcon="@drawable/sym_keyboard_space" android:keyWidth="30%p" android:isRepeatable="false"/>

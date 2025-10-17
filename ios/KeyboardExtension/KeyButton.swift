@@ -230,19 +230,19 @@ class KeyButton: UIButton {
             case .capsLock:
                 character = keyValue.uppercased()
             }
-            controller.textDocumentProxy.insertText(character)
+            controller.safeInsertText(character)
             
         case .shift:
             controller.shiftPressed()
             
         case .delete:
-            controller.textDocumentProxy.deleteBackward()
+            controller.safeDeleteBackward()
             
         case .space:
-            controller.textDocumentProxy.insertText(" ")
+            controller.safeInsertText(" ")
             
         case .returnKey:
-            controller.textDocumentProxy.insertText("\n")
+            controller.safeInsertText("\n")
             
         case .number:
             controller.numbersPressed()

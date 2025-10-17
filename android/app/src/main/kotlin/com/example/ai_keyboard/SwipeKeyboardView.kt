@@ -1625,6 +1625,14 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 android.util.Log.d("SwipeKeyboardView", 
                     "✅ Layout rebuilt for mode: $mode, keys: ${layout.rows.flatten().size}")
                 
+                // 🎯 AUTO-ADJUST: Notify parent containers AFTER layout is built
+                // This ensures keyboard height is recalculated with the new layout
+                post {
+                    (parent as? android.view.View)?.requestLayout()
+                    (parent?.parent as? android.view.View)?.requestLayout()
+                    android.util.Log.d("SwipeKeyboardView", "🎯 Auto-adjust triggered after layout build")
+                }
+                
                 // Force refresh to update display
                 invalidate()
             } catch (e: Exception) {

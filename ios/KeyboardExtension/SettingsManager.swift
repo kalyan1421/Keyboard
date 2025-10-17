@@ -8,12 +8,24 @@ class SettingsManager {
     
     private var userDefaults: UserDefaults? {
         // Try to use App Groups, fallback to standard UserDefaults if not available
-        if let appGroupDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-            return appGroupDefaults
-        } else {
-            print("Warning: App Group not available, using standard UserDefaults")
-            return UserDefaults.standard
+        return groupDefaults() ?? UserDefaults.standard
+    }
+    
+    // MARK: - Safe App Groups Access
+    private func groupDefaults() -> UserDefaults? {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            print("Warning: App Group '\(appGroupIdentifier)' not available, using standard UserDefaults")
+            return nil
         }
+        return defaults
+    }
+    
+    private func groupContainerURL() -> URL? {
+        guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) else {
+            print("Warning: App Group container URL not available for '\(appGroupIdentifier)'")
+            return nil
+        }
+        return url
     }
     
     init() {

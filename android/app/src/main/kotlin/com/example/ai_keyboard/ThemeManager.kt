@@ -13,6 +13,7 @@ import com.example.ai_keyboard.themes.ThemePaletteV2
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import kotlin.math.*
 
 /**
@@ -471,28 +472,75 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val cacheKey = "bg_image_$imagePath"
         return imageCache.get(cacheKey) ?: run {
             try {
+                // Load image (handles local and network paths)
                 val bitmap = loadImageBitmap(imagePath)
                 val drawable = BitmapDrawable(context.resources, bitmap)
                 drawable.alpha = (theme.background.imageOpacity * 255).toInt()
                 
+                // Cache the drawable
                 imageCache.put(cacheKey, drawable)
                 drawable
             } catch (e: Exception) {
+                android.util.Log.e("ThemeManager", "Failed to load background image: $imagePath", e)
+                // Fallback to solid color
                 buildSolidDrawable(theme.background.color ?: Color.BLACK)
             }
         }
     }
     
     private fun loadImageBitmap(path: String): Bitmap {
-        return if (path.startsWith("/")) {
-            // Absolute path
-            val file = File(path)
-            BitmapFactory.decodeStream(FileInputStream(file))
-        } else {
-            // Asset path
-            val inputStream = context.assets.open(path)
-            BitmapFactory.decodeStream(inputStream)
+        return when {
+            path.startsWith("http://") || path.startsWith("https://") -> {
+                // Network URL - download and cache
+                loadNetworkImage(path)
+            }
+            path.startsWith("file://") -> {
+                // File URI - remove file:// prefix
+                val filePath = path.substring(7)
+                val file = File(filePath)
+                BitmapFactory.decodeStream(FileInputStream(file))
+            }
+            path.startsWith("/") -> {
+                // Absolute path
+                val file = File(path)
+                BitmapFactory.decodeStream(FileInputStream(file))
+            }
+            else -> {
+                // Asset path
+                val inputStream = context.assets.open(path)
+                BitmapFactory.decodeStream(inputStream)
+            }
         }
+    }
+    
+    private fun loadNetworkImage(url: String): Bitmap {
+        // Check cache first
+        val cacheKey = "net_${url.hashCode()}"
+        val cacheDir = context.cacheDir
+        val cacheFile = File(cacheDir, cacheKey)
+        
+        if (cacheFile.exists()) {
+            return BitmapFactory.decodeFile(cacheFile.absolutePath)
+        }
+        
+        // Download from network
+        val connection = java.net.URL(url).openConnection()
+        connection.connectTimeout = 5000
+        connection.readTimeout = 10000
+        val inputStream = connection.getInputStream()
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream.close()
+        
+        // Cache to file
+        try {
+            val outputStream = FileOutputStream(cacheFile)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+            outputStream.close()
+        } catch (e: Exception) {
+            // Ignore cache errors
+        }
+        
+        return bitmap
     }
     
     // ===== RIPPLE DRAWABLE FACTORY =====

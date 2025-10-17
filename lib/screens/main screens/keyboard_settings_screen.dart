@@ -641,16 +641,17 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
             // Key Press Section
             _buildSectionHeader('Key Press'),
             const SizedBox(height: 12),
-            _buildToggleSetting(
-              title: 'Popup Visibility',
-              description: 'Show popup preview when pressing keys',
-              value: popupVisibility,
-              onChanged: (value) {
-                setState(() => popupVisibility = value);
-                _saveSettings(immediate: true);
-              },
-            ),
-            const SizedBox(height: 8),
+            // Popup Visibility feature disabled - commented out to prevent users from enabling it
+            // _buildToggleSetting(
+            //   title: 'Popup Visibility',
+            //   description: 'Show popup preview when pressing keys',
+            //   value: popupVisibility,
+            //   onChanged: (value) {
+            //     setState(() => popupVisibility = value);
+            //     _saveSettings(immediate: true);
+            //   },
+            // ),
+            // const SizedBox(height: 8),
             _buildSliderSetting(
               title: 'Long Press Delay',
               portraitValue: longPressDelay,

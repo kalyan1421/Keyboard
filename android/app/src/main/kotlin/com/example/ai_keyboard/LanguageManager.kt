@@ -3,11 +3,20 @@ package com.example.ai_keyboard
 import android.content.Context
 import com.example.ai_keyboard.managers.BaseManager
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.*
+import io.flutter.plugin.common.MethodChannel
+import android.util.Log
 
 /**
  * Manages language switching, preferences, and app-specific language settings
  */
 class LanguageManager(context: Context) : BaseManager(context) {
+    
+    // Coroutine scope for async operations
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // MethodChannel for progress callbacks to Flutter
+    private var methodChannel: MethodChannel? = null
     companion object {
         private const val KEY_CURRENT_LANGUAGE = "current_language"
         private const val KEY_ENABLED_LANGUAGES = "enabled_languages"
@@ -38,6 +47,21 @@ class LanguageManager(context: Context) : BaseManager(context) {
             enabledLanguages.add("en")
             saveEnabledLanguages()
             logW("✅ Default language set: English")
+        }
+        
+        logW("LanguageManager initialized")
+        logW("Current language: $currentLanguage")
+        logW("Enabled languages: $enabledLanguages")
+        
+        // Auto-preload English on first launch
+        scope.launch {
+            try {
+                val multilingualDict = MultilingualDictionaryImpl(context)
+                multilingualDict.autoPreloadEnglish()
+                logW("🌐 Auto-preload English completed")
+            } catch (e: Exception) {
+                logE("❌ Failed to auto-preload English", e)
+            }
         }
     }
     
@@ -165,19 +189,127 @@ class LanguageManager(context: Context) : BaseManager(context) {
     }
     
     /**
-     * Add a language to enabled languages
-     * If language is not yet supported, attempts to fetch from Firebase
+     * Set MethodChannel for progress callbacks to Flutter
      */
-    fun enableLanguage(languageCode: String) {
-        if (!isLanguageSupported(languageCode)) {
-            logW("⚠️ Language $languageCode not supported (offline mode - no remote fetch)")
-            return
-        }
-        addAndLoadLanguage(languageCode)
+    fun setMethodChannel(channel: MethodChannel) {
+        this.methodChannel = channel
     }
     
     /**
-     * Internal helper to add and load a language
+     * Add a language to enabled languages with Firebase download support
+     * Downloads dictionary + transliteration before adding to enabled list
+     */
+    fun enableLanguage(languageCode: String, callback: ((success: Boolean, error: String?) -> Unit)? = null) {
+        if (!isLanguageSupported(languageCode)) {
+            val error = "⚠️ Language $languageCode not supported"
+            logW(error)
+            callback?.invoke(false, error)
+            return
+        }
+        
+        if (enabledLanguages.contains(languageCode)) {
+            logW("Language $languageCode already enabled")
+            callback?.invoke(true, null)
+            return
+        }
+        
+        // Download language data asynchronously before enabling
+        scope.launch {
+            try {
+                logW("🌐 Starting download for $languageCode")
+                
+                // Notify Flutter of download start
+                methodChannel?.invokeMethod("languageDownloadProgress", mapOf(
+                    "lang" to languageCode,
+                    "progress" to 0,
+                    "status" to "starting"
+                ))
+                
+                // Download dictionary data
+                val multilingualDict = MultilingualDictionaryImpl(context)
+                multilingualDict.ensureLanguageAvailable(languageCode)
+                
+                // Preload the language into memory after successful download
+                logW("⚙️ Preloading language data for: $languageCode")
+                multilingualDict.preload(languageCode)
+                logW("✅ Language data preloaded successfully: $languageCode")
+                
+                // Update progress
+                methodChannel?.invokeMethod("languageDownloadProgress", mapOf(
+                    "lang" to languageCode,
+                    "progress" to 50,
+                    "status" to "downloading_transliteration"
+                ))
+                
+                // Download transliteration if supported
+                val supportedTranslitLangs = setOf("hi", "te", "ta")
+                if (supportedTranslitLangs.contains(languageCode)) {
+                    val translitEngine = TransliterationEngine(context, languageCode)
+                    translitEngine.ensureMapAvailable(languageCode)
+                }
+                
+                // Complete - add to enabled languages
+                withContext(Dispatchers.Main) {
+                    enabledLanguages.add(languageCode)
+                    saveEnabledLanguages()
+                    
+                    logW("✅ Download complete – preloading language: $languageCode")
+                    
+                    // Notify Flutter of completion
+                    methodChannel?.invokeMethod("languageDownloadProgress", mapOf(
+                        "lang" to languageCode,
+                        "progress" to 100,
+                        "status" to "completed"
+                    ))
+                    
+                    // Notify listeners
+                    languageChangeListeners.forEach { listener ->
+                        try {
+                            listener.onEnabledLanguagesChanged(enabledLanguages)
+                        } catch (e: Exception) {
+                            logE("Error notifying enabled languages change listener", e)
+                        }
+                    }
+                    
+                    callback?.invoke(true, null)
+                }
+                
+            } catch (e: Exception) {
+                val error = "❌ Failed to download language $languageCode: ${e.message}"
+                logE(error, e)
+                logW("⚠️ Offline mode – will preload later when online")
+                
+                // Handle offline gracefully - add without cloud data
+                withContext(Dispatchers.Main) {
+                    logW("⚠️ Adding $languageCode offline (will download when online)")
+                    enabledLanguages.add(languageCode)
+                    saveEnabledLanguages()
+                    
+                    // Notify Flutter of offline enablement
+                    methodChannel?.invokeMethod("languageDownloadProgress", mapOf(
+                        "lang" to languageCode,
+                        "progress" to 100,
+                        "status" to "offline_enabled",
+                        "error" to e.message
+                    ))
+                    
+                    // Notify listeners
+                    languageChangeListeners.forEach { listener ->
+                        try {
+                            listener.onEnabledLanguagesChanged(enabledLanguages)
+                        } catch (e2: Exception) {
+                            logE("Error notifying enabled languages change listener", e2)
+                        }
+                    }
+                    
+                    callback?.invoke(false, error)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Internal helper to add and load a language (legacy - for backwards compatibility)
      */
     private fun addAndLoadLanguage(code: String) {
         if (!enabledLanguages.contains(code)) {
@@ -187,6 +319,57 @@ class LanguageManager(context: Context) : BaseManager(context) {
             
             // Dictionary will be loaded lazily when language is activated
             // No need to preload immediately - on-demand loading is more efficient
+        }
+    }
+    
+    /**
+     * Check if cloud language data exists for a language
+     */
+    suspend fun checkCloudLanguageAvailable(languageCode: String): Boolean = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val multilingualDict = MultilingualDictionaryImpl(context)
+            multilingualDict.ensureLanguageAvailable(languageCode)
+            true
+        } catch (e: Exception) {
+            logW("Cloud data not available for $languageCode: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * Queue download for later when offline
+     */
+    fun queueLanguageForDownload(languageCode: String) {
+        val prefs = getSharedPreferences("language_download_queue", Context.MODE_PRIVATE)
+        val queuedLangs = prefs.getStringSet("queued_languages", emptySet())?.toMutableSet() ?: mutableSetOf()
+        queuedLangs.add(languageCode)
+        prefs.edit().putStringSet("queued_languages", queuedLangs).apply()
+        
+        logW("Queued $languageCode for download when online")
+    }
+    
+    /**
+     * Process queued downloads when network becomes available
+     */
+    fun processQueuedDownloads() {
+        val prefs = getSharedPreferences("language_download_queue", Context.MODE_PRIVATE)
+        val queuedLangs = prefs.getStringSet("queued_languages", emptySet()) ?: emptySet()
+        
+        if (queuedLangs.isNotEmpty()) {
+            logW("🗒 Processing ${queuedLangs.size} queued language downloads")
+            
+            queuedLangs.forEach { lang ->
+                enableLanguage(lang) { success, error ->
+                    if (success) {
+                        logW("✅ Completed queued download for $lang")
+                    } else {
+                        logW("❌ Failed queued download for $lang: $error")
+                    }
+                }
+            }
+            
+            // Clear the queue after processing
+            prefs.edit().remove("queued_languages").apply()
         }
     }
     
@@ -351,4 +534,16 @@ class LanguageManager(context: Context) : BaseManager(context) {
         saveEnabledLanguages()
         logW("Reset to default language settings")
     }
+    
+    /**
+     * Clean up resources
+     */
+    fun cleanup() {
+        scope.cancel()
+    }
+    
+    /**
+     * Get a SharedPreferences instance with a custom name
+     */
+    private fun getSharedPreferences(name: String, mode: Int) = context.getSharedPreferences(name, mode)
 }

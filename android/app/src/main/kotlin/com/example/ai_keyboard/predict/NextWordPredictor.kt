@@ -35,20 +35,31 @@ class NextWordPredictor(
         if (context.isEmpty()) return emptyList()
         
         return try {
-            val lastWord = context.last().lowercase()
+            Log.d(TAG, "🔮 NextWordPredictor: Getting Firebase predictions for context=$context, language=$language")
             
-            // ✅ Pass full context for trigram support
-            autocorrectEngine.getNextWordPredictions(
-                previousWord = lastWord, 
-                language = language, 
-                limit = limit,
-                context = context.map { it.lowercase() }  // Pass full context for trigram
-            )
+            // Check if unified autocorrect engine is ready (Firebase data loaded)
+            if (!autocorrectEngine.isLanguageLoaded(language)) {
+                Log.w(TAG, "⚠️ NextWordPredictor: Unified engine not loaded for language: $language - Firebase data may not be available")
+                return emptyList() // No fallback - Firebase-only approach
+            }
+            
+            // ✅ Use nextWord method from UnifiedAutocorrectEngine  
+            val suggestions = autocorrectEngine.nextWord(context.map { it.lowercase() }, limit)
+            val predictions = suggestions.map { it.text }
+            
+            Log.d(TAG, "📊 NextWordPredictor: Unified engine provided ${predictions.size} Firebase predictions for context '$context': $predictions")
+            
+            // Firebase-only approach - no dictionary fallback needed
+            
+            return predictions
+            
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting predictions for context: $context", e)
-            emptyList()
+            Log.e(TAG, "❌ Error getting predictions for context: $context", e)
+            return emptyList() // Firebase-only - no fallback
         }
     }
+    
+    // REMOVED: getDictionaryFallbackPredictions - Firebase-only approach, no fallback needed
 
     /**
      * Get predictions for a single previous word (legacy compatibility)
@@ -56,16 +67,13 @@ class NextWordPredictor(
      */
     fun getNextWords(previousWord: String, language: String = "en"): List<Pair<String, Double>> {
         return try {
-            val predictions = autocorrectEngine.getNextWordPredictions(
-                previousWord = previousWord, 
-                language = language, 
-                limit = 10,
-                context = emptyList()  // No context for legacy calls
-            )
-            predictions.mapIndexed { index, word ->
+            val suggestions = autocorrectEngine.nextWord(listOf(previousWord.lowercase()), 10)
+            val predictions = suggestions.mapIndexed { index, suggestion ->
                 val score = 1.0 - (index * 0.1) // Simple scoring based on position
-                word to score
+                suggestion.text to score
             }
+            Log.d(TAG, "📊 Legacy getNextWords: '$previousWord' → ${predictions.take(3)}")
+            return predictions
         } catch (e: Exception) {
             Log.e(TAG, "Error getting next words for '$previousWord'", e)
             emptyList()

@@ -246,7 +246,6 @@ class EmojiPanelController(
     private fun setupCategories() {
         // CleverType style categories matching the reference image + Stickers
         val categories = listOf(
-            "🔍" to "Search",
             "⏰" to "Recent",
             "😊" to "Smileys", 
             "📦" to "Stickers",
@@ -260,6 +259,26 @@ class EmojiPanelController(
             "🏁" to "Flags"
         )
         
+        // Add ABC button at the start
+        val abcBtn = TextView(context).apply {
+            text = "ABC"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            val size = dpToPx(48)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                setMargins(dpToPx(4), 0, dpToPx(4), 0)
+            }
+            tag = "ABC"
+            alpha = 1.0f
+            
+            setOnClickListener {
+                LogUtil.d(TAG, "ABC button clicked - returning to letters")
+                onBackToLetters()
+            }
+        }
+        emojiCategories?.addView(abcBtn)
+        
         categories.forEachIndexed { index, (icon, name) ->
             val categoryBtn = TextView(context).apply {
                 text = icon
@@ -270,14 +289,11 @@ class EmojiPanelController(
                     setMargins(dpToPx(4), 0, dpToPx(4), 0)
                 }
                 tag = name  // Store category name for reference
-                alpha = if (index == 1) 1.0f else 0.6f  // Recent selected by default (index 1, not search)
+                alpha = if (index == 0) 1.0f else 0.6f  // Recent selected by default (index 0 now)
                 
                 setOnClickListener {
                     LogUtil.d(TAG, "Category clicked: $name")
-                    if (name == "Search") {
-                        // Show search input when search icon is clicked
-                        showSearchDialog()
-                    } else if (name == "Stickers") {
+                    if (name == "Stickers") {
                         // Load stickers
                         selectCategory(name, this)
                         loadStickers()
@@ -288,8 +304,8 @@ class EmojiPanelController(
             }
             emojiCategories?.addView(categoryBtn)
             
-            // Auto-select Recent category (index 1)
-            if (index == 1) {
+            // Auto-select Recent category (index 0 now)
+            if (index == 0) {
                 selectedCategoryView = categoryBtn
                 loadCategoryEmojis(name)
             }
@@ -384,12 +400,12 @@ class EmojiPanelController(
             for (i in 0 until container.childCount) {
                 val child = container.getChildAt(i) as? TextView ?: continue
                 val isSelected = child == selectedCategoryView
-                val isSearchIcon = child.tag == "Search"
+                val isAbcButton = child.tag == "ABC"
                 
-                // Search icon: No background, no selection
+                // ABC button: No background, always visible, distinct styling
                 // Selected: Use theme accent background for clear visibility
                 // Unselected: Transparent background with reduced opacity
-                if (isSearchIcon) {
+                if (isAbcButton) {
                     child.background = null
                     child.alpha = 1.0f
                     child.setTextColor(palette.keyText)

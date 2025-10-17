@@ -12,43 +12,35 @@ import Firebase
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         
+        print("🚀 App launching - AppDelegate didFinishLaunching")
+        
         // ✅ Initialize Firebase FIRST, before accessing any Flutter components
-        FirebaseApp.configure()
+        do {
+            FirebaseApp.configure()
+            print("✅ Firebase configured successfully")
+        } catch {
+            print("❌ Firebase configuration failed: \(error)")
+        }
         
-        // ✅ Now safely access Flutter engine
-        let controller = window?.rootViewController as! FlutterViewController
-        let keyboardChannel = FlutterMethodChannel(name: CHANNEL, binaryMessenger: controller.binaryMessenger)
+        // ✅ Call super first to ensure Flutter is properly initialized
+        let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        print("✅ Flutter super.application completed with result: \(result)")
         
-        keyboardChannel.setMethodCallHandler({ [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
-            switch call.method {
-            case "isKeyboardEnabled":
-                result(self?.isKeyboardEnabled() ?? false)
-            case "isKeyboardActive":
-                result(self?.isKeyboardActive() ?? false)
-            case "openKeyboardSettings":
-                self?.openKeyboardSettings()
-                result(true)
-            case "openInputMethodPicker":
-                // iOS doesn't have an input method picker like Android
-                // Users must enable keyboard in Settings app
-                result(false)
-            case "updateSettings":
-                if let args = call.arguments as? [String: Any] {
-                    self?.updateKeyboardSettings(args)
-                }
-                result(true)
-            case "showKeyboardTutorial":
-                self?.showKeyboardTutorial()
-                result(true)
-            case "openKeyboardsDirectly":
-                self?.openKeyboardsDirectly()
-                result(true)
-            case "checkKeyboardPermissions":
-                result(self?.checkKeyboardPermissions() ?? false)
-            default:
-                result(FlutterMethodNotImplemented)
-            }
-        })
+        // ✅ Now safely access Flutter engine after initialization
+        guard let window = self.window else {
+            print("❌ Window is nil")
+            return result
+        }
+        
+        guard let controller = window.rootViewController as? FlutterViewController else {
+            print("❌ Failed to get FlutterViewController - rootViewController type: \(type(of: window.rootViewController))")
+            return result
+        }
+        
+        print("✅ FlutterViewController obtained successfully")
+        
+        // ✅ Setup method channel with error handling
+        setupMethodChannel(controller: controller)
         
         // ✅ Register Flutter plugins
         GeneratedPluginRegistrant.register(with: self)
@@ -58,7 +50,57 @@ import Firebase
         //     ShortcutsManager.shared.setupKeyboardShortcuts()
         // }
         
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        return result
+    }
+    
+    // MARK: - Method Channel Setup
+    private func setupMethodChannel(controller: FlutterViewController) {
+        do {
+            let keyboardChannel = FlutterMethodChannel(name: CHANNEL, binaryMessenger: controller.binaryMessenger)
+            print("✅ Method channel created successfully")
+            
+            keyboardChannel.setMethodCallHandler({ [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
+                guard let self = self else {
+                    result(FlutterError(code: "NO_SELF", message: "AppDelegate instance is nil", details: nil))
+                    return
+                }
+                
+                print("📞 Method channel call received: \(call.method)")
+                
+                switch call.method {
+                case "isKeyboardEnabled":
+                    result(self.isKeyboardEnabled())
+                case "isKeyboardActive":
+                    result(self.isKeyboardActive())
+                case "openKeyboardSettings":
+                    self.openKeyboardSettings()
+                    result(true)
+                case "openInputMethodPicker":
+                    // iOS doesn't have an input method picker like Android
+                    result(false)
+                case "updateSettings":
+                    if let args = call.arguments as? [String: Any] {
+                        self.updateKeyboardSettings(args)
+                    }
+                    result(true)
+                case "showKeyboardTutorial":
+                    self.showKeyboardTutorial()
+                    result(true)
+                case "openKeyboardsDirectly":
+                    self.openKeyboardsDirectly()
+                    result(true)
+                case "checkKeyboardPermissions":
+                    result(self.checkKeyboardPermissions())
+                default:
+                    print("⚠️ Unknown method: \(call.method)")
+                    result(FlutterMethodNotImplemented)
+                }
+            })
+            
+            print("✅ Method channel handler set successfully")
+        } catch {
+            print("❌ Failed to setup method channel: \(error)")
+        }
     }
     
     private func isKeyboardEnabled() -> Bool {

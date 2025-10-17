@@ -12,17 +12,34 @@ import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
 import com.example.ai_keyboard.utils.LogUtil
 import com.example.ai_keyboard.utils.BroadcastManager
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
+import kotlinx.coroutines.tasks.await
+import java.io.File
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 
 class MainActivity : FlutterActivity() {
     companion object {
         private const val CHANNEL = "ai_keyboard/config"
+        private const val LANGUAGE_CHANNEL = "com.example.ai_keyboard/language"
+        private const val AI_CHANNEL = "ai_keyboard/unified_ai"
+        private const val PROMPT_CHANNEL = "ai_keyboard/prompts"
     }
+    
+    private lateinit var unifiedAIService: UnifiedAIService
 
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        
+        
+        // Initialize Unified AI Service
+        unifiedAIService = UnifiedAIService(this)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -189,13 +206,6 @@ class MainActivity : FlutterActivity() {
                                 }
                                 result.success(true)
                             }
-                            "updateCustomPrompts" -> {
-                                LogUtil.d("MainActivity", "Custom prompts updated, notifying keyboard service")
-                                withContext(Dispatchers.IO) {
-                                    sendSettingsChangedBroadcast()
-                                }
-                                result.success(true)
-                            }
                             "clearLearnedWords" -> {
                                 LogUtil.d("MainActivity", "Clearing learned words")
                                 withContext(Dispatchers.IO) {
@@ -249,6 +259,64 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         result.error("ERROR", "Failed to execute method: ${call.method}", e.message)
                     }
+                }
+            }
+            
+        // Unified AI Channel
+        setupUnifiedAIChannel(flutterEngine)
+        
+        // Dynamic Prompt Management Channel
+        setupPromptChannel(flutterEngine)
+        
+        // Language Download Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LANGUAGE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "downloadLanguageData" -> {
+                        val lang = call.argument<String>("lang")
+                        if (lang == null) {
+                            result.error("ARG_MISSING", "Language code missing", null)
+                            return@setMethodCallHandler
+                        }
+                        LogUtil.d("MainActivity", "🌐 Starting Firebase download for language: $lang")
+                        ioScope.launch {
+                            try {
+                                downloadLanguageFromFirebase(lang, flutterEngine)
+                                withContext(Dispatchers.Main) { 
+                                    LogUtil.d("MainActivity", "✅ Successfully downloaded language: $lang")
+                                    result.success(true) 
+                                }
+                            } catch (e: Exception) {
+                                LogUtil.e("MainActivity", "❌ Failed to download language $lang", e)
+                                withContext(Dispatchers.Main) { 
+                                    result.error("DOWNLOAD_FAIL", e.message, null) 
+                                }
+                            }
+                        }
+                    }
+                    "deleteCachedLanguageData" -> {
+                        val lang = call.argument<String>("lang")
+                        if (lang == null) {
+                            result.error("ARG_MISSING", "Language code missing", null)
+                            return@setMethodCallHandler
+                        }
+                        ioScope.launch {
+                            try {
+                                deleteCachedLanguageData(lang)
+                                withContext(Dispatchers.Main) { result.success(true) }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) { 
+                                    result.error("DELETE_FAIL", e.message, null) 
+                                }
+                            }
+                        }
+                    }
+                    "updateCachedLanguagesList" -> {
+                        val cachedLanguages = call.argument<List<String>>("cachedLanguages") ?: emptyList()
+                        LogUtil.d("MainActivity", "📋 Updated cached languages list: $cachedLanguages")
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
                 }
             }
     }
@@ -694,9 +762,400 @@ class MainActivity : FlutterActivity() {
             LogUtil.e("MainActivity", "❌ Error setting reverse transliteration enabled", e)
         }
     }
+    
+    /**
+     * Download language data from Firebase Storage
+     */
+    private suspend fun downloadLanguageFromFirebase(lang: String, flutterEngine: FlutterEngine) {
+        val storage = Firebase.storage
+        val baseDictRef = storage.reference.child("dictionaries/$lang")
+        val translitRef = storage.reference.child("transliteration/${lang}_map.json")
+        
+        val localDictDir = File(filesDir, "cloud_cache/dictionaries/$lang").apply { mkdirs() }
+        val localTranslitDir = File(filesDir, "cloud_cache/transliteration").apply { mkdirs() }
+        
+        val dictFiles = listOf("${lang}_words.txt", "${lang}_bigrams.txt", "${lang}_trigrams.txt", "${lang}_corrections.txt", "${lang}_quadgrams.txt")
+        val totalFiles = dictFiles.size + 1 // +1 for transliteration
+        var completedFiles = 0
+        
+        // Progress reporting helper
+        suspend fun reportProgress(progress: Int, status: String) {
+            withContext(Dispatchers.Main) {
+                MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LANGUAGE_CHANNEL)
+                    .invokeMethod("languageDownloadProgress", mapOf(
+                        "lang" to lang,
+                        "progress" to progress,
+                        "status" to status
+                    ))
+            }
+        }
+        
+        LogUtil.d("MainActivity", "📥 Downloading dictionary files for $lang...")
+        reportProgress(0, "starting")
+        
+        // Download dictionary files
+        for (fileName in dictFiles) {
+            val localFile = File(localDictDir, fileName)
+            if (!localFile.exists()) {
+                try {
+                    baseDictRef.child(fileName).getFile(localFile).await()
+                    LogUtil.d("MainActivity", "✅ Downloaded: $fileName")
+                } catch (e: Exception) {
+                    LogUtil.w("MainActivity", "⚠️ Failed to download $fileName: ${e.message}")
+                    // Create empty file to avoid repeated download attempts
+                    localFile.createNewFile()
+                }
+            }
+            completedFiles++
+            val progress = (completedFiles * 100) / totalFiles
+            reportProgress(progress, "downloading")
+        }
+        
+        // Download transliteration map
+        val translitFile = File(localTranslitDir, "${lang}_map.json")
+        if (!translitFile.exists()) {
+            try {
+                translitRef.getFile(translitFile).await()
+                LogUtil.d("MainActivity", "✅ Downloaded: ${lang}_map.json")
+            } catch (e: Exception) {
+                LogUtil.w("MainActivity", "⚠️ Failed to download transliteration for $lang: ${e.message}")
+                // Create minimal transliteration file
+                translitFile.writeText("{\"vowels\":{},\"consonants\":{},\"matras\":{},\"special\":{}}")
+            }
+        }
+        completedFiles++
+        
+        reportProgress(100, "completed")
+        LogUtil.i("MainActivity", "🎉 Language download completed for $lang")
+    }
+    
+    /**
+     * Delete cached language data
+     */
+    private suspend fun deleteCachedLanguageData(lang: String) {
+        val dictDir = File(filesDir, "cloud_cache/dictionaries/$lang")
+        val translitFile = File(filesDir, "cloud_cache/transliteration/${lang}_map.json")
+        
+        // Delete dictionary directory
+        if (dictDir.exists()) {
+            dictDir.deleteRecursively()
+            LogUtil.d("MainActivity", "🗑️ Deleted dictionary cache for $lang")
+        }
+        
+        // Delete transliteration file
+        if (translitFile.exists()) {
+            translitFile.delete()
+            LogUtil.d("MainActivity", "🗑️ Deleted transliteration cache for $lang")
+        }
+    }
+    
+    /**
+     * Setup unified AI channel for Flutter communication
+     */
+    private fun setupUnifiedAIChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, AI_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                coroutineScope.launch {
+                    try {
+                        when (call.method) {
+                            "processAIText" -> {
+                                val text = call.argument<String>("text") ?: ""
+                                val mode = call.argument<String>("mode") ?: "GRAMMAR"
+                                val toneName = call.argument<String>("tone")
+                                val featureName = call.argument<String>("feature")
+                                val stream = call.argument<Boolean>("stream") ?: false
+                                
+                                if (text.isEmpty()) {
+                                    result.error("INVALID_ARGS", "Text cannot be empty", null)
+                                    return@launch
+                                }
+                                
+                                // Convert string arguments to enum types
+                                val aiMode = try {
+                                    UnifiedAIService.Mode.valueOf(mode)
+                                } catch (e: Exception) {
+                                    result.error("INVALID_MODE", "Invalid mode: $mode", null)
+                                    return@launch
+                                }
+                                
+                                val tone = toneName?.let { 
+                                    try {
+                                        AdvancedAIService.ToneType.valueOf(it)
+                                    } catch (e: Exception) {
+                                        result.error("INVALID_TONE", "Invalid tone: $it", null)
+                                        return@launch
+                                    }
+                                }
+                                
+                                val feature = featureName?.let { 
+                                    try {
+                                        AdvancedAIService.ProcessingFeature.valueOf(it)
+                                    } catch (e: Exception) {
+                                        result.error("INVALID_FEATURE", "Invalid feature: $it", null)
+                                        return@launch
+                                    }
+                                }
+                                
+                                if (stream) {
+                                    // For streaming, we need to handle it differently
+                                    // Flutter doesn't support streaming method channel responses directly
+                                    // So we'll collect all results and return the final one
+                                    val results = mutableListOf<UnifiedAIService.UnifiedResult>()
+                                    unifiedAIService.processText(text, aiMode, tone, feature, stream)
+                                        .collect { res ->
+                                            results.add(res)
+                                            if (res.isComplete) {
+                                                withContext(Dispatchers.Main) {
+                                                    result.success(mapOf(
+                                                        "success" to res.success,
+                                                        "text" to res.text,
+                                                        "error" to res.error,
+                                                        "fromCache" to res.fromCache,
+                                                        "time" to res.time,
+                                                        "isComplete" to res.isComplete
+                                                    ))
+                                                }
+                                            }
+                                        }
+                                } else {
+                                    // Non-streaming response
+                                    unifiedAIService.processText(text, aiMode, tone, feature, stream)
+                                        .collect { res ->
+                                            withContext(Dispatchers.Main) {
+                                                result.success(mapOf(
+                                                    "success" to res.success,
+                                                    "text" to res.text,
+                                                    "error" to res.error,
+                                                    "fromCache" to res.fromCache,
+                                                    "time" to res.time,
+                                                    "isComplete" to res.isComplete
+                                                ))
+                                            }
+                                        }
+                                }
+                            }
+                            
+                            "generateSmartReplies" -> {
+                                val message = call.argument<String>("message") ?: ""
+                                val context = call.argument<String>("context") ?: "general"
+                                val count = call.argument<Int>("count") ?: 3
+                                val stream = call.argument<Boolean>("stream") ?: false
+                                
+                                if (message.isEmpty()) {
+                                    result.error("INVALID_ARGS", "Message cannot be empty", null)
+                                    return@launch
+                                }
+                                
+                                unifiedAIService.generateSmartReplies(message, context, count, stream)
+                                    .collect { res ->
+                                        if (res.isComplete) {
+                                            withContext(Dispatchers.Main) {
+                                                result.success(mapOf(
+                                                    "success" to res.success,
+                                                    "text" to res.text,
+                                                    "error" to res.error,
+                                                    "fromCache" to res.fromCache,
+                                                    "time" to res.time
+                                                ))
+                                            }
+                                        }
+                                    }
+                            }
+                            
+                            "testConnection" -> {
+                                val testResult = unifiedAIService.testConnection()
+                                withContext(Dispatchers.Main) {
+                                    result.success(mapOf(
+                                        "success" to testResult.success,
+                                        "text" to testResult.text,
+                                        "error" to testResult.error,
+                                        "time" to testResult.time
+                                    ))
+                                }
+                            }
+                            
+                            "getAvailableTones" -> {
+                                val tones = unifiedAIService.getAvailableTones().map { tone ->
+                                    mapOf(
+                                        "name" to tone.name,
+                                        "displayName" to tone.displayName,
+                                        "icon" to tone.icon,
+                                        "color" to tone.color
+                                    )
+                                }
+                                result.success(tones)
+                            }
+                            
+                            "getAvailableFeatures" -> {
+                                val features = unifiedAIService.getAvailableFeatures().map { feature ->
+                                    mapOf(
+                                        "name" to feature.name,
+                                        "displayName" to feature.displayName,
+                                        "icon" to feature.icon
+                                    )
+                                }
+                                result.success(features)
+                            }
+                            
+                            "getServiceStatus" -> {
+                                val status = unifiedAIService.getStatus()
+                                result.success(status)
+                            }
+                            
+                            "getCacheStats" -> {
+                                val stats = unifiedAIService.getCacheStats()
+                                result.success(stats)
+                            }
+                            
+                            "clearCache" -> {
+                                unifiedAIService.clearCache()
+                                result.success(true)
+                            }
+                            
+                            else -> result.notImplemented()
+                        }
+                    } catch (e: Exception) {
+                        LogUtil.e("MainActivity", "Error in AI method channel", e)
+                        withContext(Dispatchers.Main) {
+                            result.error("AI_ERROR", "AI processing error: ${e.message}", e.stackTraceToString())
+                        }
+                    }
+                }
+            }
+    }
+
+    /**
+     * Setup dynamic prompt management channel for Flutter communication
+     */
+    private fun setupPromptChannel(flutterEngine: FlutterEngine) {
+        // Initialize PromptManager
+        PromptManager.init(this)
+        
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PROMPT_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                coroutineScope.launch {
+                    try {
+                        when (call.method) {
+                            "savePrompt" -> {
+                                val category = call.argument<String>("category") ?: "assistant"
+                                val title = call.argument<String>("title") ?: "Custom Prompt"
+                                val prompt = call.argument<String>("prompt") ?: ""
+                                
+                                if (prompt.isBlank()) {
+                                    result.error("INVALID_ARGS", "Prompt cannot be empty", null)
+                                    return@launch
+                                }
+                                
+                                val success = PromptManager.savePrompt(category, title, prompt)
+                                
+                                if (success) {
+                                    // Broadcast update to keyboard service
+                                    BroadcastManager.sendToKeyboard(
+                                        this@MainActivity, 
+                                        "com.example.ai_keyboard.PROMPTS_UPDATED"
+                                    )
+                                    result.success(true)
+                                    LogUtil.d("MainActivity", "✅ Prompt saved: $title ($category)")
+                                } else {
+                                    result.error("SAVE_ERROR", "Failed to save prompt", null)
+                                }
+                            }
+                            
+                            "getPrompts" -> {
+                                val category = call.argument<String>("category")
+                                
+                                val prompts = if (category != null) {
+                                    PromptManager.getPrompts(category)
+                                } else {
+                                    PromptManager.getAllPrompts().values.flatten()
+                                }
+                                
+                                val promptMaps = prompts.map { prompt ->
+                                    mapOf(
+                                        "title" to prompt.title,
+                                        "prompt" to prompt.prompt,
+                                        "timestamp" to prompt.timestamp
+                                    )
+                                }
+                                
+                                result.success(promptMaps)
+                                LogUtil.d("MainActivity", "📋 Retrieved ${prompts.size} prompts for category: ${category ?: "all"}")
+                            }
+                            
+                            "deletePrompt" -> {
+                                val category = call.argument<String>("category") ?: "assistant"
+                                val title = call.argument<String>("title") ?: ""
+                                
+                                if (title.isBlank()) {
+                                    result.error("INVALID_ARGS", "Title cannot be empty", null)
+                                    return@launch
+                                }
+                                
+                                val success = PromptManager.deletePrompt(category, title)
+                                
+                                if (success) {
+                                    // Broadcast update to keyboard service
+                                    BroadcastManager.sendToKeyboard(
+                                        this@MainActivity,
+                                        "com.example.ai_keyboard.PROMPTS_UPDATED"
+                                    )
+                                    result.success(true)
+                                    LogUtil.d("MainActivity", "🗑️ Prompt deleted: $title ($category)")
+                                } else {
+                                    result.error("DELETE_ERROR", "Failed to delete prompt", null)
+                                }
+                            }
+                            
+                            "getAllPrompts" -> {
+                                val allPrompts = PromptManager.getAllPrompts()
+                                val resultMap = mutableMapOf<String, List<Map<String, Any>>>()
+                                
+                                allPrompts.forEach { (category, prompts) ->
+                                    resultMap[category] = prompts.map { prompt ->
+                                        mapOf(
+                                            "title" to prompt.title,
+                                            "prompt" to prompt.prompt,
+                                            "timestamp" to prompt.timestamp
+                                        )
+                                    }
+                                }
+                                
+                                result.success(resultMap)
+                                LogUtil.d("MainActivity", "📚 Retrieved all prompts: ${PromptManager.getTotalPromptCount()} total")
+                            }
+                            
+                            "clearCategory" -> {
+                                val category = call.argument<String>("category") ?: "assistant"
+                                val success = PromptManager.clearCategory(category)
+                                
+                                if (success) {
+                                    // Broadcast update to keyboard service
+                                    BroadcastManager.sendToKeyboard(
+                                        this@MainActivity,
+                                        "com.example.ai_keyboard.PROMPTS_UPDATED"
+                                    )
+                                    result.success(true)
+                                    LogUtil.d("MainActivity", "🗑️ Category cleared: $category")
+                                } else {
+                                    result.error("CLEAR_ERROR", "Failed to clear category", null)
+                                }
+                            }
+                            
+                            else -> {
+                                result.notImplemented()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        LogUtil.e("MainActivity", "❌ Error in prompt channel: ${e.message}", e)
+                        result.error("PROMPT_ERROR", "Prompt management error: ${e.message}", e.stackTraceToString())
+                    }
+                }
+            }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
         coroutineScope.cancel()
+        ioScope.cancel()
     }
 }

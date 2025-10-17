@@ -252,16 +252,6 @@ class AdvancedAIService(private val context: Context) {
         return processWithAI(message, systemPrompt, "replies_${context}_$count")
     }
     
-    /**
-     * Process text with custom system prompt (for user-defined prompts)
-     */
-    suspend fun processWithCustomPrompt(
-        text: String,
-        systemPrompt: String,
-        promptTitle: String = "custom"
-    ): AIResult {
-        return processWithAI(text, systemPrompt, "custom_${promptTitle}")
-    }
     
     /**
      * Core AI processing with caching

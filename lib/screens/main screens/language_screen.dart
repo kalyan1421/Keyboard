@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,39 @@ const kDefaultLanguageKey = 'flutter.default_language';
 const kCurrentLanguageKey = 'flutter.current_language';
 const kMultilingualEnabledKey = 'flutter.multilingual_enabled';
 
+/// Download progress state for individual languages
+class LanguageDownloadState {
+  final String language;
+  final double progress;
+  final String status;
+  final String? error;
+  final bool isDownloading;
+  
+  LanguageDownloadState({
+    required this.language,
+    this.progress = 0.0,
+    this.status = 'pending',
+    this.error,
+    this.isDownloading = false,
+  });
+  
+  LanguageDownloadState copyWith({
+    String? language,
+    double? progress,
+    String? status,
+    String? error,
+    bool? isDownloading,
+  }) {
+    return LanguageDownloadState(
+      language: language ?? this.language,
+      progress: progress ?? this.progress,
+      status: status ?? this.status,
+      error: error ?? this.error,
+      isDownloading: isDownloading ?? this.isDownloading,
+    );
+  }
+}
+
 class LanguageScreen extends StatefulWidget {
   const LanguageScreen({Key? key}) : super(key: key);
 
@@ -20,6 +54,12 @@ class LanguageScreen extends StatefulWidget {
 class _LanguageScreenState extends State<LanguageScreen> {
   // MethodChannel for language configuration
   static const _configChannel = MethodChannel('ai_keyboard/config');
+  
+  // MethodChannel for language downloads
+  static const _languageChannel = MethodChannel('com.example.ai_keyboard/language');
+  
+  // Download progress tracking
+  Map<String, LanguageDownloadState> _downloadStates = {};
   
   // Track selected language codes (e.g., ['en', 'hi', 'te'])
   List<String> selectedLanguages = [];
@@ -34,28 +74,103 @@ class _LanguageScreenState extends State<LanguageScreen> {
   // Loading state
   bool _isLoading = true;
   
-  // Language code to display name mapping
-  final Map<String, String> _languageMap = {
-    'en': 'English',
-    'hi': 'Hindi',
-    'te': 'Telugu',
-    'ta': 'Tamil',
-    'mr': 'Marathi',
-    'bn': 'Bengali',
-    'gu': 'Gujarati',
-    'kn': 'Kannada',
-    'ml': 'Malayalam',
-    'pa': 'Punjabi',
-    'ur': 'Urdu',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-  };
+  // Available languages from Firebase Storage (loaded from assets)
+  Map<String, String> _availableLanguages = {};
+  
+  // Search functionality
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   
   @override
   void initState() {
     super.initState();
-    _loadLanguagePreferences();
+    _loadAvailableLanguages();
+    _setupLanguageProgressListener();
+    _searchController.addListener(_onSearchChanged);
+  }
+  
+  /// Handle search query changes
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text.toLowerCase();
+    });
+  }
+  
+  /// Load available languages from Firebase Storage (via assets)
+  Future<void> _loadAvailableLanguages() async {
+    try {
+      // Load the available_languages.json from assets
+      final String jsonString = await rootBundle.loadString(
+        'assets/dictionaries/available_languages.json'
+      );
+      
+      final Map<String, dynamic> jsonData = json.decode(jsonString);
+      final List<dynamic> languages = jsonData['languages'] ?? [];
+      
+      // Build the language map from available languages
+      final Map<String, String> availableLangs = {};
+      for (var lang in languages) {
+        final code = lang['code'] as String;
+        final name = lang['name'] as String;
+        availableLangs[code] = name;
+      }
+      
+      setState(() {
+        _availableLanguages = availableLangs;
+      });
+      
+      // Now load user preferences
+      await _loadLanguagePreferences();
+      
+      debugPrint('✅ Loaded ${_availableLanguages.length} available languages from Firebase Storage');
+    } catch (e) {
+      debugPrint('❌ Error loading available languages: $e');
+      // Fallback to a basic set if loading fails
+      setState(() {
+        _availableLanguages = {
+          'en': 'English',
+          'hi': 'Hindi',
+          'te': 'Telugu',
+          'ta': 'Tamil',
+          'ur': 'Urdu',
+        };
+      });
+      await _loadLanguagePreferences();
+    }
+  }
+  
+  /// Set up listener for language download progress updates from Kotlin
+  void _setupLanguageProgressListener() {
+    _languageChannel.setMethodCallHandler((call) async {
+      if (call.method == 'languageDownloadProgress') {
+        final args = call.arguments as Map<dynamic, dynamic>;
+        final lang = args['lang'] as String;
+        final progress = (args['progress'] as num).toDouble();
+        final status = args['status'] as String;
+        final error = args['error'] as String?;
+        
+        setState(() {
+          _downloadStates[lang] = LanguageDownloadState(
+            language: lang,
+            progress: progress,
+            status: status,
+            error: error,
+            isDownloading: progress < 100 && status != 'completed',
+          );
+        });
+        
+        // Handle completion
+        if (status == 'completed') {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              setState(() {
+                _downloadStates.remove(lang);
+              });
+            }
+          });
+        }
+      }
+    });
   }
   
   /// Load language preferences from SharedPreferences
@@ -135,96 +250,78 @@ class _LanguageScreenState extends State<LanguageScreen> {
     }
   }
   
-  /// Toggle multilingual mode
-  Future<void> _toggleMultilingual(bool enabled) async {
-    setState(() => _multilingualEnabled = enabled);
-    
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(kMultilingualEnabledKey, enabled);
-      
-      await _configChannel.invokeMethod('setMultilingual', {'enabled': enabled});
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(enabled ? 'Multilingual mode enabled' : 'Multilingual mode disabled'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error toggling multilingual: $e');
-    }
-  }
   
-  /// Phase 2: Toggle transliteration (Roman → Native)
-  Future<void> _toggleTransliteration(bool enabled) async {
+  /// Add a language with Firebase download support
+  Future<void> _addLanguage(String langCode) async {
+    if (selectedLanguages.contains(langCode)) {
+      return;
+    }
+    
+    // Show loading state immediately
     setState(() {
-      _transliterationEnabled = enabled;
-      // Disable reverse if forward is enabled
-      if (enabled) _reverseTransliterationEnabled = false;
+      _downloadStates[langCode] = LanguageDownloadState(
+        language: langCode,
+        progress: 0.0,
+        status: 'starting',
+        isDownloading: true,
+      );
     });
     
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('transliteration_enabled', enabled);
-      if (enabled) {
-        await prefs.setBool('reverse_transliteration_enabled', false);
-      }
+      // Call Kotlin to download language data
+      await _languageChannel.invokeMethod('downloadLanguageData', {'lang': langCode});
       
-      await _configChannel.invokeMethod('setTransliterationEnabled', {'enabled': enabled});
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(enabled ? 'Transliteration enabled' : 'Transliteration disabled'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error toggling transliteration: $e');
-    }
-  }
-  
-  /// Phase 2: Toggle reverse transliteration (Native → Roman)
-  Future<void> _toggleReverseTransliteration(bool enabled) async {
-    setState(() {
-      _reverseTransliterationEnabled = enabled;
-      // Disable forward if reverse is enabled
-      if (enabled) _transliterationEnabled = false;
-    });
-    
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('reverse_transliteration_enabled', enabled);
-      if (enabled) {
-        await prefs.setBool('transliteration_enabled', false);
-      }
-      
-      await _configChannel.invokeMethod('setReverseTransliterationEnabled', {'enabled': enabled});
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(enabled ? 'Reverse transliteration enabled' : 'Reverse transliteration disabled'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error toggling reverse transliteration: $e');
-    }
-  }
-  
-  /// Add a language
-  void _addLanguage(String langCode) {
-    if (!selectedLanguages.contains(langCode)) {
+      // Add to selected languages after successful download initiation
       setState(() {
-        selectedLanguages.add(langCode);
+        if (!selectedLanguages.contains(langCode)) {
+          selectedLanguages.add(langCode);
+        }
       });
-      _saveLanguagesAndNotify();
+      
+      // Save preferences
+      await _saveLanguagesAndNotify();
+      
+    } catch (e) {
+      debugPrint('Error downloading language $langCode: $e');
+      
+      // Update state to show error
+      setState(() {
+        _downloadStates[langCode] = LanguageDownloadState(
+          language: langCode,
+          progress: 0.0,
+          status: 'error',
+          error: e.toString(),
+          isDownloading: false,
+        );
+      });
+      
+      // Clear error after 3 seconds
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _downloadStates.remove(langCode);
+          });
+        }
+      });
+      
+      // Still add language offline
+      setState(() {
+        if (!selectedLanguages.contains(langCode)) {
+          selectedLanguages.add(langCode);
+        }
+      });
+      
+      await _saveLanguagesAndNotify();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added $langCode offline. Will download when online.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
   
@@ -247,12 +344,24 @@ class _LanguageScreenState extends State<LanguageScreen> {
   
   /// Get display name for language code
   String _getLanguageName(String code) {
-    return _languageMap[code] ?? code.toUpperCase();
+    return _availableLanguages[code] ?? code.toUpperCase();
   }
   
-  /// Get available (not selected) languages
+  /// Get available (not selected) languages from Firebase Storage
   List<String> _getAvailableLanguageCodes() {
-    return _languageMap.keys.where((code) => !selectedLanguages.contains(code)).toList();
+    var availableCodes = _availableLanguages.keys
+        .where((code) => !selectedLanguages.contains(code))
+        .toList();
+    
+    // Filter by search query if present
+    if (_searchQuery.isNotEmpty) {
+      availableCodes = availableCodes.where((code) {
+        final languageName = _getLanguageName(code).toLowerCase();
+        return languageName.contains(_searchQuery) || code.toLowerCase().contains(_searchQuery);
+      }).toList();
+    }
+    
+    return availableCodes;
   }
 
   @override
@@ -301,40 +410,17 @@ class _LanguageScreenState extends State<LanguageScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: SafeArea(child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Language Information Card
             _buildLanguageInfoCard(),
 
-            const SizedBox(height: 24),
+            
             
             // Multilingual Mode Toggle
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.lightGrey,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    'Use multiple languages at once',
-                    style: AppTextStyle.headlineSmall,
-                  ),
-                  subtitle: Text(
-                    'Get suggestions from top 2 languages simultaneously',
-                    style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
-                  ),
-                  value: _multilingualEnabled,
-                  onChanged: _toggleMultilingual,
-                  activeColor: AppColors.secondary,
-                ),
-              ),
-            ),
+           
             
             // // Phase 2: Transliteration Toggles
             // Container(
@@ -406,7 +492,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
 
             const SizedBox(height: 24),
 
-            // Available Languages Section
+            // Available Languages Section with Search
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(
@@ -415,15 +501,48 @@ class _LanguageScreenState extends State<LanguageScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            
+            // Search Bar (only show if there are available languages)
+            if (_availableLanguages.keys.where((code) => !selectedLanguages.contains(code)).isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: _buildSearchBar(),
+              ),
+            
+            if (_availableLanguages.keys.where((code) => !selectedLanguages.contains(code)).isNotEmpty)
+              const SizedBox(height: 16),
 
             // Available Languages List
             ..._getAvailableLanguageCodes().map(
               (langCode) => _buildAvailableLanguageTile(langCode),
             ),
+            
+            // Show "No results" message if search returns empty
+            if (_searchQuery.isNotEmpty && _getAvailableLanguageCodes().isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.search_off, size: 48, color: AppColors.grey),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No languages found',
+                        style: AppTextStyle.headlineSmall.copyWith(color: AppColors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Try searching with a different term',
+                        style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             const SizedBox(height: 24),
           ],
-        ),
+        ),),
       ),
     );
   }
@@ -462,6 +581,34 @@ class _LanguageScreenState extends State<LanguageScreen> {
       ),
     );
   }
+  
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.lightGrey,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: TextField(
+        controller: _searchController,
+        style: AppTextStyle.bodyMedium,
+        decoration: InputDecoration(
+          hintText: 'Search languages...',
+          hintStyle: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+          prefixIcon: Icon(Icons.search, color: AppColors.grey),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: Icon(Icons.clear, color: AppColors.grey),
+                  onPressed: () {
+                    _searchController.clear();
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+      ),
+    );
+  }
 
   Widget _buildSelectedLanguageTile(String langCode, int index) {
     return Container(
@@ -476,7 +623,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
             ? Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.secondary.withOpacity(0.2),
+                  color: AppColors.secondary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -493,26 +640,51 @@ class _LanguageScreenState extends State<LanguageScreen> {
   }
 
   Widget _buildAvailableLanguageTile(String langCode) {
+    final downloadState = _downloadStates[langCode];
+    final isDownloading = downloadState?.isDownloading ?? false;
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       child: _buildTileOption(
         title: _getLanguageName(langCode),
-        subtitle: 'QWERTY',
-        icon: Icons.add_circle_outline,
-        isDownloadable: true,
-        onTap: () => _addLanguage(langCode),
+        subtitle: isDownloading ? _getDownloadSubtitle(downloadState!) : 'QWERTY',
+        icon: isDownloading ? Icons.download : Icons.add_circle_outline,
+        isDownloadable: !isDownloading,
+        downloadProgress: isDownloading ? downloadState!.progress : null,
+        downloadStatus: downloadState?.status,
+        onTap: isDownloading ? null : () => _addLanguage(langCode),
       ),
     );
+  }
+  
+  /// Get download subtitle based on status
+  String _getDownloadSubtitle(LanguageDownloadState state) {
+    switch (state.status) {
+      case 'starting':
+        return 'Preparing download...';
+      case 'downloading_transliteration':
+        return 'Downloading transliteration...';
+      case 'completed':
+        return 'Download complete!';
+      case 'offline_enabled':
+        return 'Added offline';
+      case 'error':
+        return 'Error: ${state.error ?? "Unknown"}';
+      default:
+        return 'Downloading... ${state.progress.toInt()}%';
+    }
   }
 
   Widget _buildTileOption({
     required String title,
     required String subtitle,
     required IconData icon,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
     bool isSelected = false,
     bool isDownloadable = false,
     Widget? trailing,
+    double? downloadProgress,
+    String? downloadStatus,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -531,9 +703,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
           style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
         ),
         trailing: trailing ??
-            (isDownloadable
-                ? Image.asset(AppIcons.download_button, width: 24, height: 24)
-                : null),
+            _buildTrailingWidget(isDownloadable, downloadProgress, downloadStatus),
       ),
     );
   }
@@ -562,5 +732,44 @@ class _LanguageScreenState extends State<LanguageScreen> {
     } else {
       return Icon(icon, color: AppColors.grey, size: 24);
     }
+  }
+  
+  /// Build trailing widget with download progress or download button
+  Widget? _buildTrailingWidget(bool isDownloadable, double? downloadProgress, String? downloadStatus) {
+    if (downloadProgress != null) {
+      // Show progress indicator
+      return SizedBox(
+        width: 40,
+        height: 40,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularProgressIndicator(
+              value: downloadProgress / 100,
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.secondary),
+            ),
+            Text(
+              '${downloadProgress.toInt()}%',
+              style: AppTextStyle.bodySmall.copyWith(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (isDownloadable) {
+      return Image.asset(AppIcons.download_button, width: 24, height: 24);
+    }
+    return null;
+  }
+  
+  @override
+  void dispose() {
+    // Clean up method channel listener
+    _languageChannel.setMethodCallHandler(null);
+    _searchController.dispose();
+    super.dispose();
   }
 }

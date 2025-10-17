@@ -86,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildUpdatePROcARD(context, wordcount),
+              // _buildUpdatePROcARD(context, wordcount),
               SizedBox(height: 24),
               _buildThemes(context),
               SizedBox(height: 24),
@@ -180,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
               GestureDetector(
                 onTap: _navigateToThemeGallery,
                 child: Text(
-                  'view All',
+                  'See All',
                   style: TextStyle(color: AppColors.secondary, fontSize: 16),
                 ),
               ),

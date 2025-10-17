@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_auth_service.dart';
-import '../screens/welcome_screen.dart';
+
 
 class AccountSection extends StatefulWidget {
   final Map<String, dynamic>? keyboardSettings;
@@ -151,23 +151,23 @@ class _AccountSectionState extends State<AccountSection> {
                   style: TextStyle(fontSize: 14, height: 1.4),
                 ),
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const WelcomeScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.login),
-                    label: const Text('Sign In'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
+                // SizedBox(
+                //   width: double.infinity,
+                //   child: ElevatedButton.icon(
+                //     onPressed: () {
+                //       Navigator.of(context).push(
+                //         MaterialPageRoute(
+                //           builder: (context) => const WelcomeScreen(),
+                //         ),
+                //       );
+                //     },
+                //     icon: const Icon(Icons.login),
+                //     label: const Text('Sign In'),
+                //     style: ElevatedButton.styleFrom(
+                //       padding: const EdgeInsets.symmetric(vertical: 12),
+                //     ),
+                //   ),
+                // ),
               ],
             ),
           );

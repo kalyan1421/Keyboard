@@ -265,3 +265,4 @@ enum class StickerCategory(val displayName: String) {
         }
     }
 }
+

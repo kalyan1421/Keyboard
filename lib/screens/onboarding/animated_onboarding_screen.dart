@@ -191,7 +191,26 @@ class _AnimatedOnboardingScreenState extends State<AnimatedOnboardingScreen>
         ),
       );
     }
-    
+    if (_currentPage == 1) {
+      return Center(
+        child: Lottie.asset(
+          'assets/onboarding/Scene-2.json',
+          fit: BoxFit.contain,
+          repeat: true,
+          animate: true,
+        ),
+      );
+    }
+    if (_currentPage == 2) {
+      return Center(
+        child: Lottie.asset(
+          'assets/onboarding/Scene-3.json',
+          fit: BoxFit.contain,
+          repeat: true,
+          animate: true,
+        ),
+      );
+    }
     // For other screens, use existing animated illustration
     return Center(
       child: SizedBox(

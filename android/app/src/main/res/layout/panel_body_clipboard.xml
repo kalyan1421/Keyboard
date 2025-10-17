@@ -1,69 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ✅ UNIFIED THEMING: Transparent background -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:padding="8dp">
+    android:layout_height="match_parent"
+    android:padding="8dp"
+    android:paddingBottom="16dp"
+    android:background="@android:color/transparent">
 
-    <!-- Section Title -->
-    <TextView
-        android:id="@+id/clipboardHeaderTitle"
-        android:text="Recent Clips"
+    <!-- Header with Clear All button and toggle -->
+    <LinearLayout
+        android:id="@+id/clipboardHeader"
+        android:orientation="horizontal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:textColor="@color/kb_text_primary"
-        android:paddingBottom="8dp"/>
-
-    <!-- Clipboard Items -->
-    <LinearLayout
-        android:id="@+id/clipboardItemsContainer"
-        android:orientation="vertical"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <!-- Clip Item 1 -->
-        <TextView
-            android:id="@+id/clipItem1"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="I dont like agquuq"
-            android:textColor="@color/kb_text_primary"
-            android:textSize="14sp"
-            android:padding="12dp"
-            android:layout_marginBottom="8dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="@drawable/input_text_background"/>
-
-        <!-- Clip Item 2 -->
-        <TextView
-            android:id="@+id/clipItem2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="ahajab"
-            android:textColor="@color/kb_text_primary"
-            android:textSize="14sp"
-            android:padding="12dp"
-            android:layout_marginBottom="8dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="@drawable/input_text_background"/>
-
-        <!-- Clip Item 3 -->
-        <TextView
-            android:id="@+id/clipItem3"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="I dint like"
-            android:textColor="@color/kb_text_primary"
-            android:textSize="14sp"
-            android:padding="12dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="@drawable/input_text_background"/>
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+        
+        <!-- Clear All Button (Left side) -->
+        <Button
+            android:id="@+id/btnClearAll"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Clear All"
+            android:textSize="13sp"
+            android:textColor="#FF0000"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/action_button_background"/>
+        
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
+        
+        <!-- Toggle/Settings (Right side - placeholder) -->
+        <LinearLayout
+            android:id="@+id/clipboardToggleContainer"
+            android:orientation="horizontal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+            <!-- Toggle items can be added here dynamically -->
+        </LinearLayout>
     </LinearLayout>
+
+    <!-- Scrollable Clipboard Items Container -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="vertical">
+
+        <LinearLayout
+            android:id="@+id/clipboardItemsContainer"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="16dp">
+            <!-- Items will be added dynamically -->
+        </LinearLayout>
+    </ScrollView>
 
 </LinearLayout>
 

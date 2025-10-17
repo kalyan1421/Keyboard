@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/keyboard_cloud_sync.dart';
 import '../main.dart';
+import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
+
 import 'package:ai_keyboard/screens/login/mobile_login_screen.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
-import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
+
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});

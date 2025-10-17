@@ -569,453 +569,453 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
     );
   }
 
-  Widget _buildKeyboardIllustration() {
-    return AnimatedBuilder(
-      animation: _keyboardAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.8 + (0.2 * _keyboardAnimation.value),
-          child: Container(
-            width: 280,
-            height: 200,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // Background keyboard
-                _buildKeyboardBackground(),
+//   Widget _buildKeyboardIllustration() {
+//     return AnimatedBuilder(
+//       animation: _keyboardAnimation,
+//       builder: (context, child) {
+//         return Transform.scale(
+//           scale: 0.8 + (0.2 * _keyboardAnimation.value),
+//           child: Container(
+//             width: 280,
+//             height: 200,
+//             child: Stack(
+//               alignment: Alignment.center,
+//               children: [
+//                 // Background keyboard
+//                 _buildKeyboardBackground(),
 
-                // AI Logo
-                _buildAILogo(),
+//                 // AI Logo
+//                 _buildAILogo(),
 
-                // Sparkle effects
-                ..._buildSparkleEffects(),
+//                 // Sparkle effects
+//                 ..._buildSparkleEffects(),
 
-                // Energy lines
-                ..._buildEnergyLines(),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+//                 // Energy lines
+//                 ..._buildEnergyLines(),
+//               ],
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
 
-  Widget _buildKeyboardBackground() {
-    return Container(
-      width: 200,
-      height: 120,
-      decoration: BoxDecoration(
-        color: AppColors.secondary,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.secondary.withOpacity(0.3),
-            spreadRadius: 4,
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 8),
-          _buildKeyboardRow(['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P']),
-          const SizedBox(height: 4),
-          _buildKeyboardRow(['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L']),
-          const SizedBox(height: 4),
-          _buildKeyboardRow(['Z', 'X', 'C', 'V', 'B', 'N', 'M']),
-        ],
-      ),
-    );
-  }
+//   Widget _buildKeyboardBackground() {
+//     return Container(
+//       width: 200,
+//       height: 120,
+//       decoration: BoxDecoration(
+//         color: AppColors.secondary,
+//         borderRadius: BorderRadius.circular(12),
+//         boxShadow: [
+//           BoxShadow(
+//             color: AppColors.secondary.withOpacity(0.3),
+//             spreadRadius: 4,
+//             blurRadius: 12,
+//             offset: const Offset(0, 4),
+//           ),
+//         ],
+//       ),
+//       child: Column(
+//         children: [
+//           const SizedBox(height: 8),
+//           _buildKeyboardRow(['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P']),
+//           const SizedBox(height: 4),
+//           _buildKeyboardRow(['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L']),
+//           const SizedBox(height: 4),
+//           _buildKeyboardRow(['Z', 'X', 'C', 'V', 'B', 'N', 'M']),
+//         ],
+//       ),
+//     );
+//   }
 
-  Widget _buildKeyboardRow(List<String> keys) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: keys.map((key) => _buildKey(key)).toList(),
-    );
-  }
+//   Widget _buildKeyboardRow(List<String> keys) {
+//     return Row(
+//       mainAxisAlignment: MainAxisAlignment.center,
+//       children: keys.map((key) => _buildKey(key)).toList(),
+//     );
+//   }
 
-  Widget _buildKey(String letter) {
-    return Container(
-      width: 16,
-      height: 20,
-      margin: const EdgeInsets.symmetric(horizontal: 1),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Center(
-        child: Text(
-          letter,
-          style: const TextStyle(
-            fontSize: 8,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF031D40),
-          ),
-        ),
-      ),
-    );
-  }
+//   Widget _buildKey(String letter) {
+//     return Container(
+//       width: 16,
+//       height: 20,
+//       margin: const EdgeInsets.symmetric(horizontal: 1),
+//       decoration: BoxDecoration(
+//         color: Colors.white,
+//         borderRadius: BorderRadius.circular(3),
+//       ),
+//       child: Center(
+//         child: Text(
+//           letter,
+//           style: const TextStyle(
+//             fontSize: 8,
+//             fontWeight: FontWeight.bold,
+//             color: Color(0xFF031D40),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
 
-  Widget _buildAILogo() {
-    return AnimatedBuilder(
-      animation: _sparkleAnimation,
-      builder: (context, child) {
-        return Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.secondary.withOpacity(0.5),
-                spreadRadius: 2,
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          child: Center(
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.secondary,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.psychology,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+//   Widget _buildAILogo() {
+//     return AnimatedBuilder(
+//       animation: _sparkleAnimation,
+//       builder: (context, child) {
+//         return Container(
+//           width: 60,
+//           height: 60,
+//           decoration: BoxDecoration(
+//             color: Colors.white,
+//             shape: BoxShape.circle,
+//             boxShadow: [
+//               BoxShadow(
+//                 color: AppColors.secondary.withOpacity(0.5),
+//                 spreadRadius: 2,
+//                 blurRadius: 8,
+//               ),
+//             ],
+//           ),
+//           child: Center(
+//             child: Container(
+//               width: 40,
+//               height: 40,
+//               decoration: BoxDecoration(
+//                 color: AppColors.secondary,
+//                 shape: BoxShape.circle,
+//               ),
+//               child: const Icon(
+//                 Icons.psychology,
+//                 color: Colors.white,
+//                 size: 24,
+//               ),
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
 
-  List<Widget> _buildSparkleEffects() {
-    return [
-      Positioned(
-        top: 20,
-        left: 40,
-        child: AnimatedBuilder(
-          animation: _sparkleAnimation,
-          builder: (context, child) {
-            return Opacity(
-              opacity: 0.3 + (0.4 * _sparkleAnimation.value),
-              child: Icon(Icons.star, color: AppColors.secondary, size: 12),
-            );
-          },
-        ),
-      ),
-      Positioned(
-        top: 60,
-        right: 30,
-        child: AnimatedBuilder(
-          animation: _sparkleAnimation,
-          builder: (context, child) {
-            return Opacity(
-              opacity: 0.2 + (0.5 * _sparkleAnimation.value),
-              child: Icon(Icons.star, color: AppColors.secondary, size: 16),
-            );
-          },
-        ),
-      ),
-      Positioned(
-        bottom: 30,
-        left: 20,
-        child: AnimatedBuilder(
-          animation: _sparkleAnimation,
-          builder: (context, child) {
-            return Opacity(
-              opacity: 0.4 + (0.3 * _sparkleAnimation.value),
-              child: Icon(Icons.star, color: AppColors.secondary, size: 10),
-            );
-          },
-        ),
-      ),
-    ];
-  }
+//   List<Widget> _buildSparkleEffects() {
+//     return [
+//       Positioned(
+//         top: 20,
+//         left: 40,
+//         child: AnimatedBuilder(
+//           animation: _sparkleAnimation,
+//           builder: (context, child) {
+//             return Opacity(
+//               opacity: 0.3 + (0.4 * _sparkleAnimation.value),
+//               child: Icon(Icons.star, color: AppColors.secondary, size: 12),
+//             );
+//           },
+//         ),
+//       ),
+//       Positioned(
+//         top: 60,
+//         right: 30,
+//         child: AnimatedBuilder(
+//           animation: _sparkleAnimation,
+//           builder: (context, child) {
+//             return Opacity(
+//               opacity: 0.2 + (0.5 * _sparkleAnimation.value),
+//               child: Icon(Icons.star, color: AppColors.secondary, size: 16),
+//             );
+//           },
+//         ),
+//       ),
+//       Positioned(
+//         bottom: 30,
+//         left: 20,
+//         child: AnimatedBuilder(
+//           animation: _sparkleAnimation,
+//           builder: (context, child) {
+//             return Opacity(
+//               opacity: 0.4 + (0.3 * _sparkleAnimation.value),
+//               child: Icon(Icons.star, color: AppColors.secondary, size: 10),
+//             );
+//           },
+//         ),
+//       ),
+//     ];
+//   }
 
-  List<Widget> _buildEnergyLines() {
-    return List.generate(3, (index) {
-      return Positioned(
-        child: AnimatedBuilder(
-          animation: _sparkleAnimation,
-          builder: (context, child) {
-            return CustomPaint(
-              painter: EnergyLinePainter(
-                opacity: 0.1 + (0.2 * _sparkleAnimation.value),
-                angle: (index * 120) * (3.14159 / 180),
-              ),
-              size: const Size(280, 200),
-            );
-          },
-        ),
-      );
-    });
-  }
+//   List<Widget> _buildEnergyLines() {
+//     return List.generate(3, (index) {
+//       return Positioned(
+//         child: AnimatedBuilder(
+//           animation: _sparkleAnimation,
+//           builder: (context, child) {
+//             return CustomPaint(
+//               painter: EnergyLinePainter(
+//                 opacity: 0.1 + (0.2 * _sparkleAnimation.value),
+//                 angle: (index * 120) * (3.14159 / 180),
+//               ),
+//               size: const Size(280, 200),
+//             );
+//           },
+//         ),
+//       );
+//     });
+//   }
 
-  Widget _buildSetupSteps() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [_buildStep1(), const SizedBox(height: 16), _buildStep2()],
-      ),
-    );
-  }
+//   Widget _buildSetupSteps() {
+//     return Padding(
+//       padding: const EdgeInsets.symmetric(horizontal: 24),
+//       child: Column(
+//         children: [_buildStep1(), const SizedBox(height: 16), _buildStep2()],
+//       ),
+//     );
+//   }
 
-  Widget _buildStep1() {
-    return GestureDetector(
-      onTap: _onStep1Tap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: _isStep1Completed ? AppColors.secondary : Colors.grey[300],
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              spreadRadius: 2,
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: _isStep1Completed ? Colors.white : Colors.grey[600],
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                _isStep1Completed ? Icons.check : Icons.circle_outlined,
-                color: _isStep1Completed
-                    ? AppColors.secondary
-                    : Colors.grey[400],
-                size: 16,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                'Enable Emoji Keyboard',
-                style: AppTextStyle.titleMedium.copyWith(
-                  color: _isStep1Completed ? Colors.white : Colors.grey[700],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+//   Widget _buildStep1() {
+//     return GestureDetector(
+//       onTap: _onStep1Tap,
+//       child: AnimatedContainer(
+//         duration: const Duration(milliseconds: 300),
+//         padding: const EdgeInsets.all(20),
+//         decoration: BoxDecoration(
+//           color: _isStep1Completed ? AppColors.secondary : Colors.grey[300],
+//           borderRadius: BorderRadius.circular(16),
+//           boxShadow: [
+//             BoxShadow(
+//               color: Colors.black.withOpacity(0.1),
+//               spreadRadius: 2,
+//               blurRadius: 8,
+//               offset: const Offset(0, 2),
+//             ),
+//           ],
+//         ),
+//         child: Row(
+//           children: [
+//             Container(
+//               width: 24,
+//               height: 24,
+//               decoration: BoxDecoration(
+//                 color: _isStep1Completed ? Colors.white : Colors.grey[600],
+//                 shape: BoxShape.circle,
+//               ),
+//               child: Icon(
+//                 _isStep1Completed ? Icons.check : Icons.circle_outlined,
+//                 color: _isStep1Completed
+//                     ? AppColors.secondary
+//                     : Colors.grey[400],
+//                 size: 16,
+//               ),
+//             ),
+//             const SizedBox(width: 16),
+//             Expanded(
+//               child: Text(
+//                 'Enable Emoji Keyboard',
+//                 style: AppTextStyle.titleMedium.copyWith(
+//                   color: _isStep1Completed ? Colors.white : Colors.grey[700],
+//                   fontWeight: FontWeight.w600,
+//                 ),
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
 
-  Widget _buildStep2() {
-    return GestureDetector(
-      onTap: _onStep2Tap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: _isStep2Completed ? AppColors.secondary : AppColors.primary,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              spreadRadius: 2,
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: AppColors.secondary,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '2',
-                  style: AppTextStyle.labelMedium.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                'Switch to Emoji Keyboard',
-                style: AppTextStyle.titleMedium.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            if (_isStep2Completed)
-              const Icon(Icons.check_circle, color: Colors.white, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
+//   Widget _buildStep2() {
+//     return GestureDetector(
+//       onTap: _onStep2Tap,
+//       child: AnimatedContainer(
+//         duration: const Duration(milliseconds: 300),
+//         padding: const EdgeInsets.all(20),
+//         decoration: BoxDecoration(
+//           color: _isStep2Completed ? AppColors.secondary : AppColors.primary,
+//           borderRadius: BorderRadius.circular(16),
+//           boxShadow: [
+//             BoxShadow(
+//               color: Colors.black.withOpacity(0.1),
+//               spreadRadius: 2,
+//               blurRadius: 8,
+//               offset: const Offset(0, 2),
+//             ),
+//           ],
+//         ),
+//         child: Row(
+//           children: [
+//             Container(
+//               width: 24,
+//               height: 24,
+//               decoration: BoxDecoration(
+//                 color: AppColors.secondary,
+//                 shape: BoxShape.circle,
+//               ),
+//               child: Center(
+//                 child: Text(
+//                   '2',
+//                   style: AppTextStyle.labelMedium.copyWith(
+//                     color: Colors.white,
+//                     fontWeight: FontWeight.bold,
+//                   ),
+//                 ),
+//               ),
+//             ),
+//             const SizedBox(width: 16),
+//             Expanded(
+//               child: Text(
+//                 'Switch to Emoji Keyboard',
+//                 style: AppTextStyle.titleMedium.copyWith(
+//                   color: Colors.white,
+//                   fontWeight: FontWeight.w600,
+//                 ),
+//               ),
+//             ),
+//             if (_isStep2Completed)
+//               const Icon(Icons.check_circle, color: Colors.white, size: 20),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
 
-  Widget _buildLegalFooter() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
-      ),
-      child: Column(
-        children: [
-          Text(
-            'by installing or using the product, you agree to',
-            style: AppTextStyle.bodySmall.copyWith(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              GestureDetector(
-                onTap: () {
-                  // Navigate to Privacy Policy
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Privacy Policy clicked')),
-                  );
-                },
-                child: Text(
-                  'Privacy Policy',
-                  style: AppTextStyle.bodySmall.copyWith(
-                    color: AppColors.secondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Text(
-                ' and ',
-                style: AppTextStyle.bodySmall.copyWith(color: Colors.grey[600]),
-              ),
-              GestureDetector(
-                onTap: () {
-                  // Navigate to Terms of Use
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Terms of Use clicked')),
-                  );
-                },
-                child: Text(
-                  'Term of Use Agreement',
-                  style: AppTextStyle.bodySmall.copyWith(
-                    color: AppColors.secondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          // Keyboard Settings Button (Bridge to Config)
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: () => _verifyAndOpenConfig(context),
-              icon: const Icon(Icons.settings_outlined, size: 20),
-              label: Text(
-                'Open Keyboard Settings',
-                style: AppTextStyle.buttonPrimary.copyWith(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1976D2), // Blue
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                elevation: 2,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Continue to App Button
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _onContinueTap,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                elevation: 2,
-              ),
-              child: Text(
-                'Continue to App',
-                style: AppTextStyle.buttonPrimary.copyWith(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+//   Widget _buildLegalFooter() {
+//     return Container(
+//       width: double.infinity,
+//       padding: const EdgeInsets.all(24),
+//       decoration: const BoxDecoration(
+//         color: Colors.white,
+//         borderRadius: BorderRadius.only(
+//           topLeft: Radius.circular(20),
+//           topRight: Radius.circular(20),
+//         ),
+//       ),
+//       child: Column(
+//         children: [
+//           Text(
+//             'by installing or using the product, you agree to',
+//             style: AppTextStyle.bodySmall.copyWith(color: Colors.grey[600]),
+//           ),
+//           const SizedBox(height: 8),
+//           Row(
+//             mainAxisAlignment: MainAxisAlignment.center,
+//             children: [
+//               GestureDetector(
+//                 onTap: () {
+//                   // Navigate to Privacy Policy
+//                   ScaffoldMessenger.of(context).showSnackBar(
+//                     const SnackBar(content: Text('Privacy Policy clicked')),
+//                   );
+//                 },
+//                 child: Text(
+//                   'Privacy Policy',
+//                   style: AppTextStyle.bodySmall.copyWith(
+//                     color: AppColors.secondary,
+//                     fontWeight: FontWeight.w600,
+//                   ),
+//                 ),
+//               ),
+//               Text(
+//                 ' and ',
+//                 style: AppTextStyle.bodySmall.copyWith(color: Colors.grey[600]),
+//               ),
+//               GestureDetector(
+//                 onTap: () {
+//                   // Navigate to Terms of Use
+//                   ScaffoldMessenger.of(context).showSnackBar(
+//                     const SnackBar(content: Text('Terms of Use clicked')),
+//                   );
+//                 },
+//                 child: Text(
+//                   'Term of Use Agreement',
+//                   style: AppTextStyle.bodySmall.copyWith(
+//                     color: AppColors.secondary,
+//                     fontWeight: FontWeight.w600,
+//                   ),
+//                 ),
+//               ),
+//             ],
+//           ),
+//           const SizedBox(height: 24),
+//           // Keyboard Settings Button (Bridge to Config)
+//           SizedBox(
+//             width: double.infinity,
+//             height: 50,
+//             child: ElevatedButton.icon(
+//               onPressed: () => _verifyAndOpenConfig(context),
+//               icon: const Icon(Icons.settings_outlined, size: 20),
+//               label: Text(
+//                 'Open Keyboard Settings',
+//                 style: AppTextStyle.buttonPrimary.copyWith(
+//                   fontSize: 16,
+//                   fontWeight: FontWeight.w600,
+//                 ),
+//               ),
+//               style: ElevatedButton.styleFrom(
+//                 backgroundColor: const Color(0xFF1976D2), // Blue
+//                 foregroundColor: Colors.white,
+//                 shape: RoundedRectangleBorder(
+//                   borderRadius: BorderRadius.circular(8),
+//                 ),
+//                 elevation: 2,
+//               ),
+//             ),
+//           ),
+//           const SizedBox(height: 12),
+//           // Continue to App Button
+//           SizedBox(
+//             width: double.infinity,
+//             height: 50,
+//             child: ElevatedButton(
+//               onPressed: _onContinueTap,
+//               style: ElevatedButton.styleFrom(
+//                 backgroundColor: AppColors.primary,
+//                 foregroundColor: Colors.white,
+//                 shape: RoundedRectangleBorder(
+//                   borderRadius: BorderRadius.circular(8),
+//                 ),
+//                 elevation: 2,
+//               ),
+//               child: Text(
+//                 'Continue to App',
+//                 style: AppTextStyle.buttonPrimary.copyWith(
+//                   fontSize: 16,
+//                   fontWeight: FontWeight.w600,
+//                 ),
+//               ),
+//             ),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
 
-class EnergyLinePainter extends CustomPainter {
-  final double opacity;
-  final double angle;
+// class EnergyLinePainter extends CustomPainter {
+//   final double opacity;
+//   final double angle;
 
-  EnergyLinePainter({required this.opacity, required this.angle});
+//   EnergyLinePainter({required this.opacity, required this.angle});
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFFFA203).withOpacity(opacity)
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
+//   @override
+//   void paint(Canvas canvas, Size size) {
+//     final paint = Paint()
+//       ..color = const Color(0xFFFFA203).withOpacity(opacity)
+//       ..strokeWidth = 1.0
+//       ..style = PaintingStyle.stroke;
 
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = 80.0;
+//     final center = Offset(size.width / 2, size.height / 2);
+//     final radius = 80.0;
 
-    for (int i = 0; i < 3; i++) {
-      final startAngle = angle + (i * 2 * 3.14159 / 3);
-      final endAngle = startAngle + 0.5;
+//     for (int i = 0; i < 3; i++) {
+//       final startAngle = angle + (i * 2 * 3.14159 / 3);
+//       final endAngle = startAngle + 0.5;
 
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        endAngle - startAngle,
-        false,
-        paint,
-      );
-    }
-  }
+//       canvas.drawArc(
+//         Rect.fromCircle(center: center, radius: radius),
+//         startAngle,
+//         endAngle - startAngle,
+//         false,
+//         paint,
+//       );
+//     }
+//   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+//   @override
+//   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

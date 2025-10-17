@@ -1,0 +1,29 @@
+
+{
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "nativeName": "English",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "hi",
+      "name": "Hindi",
+      "nativeName": "हिन्दी",
+      "font": "fonts/NotoSansDevanagari-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": true
+    },
+    {
+      "code": "te",
+      "name": "Telugu",
+      "nativeName": "తెలుగు",
+      "font": "fonts/NotoSansTelugu-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    }
+  ]
+}

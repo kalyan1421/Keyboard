@@ -83,22 +83,9 @@ flutter:
     - assets/sounds/
     - assets/images/
     - assets/onboarding/
-    - assets/dictionaries/
-    - assets/dictionaries/en_bigrams.txt
-    - assets/dictionaries/es_bigrams.txt
-    - assets/dictionaries/de_bigrams.txt
-    - assets/dictionaries/hi_bigrams.txt
-    - assets/dictionaries/fr_bigrams.txt
     - assets/icons/
     - assets/keyboards/
-    - assets/dictionaries/en_bigrams.txt
-    - assets/dictionaries/hi_bigrams.txt
-    - assets/dictionaries/fr_bigrams.txt
-    - assets/dictionaries/es_bigrams.txt
-    - assets/dictionaries/de_bigrams.txt
-    - assets/dictionaries/common_words.json
-    - assets/dictionaries/extended_categories.json
-    - assets/dictionaries/common_bigrams.json
+    
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

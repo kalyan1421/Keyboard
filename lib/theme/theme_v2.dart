@@ -682,6 +682,1002 @@ class KeyboardThemeV2 {
     );
   }
 
+  /// Create Blue theme
+  static KeyboardThemeV2 createBlueTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_blue',
+      name: 'Blue',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF2196F3),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF64B5F6),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF1976D2),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF1565C0), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF0D47A1),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF2196F3), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF0D47A1), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF2196F3), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFF64B5F6), text: Color(0xFF000000), pressed: Color(0xFF1976D2), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Green theme
+  static KeyboardThemeV2 createGreenTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_green',
+      name: 'Green',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF4CAF50),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF81C784),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF388E3C),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF2E7D32), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF1B5E20),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF4CAF50), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF1B5E20), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF4CAF50), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFF81C784), text: Color(0xFF000000), pressed: Color(0xFF388E3C), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Purple theme
+  static KeyboardThemeV2 createPurpleTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_purple',
+      name: 'Purple',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF9C27B0),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFBA68C8),
+        text: Color(0xFFFFFFFF),
+        pressed: Color(0xFF7B1FA2),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF4A148C), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF4A148C),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF9C27B0), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF4A148C), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF9C27B0), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFBA68C8), text: Color(0xFFFFFFFF), pressed: Color(0xFF7B1FA2), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Orange theme  
+  static KeyboardThemeV2 createOrangeTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_orange',
+      name: 'Orange',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFFF9800),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'bordered',
+        bg: Color(0xFFFFB74D),
+        text: Color(0xFF000000),
+        pressed: Color(0xFFF57C00),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFE65100), widthDp: 1.0),
+        radius: 10.0,
+        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFE65100),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFF9800), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFE65100), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFF9800), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFFFB74D), text: Color(0xFF000000), pressed: Color(0xFFF57C00), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'bounce', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Pink theme
+  static KeyboardThemeV2 createPinkTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_pink',
+      name: 'Pink',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFE91E63),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFF48FB1),
+        text: Color(0xFF000000),
+        pressed: Color(0xFFC2185B),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF880E4F), widthDp: 0),
+        radius: 12.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF880E4F),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFE91E63), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF880E4F), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFE91E63), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFF48FB1), text: Color(0xFF000000), pressed: Color(0xFFC2185B), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['hearts']),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.6),
+      stickers: const ThemeStickers(enabled: true, pack: 'valentine', position: 'behind', opacity: 0.7, animated: true),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'valentine', materialYouExtract: false),
+    );
+  }
+
+  /// Create Cyan theme
+  static KeyboardThemeV2 createCyanTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_cyan',
+      name: 'Cyan',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF00BCD4),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'flat',
+        bg: Color(0xFF4DD0E1),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF0097A7),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF006064), widthDp: 0),
+        radius: 6.0,
+        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF006064),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF00BCD4), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF006064), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF00BCD4), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFF4DD0E1), text: Color(0xFF000000), pressed: Color(0xFF0097A7), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Light Blue theme
+  static KeyboardThemeV2 createLightBlueTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_light_blue',
+      name: 'Light Blue',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF03A9F4),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'bordered',
+        bg: Color(0xFF4FC3F7),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF0288D1),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFF01579B), widthDp: 1.0),
+        radius: 10.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF01579B),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF03A9F4), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF01579B), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF03A9F4), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFF4FC3F7), text: Color(0xFF000000), pressed: Color(0xFF0288D1), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Dark Blue theme
+  static KeyboardThemeV2 createDarkBlueTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_dark_blue',
+      name: 'Dark Blue',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF1565C0),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF1E88E5),
+        text: Color(0xFFFFFFFF),
+        pressed: Color(0xFF0D47A1),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF0D47A1), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF0D47A1),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF1565C0), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF0D47A1), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF1565C0), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFF1E88E5), text: Color(0xFFFFFFFF), pressed: Color(0xFF0D47A1), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Lime theme
+  static KeyboardThemeV2 createLimeTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_lime',
+      name: 'Lime',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFCDDC39),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFD4E157),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF9E9D24),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF827717), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF827717),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFCDDC39), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF827717), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFCDDC39), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFD4E157), text: Color(0xFF000000), pressed: Color(0xFF9E9D24), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'bounce', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Amber theme
+  static KeyboardThemeV2 createAmberTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_amber',
+      name: 'Amber',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFFFC107),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'bordered',
+        bg: Color(0xFFFFD54F),
+        text: Color(0xFF000000),
+        pressed: Color(0xFFFF8F00),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFFF6F00), widthDp: 1.0),
+        radius: 10.0,
+        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFFF6F00),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFC107), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFF6F00), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFFC107), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFFFD54F), text: Color(0xFF000000), pressed: Color(0xFFFF8F00), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'bounce', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Teal theme
+  static KeyboardThemeV2 createTealTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_teal',
+      name: 'Teal',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF009688),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF4DB6AC),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF00695C),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF004D40), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF004D40),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF009688), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF004D40), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF009688), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFF4DB6AC), text: Color(0xFF000000), pressed: Color(0xFF00695C), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Indigo theme
+  static KeyboardThemeV2 createIndigoTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_indigo',
+      name: 'Indigo',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF3F51B5),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF7986CB),
+        text: Color(0xFFFFFFFF),
+        pressed: Color(0xFF303F9F),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF1A237E), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF1A237E),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF3F51B5), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF1A237E), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF3F51B5), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFF7986CB), text: Color(0xFFFFFFFF), pressed: Color(0xFF303F9F), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Brown theme
+  static KeyboardThemeV2 createBrownTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_brown',
+      name: 'Brown',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF795548),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'bordered',
+        bg: Color(0xFFA1887F),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF5D4037),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFF3E2723), widthDp: 1.0),
+        radius: 10.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF3E2723),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF795548), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF3E2723), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF795548), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFA1887F), text: Color(0xFF000000), pressed: Color(0xFF5D4037), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Deep Purple theme
+  static KeyboardThemeV2 createDeepPurpleTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_deep_purple',
+      name: 'Deep Purple',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF673AB7),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF9575CD),
+        text: Color(0xFFFFFFFF),
+        pressed: Color(0xFF512DA8),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF311B92), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF311B92),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF673AB7), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF311B92), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF673AB7), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFF9575CD), text: Color(0xFFFFFFFF), pressed: Color(0xFF512DA8), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['sparkles']),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Light Green theme
+  static KeyboardThemeV2 createLightGreenTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_light_green',
+      name: 'Light Green',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF8BC34A),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFAED581),
+        text: Color(0xFF000000),
+        pressed: Color(0xFF689F38),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF33691E), widthDp: 0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF33691E),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF8BC34A), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF33691E), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFF8BC34A), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFAED581), text: Color(0xFF000000), pressed: Color(0xFF689F38), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Deep Orange theme
+  static KeyboardThemeV2 createDeepOrangeTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_deep_orange',
+      name: 'Deep Orange',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFFF5722),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'flat',
+        bg: Color(0xFFFF8A65),
+        text: Color(0xFF000000),
+        pressed: Color(0xFFE64A19),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFFBF360C), widthDp: 0),
+        radius: 6.0,
+        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFBF360C),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFF5722), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFF5722), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFFF8A65), text: Color(0xFF000000), pressed: Color(0xFFE64A19), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'bounce', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.6),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Love Hearts theme (based on heart-shaped keys screenshot)
+  static KeyboardThemeV2 createLoveHeartsTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_love_hearts',
+      name: 'Love Hearts',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'gradient',
+        color: Color(0xFFE91E63),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: ThemeGradient(
+          colors: [Color(0xFFE91E63), Color(0xFFAD1457)],
+          orientation: 'TOP_BOTTOM',
+        ),
+        overlayEffects: ['hearts'],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFF8BBD9),
+        text: Color(0xFF4A148C),
+        pressed: Color(0xFFE91E63),
+        rippleAlpha: 0.15,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF880E4F), widthDp: 0),
+        radius: 16.0, // Extra rounded for heart effect
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 4.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF880E4F),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF4A148C),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFE91E63), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF880E4F), iconPack: 'valentine'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFF8BBD9), text: Color(0xFF4A148C), chip: ThemeChip(bg: Color(0xFFE91E63), text: Color(0xFFFFFFFF), pressed: Color(0xFF880E4F), radius: 20.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['hearts', 'sparkles']),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.8),
+      stickers: const ThemeStickers(enabled: true, pack: 'valentine', position: 'above', opacity: 0.8, animated: true),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'seasonal', seasonalPack: 'valentine', materialYouExtract: false),
+    );
+  }
+
+  /// Create Warning/Alert theme (based on triangular warning keys screenshot)
+  static KeyboardThemeV2 createWarningTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_warning',
+      name: 'Alert',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFFF5722),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'flat',
+        bg: Color(0xFFFFCC80),
+        text: Color(0xFF000000),
+        pressed: Color(0xFFE64A19),
+        rippleAlpha: 0.15,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFBF360C), widthDp: 2.0),
+        radius: 4.0, // Sharp corners for warning effect
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFBF360C),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'delete', 'shift'],
+        spaceLabelColor: Color(0xFF000000),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFFF5722), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'alert'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFFF5722), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFFFCC80), text: Color(0xFF000000), pressed: Color(0xFFE64A19), radius: 8.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'bounce', globalEffects: ['glow']),
+      sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.7),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Galaxy theme (dark with bright accents)
+  static KeyboardThemeV2 createGalaxyTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_galaxy',
+      name: 'Galaxy',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'gradient',
+        color: Color(0xFF0D1421),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: ThemeGradient(
+          colors: [Color(0xFF0D1421), Color(0xFF1A237E), Color(0xFF4A148C)],
+          orientation: 'TOP_BOTTOM',
+        ),
+        overlayEffects: ['sparkles'],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFF263238),
+        text: Color(0xFFE1F5FE),
+        pressed: Color(0xFF37474F),
+        rippleAlpha: 0.2,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFF00E5FF), widthDp: 1.0),
+        radius: 12.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 4.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF00E5FF),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFFE1F5FE),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF0D1421), icon: Color(0xFF00E5FF), heightDp: 44.0, activeAccent: Color(0xFF00E5FF), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF0D1421), text: Color(0xFFE1F5FE), chip: ThemeChip(bg: Color(0xFF263238), text: Color(0xFFE1F5FE), pressed: Color(0xFF37474F), radius: 16.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['sparkles', 'glow']),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.6),
+      stickers: const ThemeStickers(enabled: true, pack: 'space', position: 'behind', opacity: 0.9, animated: true),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'time_of_day', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Sunset theme (warm gradient)
+  static KeyboardThemeV2 createSunsetTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_sunset',
+      name: 'Sunset',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'gradient',
+        color: Color(0xFFFF7043),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: ThemeGradient(
+          colors: [Color(0xFFFF7043), Color(0xFFFF9800), Color(0xFFFFD54F)],
+          orientation: 'TOP_BOTTOM',
+        ),
+        overlayEffects: ['glow'],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFFFF3E0),
+        text: Color(0xFFBF360C),
+        pressed: Color(0xFFFFCC80),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFFE65100), widthDp: 0),
+        radius: 12.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFBF360C),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFFBF360C),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFFF7043), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFFF9800), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFFFF3E0), text: Color(0xFFBF360C), pressed: Color(0xFFFFCC80), radius: 16.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['glow']),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.6),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'time_of_day', seasonalPack: 'summer', materialYouExtract: false),
+    );
+  }
+
+  /// Create Ocean theme (blue gradient)
+  static KeyboardThemeV2 createOceanTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_ocean',
+      name: 'Ocean',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'gradient',
+        color: Color(0xFF006064),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: ThemeGradient(
+          colors: [Color(0xFF006064), Color(0xFF0097A7), Color(0xFF00BCD4)],
+          orientation: 'TOP_BOTTOM',
+        ),
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFB2EBF2),
+        text: Color(0xFF006064),
+        pressed: Color(0xFF4DD0E1),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFF006064), widthDp: 0),
+        radius: 10.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF006064),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF006064),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF006064), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF00BCD4), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF00BCD4), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFB2EBF2), text: Color(0xFF006064), pressed: Color(0xFF4DD0E1), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Neon theme (bright colors on dark)
+  static KeyboardThemeV2 createNeonTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_neon',
+      name: 'Neon',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFF0A0A0A),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: ['glow'],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'bordered',
+        bg: Color(0xFF1A1A1A),
+        text: Color(0xFF00E5FF),
+        pressed: Color(0xFF2A2A2A),
+        rippleAlpha: 0.2,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFF00E5FF), widthDp: 1.5),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFFF1744),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'delete', 'shift'],
+        spaceLabelColor: Color(0xFF00E5FF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF0A0A0A), icon: Color(0xFF00E5FF), heightDp: 44.0, activeAccent: Color(0xFFFF1744), iconPack: 'neon'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF0A0A0A), text: Color(0xFF00E5FF), chip: ThemeChip(bg: Color(0xFF1A1A1A), text: Color(0xFF00E5FF), pressed: Color(0xFF2A2A2A), radius: 12.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['glow']),
+      sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.7),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Pastel Pink theme (soft and light)
+  static KeyboardThemeV2 createPastelPinkTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_pastel_pink',
+      name: 'Pastel Pink',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFF8BBD9),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFFCE4EC),
+        text: Color(0xFF880E4F),
+        pressed: Color(0xFFF48FB1),
+        rippleAlpha: 0.1,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFFAD1457), widthDp: 0),
+        radius: 14.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFFAD1457),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF880E4F),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFF8BBD9), icon: Color(0xFF880E4F), heightDp: 44.0, activeAccent: Color(0xFFAD1457), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFF8BBD9), text: Color(0xFF880E4F), chip: ThemeChip(bg: Color(0xFFFCE4EC), text: Color(0xFF880E4F), pressed: Color(0xFFF48FB1), radius: 16.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.4),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Gold Star theme (based on star-shaped keys screenshot)
+  static KeyboardThemeV2 createGoldStarTheme() {
+    return KeyboardThemeV2(
+      id: 'theme_gold_star',
+      name: 'Gold Star',
+      mode: 'unified',
+      background: const ThemeBackground(
+        type: 'solid',
+        color: Color(0xFFFFD700),
+        imagePath: null,
+        imageOpacity: 1.0,
+        gradient: null,
+        overlayEffects: ['sparkles'],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFFFF59D),
+        text: Color(0xFF6C4400),
+        pressed: Color(0xFFFFC107),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: false, color: Color(0xFFE65100), widthDp: 0),
+        radius: 20.0, // Extra rounded for star effect
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 6.0, glow: true),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
+      ),
+      specialKeys: const ThemeSpecialKeys(
+        accent: Color(0xFF6C4400),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        spaceLabelColor: Color(0xFF6C4400),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFD700), icon: Color(0xFF6C4400), heightDp: 44.0, activeAccent: Color(0xFF6C4400), iconPack: 'star'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFFD700), text: Color(0xFF6C4400), chip: ThemeChip(bg: Color(0xFFFFF59D), text: Color(0xFF6C4400), pressed: Color(0xFFFFC107), radius: 18.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['sparkles']),
+      sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.6),
+      stickers: const ThemeStickers(enabled: true, pack: 'celebration', position: 'above', opacity: 0.8, animated: true),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
   /// Get all available preset themes (CleverType style)
   static List<KeyboardThemeV2> getPresetThemes() {
     return [
@@ -691,16 +1687,46 @@ class KeyboardThemeV2 {
       createRedTheme(),
       createGradientTheme(),
       createPictureTheme(),
+      createBlueTheme(),
+      createGreenTheme(),
+      createPurpleTheme(),
+      createOrangeTheme(),
+      createPinkTheme(),
+      createCyanTheme(),
+      createLightBlueTheme(),
+      createDarkBlueTheme(),
+      createLimeTheme(),
+      createAmberTheme(),
+      createTealTheme(),
+      createIndigoTheme(),
+      createBrownTheme(),
+      createDeepPurpleTheme(),
+      createLightGreenTheme(),
+      createDeepOrangeTheme(),
+      createLoveHeartsTheme(),
+      createWarningTheme(),
+      createGalaxyTheme(),
+      createSunsetTheme(),
+      createOceanTheme(),
+      createNeonTheme(),
+      createPastelPinkTheme(),
+      createGoldStarTheme(),
     ];
   }
 
   /// Get themes by category
   static Map<String, List<KeyboardThemeV2>> getThemesByCategory() {
     return {
-      'Popular': [createWhiteTheme(), createDarkTheme()],
-      'Colors': [createYellowTheme(), createRedTheme()],
-      'Gradients': [createGradientTheme()],
-      'Picture': [createPictureTheme()],
+      'Popular': [createWhiteTheme(), createDarkTheme(), createBlueTheme(), createPinkTheme(), createGoldStarTheme()],
+      'Vibrant': [createYellowTheme(), createRedTheme(), createOrangeTheme(), createLimeTheme(), createNeonTheme()],
+      'Cool': [createBlueTheme(), createCyanTheme(), createTealTheme(), createLightBlueTheme(), createDarkBlueTheme()],
+      'Warm': [createAmberTheme(), createOrangeTheme(), createDeepOrangeTheme(), createBrownTheme(), createSunsetTheme()],
+      'Purple': [createPurpleTheme(), createDeepPurpleTheme(), createIndigoTheme(), createPastelPinkTheme()],
+      'Green': [createGreenTheme(), createLightGreenTheme(), createTealTheme()],
+      'Gradients': [createGradientTheme(), createValentineTheme(), createGalaxyTheme(), createSunsetTheme(), createOceanTheme()],
+      'Special': [createLoveHeartsTheme(), createWarningTheme(), createNeonTheme(), createGoldStarTheme()],
+      'Professional': [createWhiteTheme(), createDarkTheme(), createBrownTheme(), createIndigoTheme()],
+      'Fun': [createPictureTheme(), createAdaptiveTheme(), createLoveHeartsTheme(), createGoldStarTheme()],
     };
   }
 

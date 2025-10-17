@@ -249,3 +249,4 @@ data class MigrationStatus(
     val version: Int,
     val timestamp: Long
 )
+
