@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
         private const val LANGUAGE_CHANNEL = "com.example.ai_keyboard/language"
         private const val AI_CHANNEL = "ai_keyboard/unified_ai"
         private const val PROMPT_CHANNEL = "ai_keyboard/prompts"
+        private const val CLIPBOARD_CHANNEL = "ai_keyboard/clipboard"
     }
     
     private lateinit var unifiedAIService: UnifiedAIService
@@ -76,10 +77,19 @@ class MainActivity : FlutterActivity() {
                                 val dictionaryEnabled = call.argument<Boolean>("dictionaryEnabled") ?: true
                                 val autoCapitalization = call.argument<Boolean>("autoCapitalization") ?: true
                                 val doubleSpacePeriod = call.argument<Boolean>("doubleSpacePeriod") ?: true
+                                
+                                // Sound & Vibration Settings (Unified System)
                                 val soundEnabled = call.argument<Boolean>("soundEnabled") ?: true
                                 val soundVolume = call.argument<Double>("soundVolume") ?: 0.5
+                                val keyPressSounds = call.argument<Boolean>("keyPressSounds") ?: true
+                                val longPressSounds = call.argument<Boolean>("longPressSounds") ?: true
+                                val repeatedActionSounds = call.argument<Boolean>("repeatedActionSounds") ?: true
                                 val vibrationEnabled = call.argument<Boolean>("vibrationEnabled") ?: true
                                 val vibrationMs = call.argument<Int>("vibrationMs") ?: 50
+                                val useHapticInterface = call.argument<Boolean>("useHapticInterface") ?: true
+                                val keyPressVibration = call.argument<Boolean>("keyPressVibration") ?: true
+                                val longPressVibration = call.argument<Boolean>("longPressVibration") ?: true
+                                val repeatedActionVibration = call.argument<Boolean>("repeatedActionVibration") ?: true
                                 
                                 // Legacy settings (backwards compat)
                                 val swipeTyping = call.argument<Boolean>("swipeTyping") ?: true
@@ -93,7 +103,9 @@ class MainActivity : FlutterActivity() {
                                         emojiSuggestions, nextWordPrediction, clipboardEnabled,
                                         clipboardWindowSec, clipboardHistoryItems, dictionaryEnabled,
                                         autoCapitalization, doubleSpacePeriod, soundEnabled,
-                                        soundVolume, vibrationEnabled, vibrationMs,
+                                        soundVolume, keyPressSounds, longPressSounds, repeatedActionSounds,
+                                        vibrationEnabled, vibrationMs, useHapticInterface,
+                                        keyPressVibration, longPressVibration, repeatedActionVibration,
                                         swipeTyping, voiceInput, shiftFeedback, showNumberRow
                                     )
                                 }
@@ -268,6 +280,9 @@ class MainActivity : FlutterActivity() {
         // Dynamic Prompt Management Channel
         setupPromptChannel(flutterEngine)
         
+        // Clipboard Management Channel
+        setupClipboardChannel(flutterEngine)
+        
         // Language Download Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LANGUAGE_CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -385,8 +400,15 @@ class MainActivity : FlutterActivity() {
         doubleSpacePeriod: Boolean,
         soundEnabled: Boolean,
         soundVolume: Double,
+        keyPressSounds: Boolean,
+        longPressSounds: Boolean,
+        repeatedActionSounds: Boolean,
         vibrationEnabled: Boolean,
         vibrationMs: Int,
+        useHapticInterface: Boolean,
+        keyPressVibration: Boolean,
+        longPressVibration: Boolean,
+        repeatedActionVibration: Boolean,
         swipeTyping: Boolean,
         voiceInput: Boolean,
         shiftFeedback: Boolean,
@@ -407,10 +429,18 @@ class MainActivity : FlutterActivity() {
             .putBoolean("dictionary_enabled", dictionaryEnabled)
             .putBoolean("auto_capitalization", autoCapitalization)
             .putBoolean("double_space_period", doubleSpacePeriod)
+            // Sound & Vibration Settings (Unified System)
             .putBoolean("sound_enabled", soundEnabled)
             .putFloat("sound_volume", soundVolume.toFloat())
+            .putBoolean("key_press_sounds", keyPressSounds)
+            .putBoolean("long_press_sounds", longPressSounds)
+            .putBoolean("repeated_action_sounds", repeatedActionSounds)
             .putBoolean("vibration_enabled", vibrationEnabled)
             .putInt("vibration_ms", vibrationMs)
+            .putBoolean("use_haptic_interface", useHapticInterface)
+            .putBoolean("key_press_vibration", keyPressVibration)
+            .putBoolean("long_press_vibration", longPressVibration)
+            .putBoolean("repeated_action_vibration", repeatedActionVibration)
             // Legacy settings
             .putBoolean("swipe_typing", swipeTyping)
             .putBoolean("voice_input", voiceInput)
@@ -489,6 +519,8 @@ class MainActivity : FlutterActivity() {
         expiryDurationMinutes: Long,
         templates: List<Map<String, Any>>
     ) = withContext(Dispatchers.IO) {
+        LogUtil.d("MainActivity", "💾 Saving to SharedPreferences: clipboard_enabled=$enabled")
+        
         // Store clipboard settings in SharedPreferences
         getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
             .edit()
@@ -497,6 +529,8 @@ class MainActivity : FlutterActivity() {
             .putBoolean("auto_expiry_enabled", autoExpiryEnabled)
             .putLong("expiry_duration_minutes", expiryDurationMinutes)
             .commit() // Use commit() for immediate persistence
+            
+        LogUtil.d("MainActivity", "✅ Saved to SharedPreferences successfully")
             
         // Store templates
         try {
@@ -1151,6 +1185,220 @@ class MainActivity : FlutterActivity() {
                     }
                 }
             }
+    }
+
+    /**
+     * Setup clipboard channel for Flutter communication
+     */
+    private fun setupClipboardChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CLIPBOARD_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                coroutineScope.launch {
+                    try {
+                        when (call.method) {
+                            "getHistory" -> {
+                                val history = withContext(Dispatchers.IO) { getClipboardHistory() }
+                                result.success(history)
+                            }
+                            
+                            "togglePin" -> {
+                                val itemId = call.argument<String>("id") ?: ""
+                                if (itemId.isBlank()) {
+                                    result.error("INVALID_ARGS", "Item ID cannot be empty", null)
+                                    return@launch
+                                }
+                                
+                                withContext(Dispatchers.IO) {
+                                    toggleClipboardPin(itemId)
+                                    notifyKeyboardServiceClipboardChanged()
+                                }
+                                result.success(true)
+                            }
+                            
+                            "deleteItem" -> {
+                                val itemId = call.argument<String>("id") ?: ""
+                                if (itemId.isBlank()) {
+                                    result.error("INVALID_ARGS", "Item ID cannot be empty", null)
+                                    return@launch
+                                }
+                                
+                                withContext(Dispatchers.IO) {
+                                    deleteClipboardItem(itemId)
+                                    notifyKeyboardServiceClipboardChanged()
+                                }
+                                result.success(true)
+                            }
+                            
+                            "clearAll" -> {
+                                withContext(Dispatchers.IO) {
+                                    clearAllClipboardItems()
+                                    notifyKeyboardServiceClipboardChanged()
+                                }
+                                result.success(true)
+                            }
+                            
+                            "updateSettings" -> {
+                                val enabled = call.argument<Boolean>("enabled") ?: true
+                                val maxHistorySize = call.argument<Int>("maxHistorySize") ?: 20
+                                val autoExpiryEnabled = call.argument<Boolean>("autoExpiryEnabled") ?: true
+                                val expiryDurationMinutes = (call.argument<Int>("expiryDurationMinutes") ?: 60).toLong()
+                                val templates = call.argument<List<Map<String, Any>>>("templates") ?: emptyList()
+                                
+                                LogUtil.d("MainActivity", "🔧 Received clipboard settings: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
+                                
+                                withContext(Dispatchers.IO) {
+                                    updateClipboardSettings(enabled, maxHistorySize, autoExpiryEnabled, expiryDurationMinutes, templates)
+                                    notifyKeyboardServiceClipboardChanged()
+                                }
+                                LogUtil.d("MainActivity", "✅ Clipboard settings saved and broadcast sent")
+                                result.success(true)
+                            }
+                            
+                            "getSettings" -> {
+                                val settings = withContext(Dispatchers.IO) { getClipboardSettings() }
+                                result.success(settings)
+                            }
+                            
+                            else -> {
+                                result.notImplemented()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        LogUtil.e("MainActivity", "❌ Error in clipboard channel: ${e.message}", e)
+                        result.error("CLIPBOARD_ERROR", "Clipboard error: ${e.message}", e.stackTraceToString())
+                    }
+                }
+            }
+    }
+
+    /**
+     * Get clipboard history from SharedPreferences
+     */
+    private fun getClipboardHistory(): List<Map<String, Any>> {
+        val prefs = getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+        val historyJson = prefs.getString("clipboard_items", null) ?: return emptyList()
+        
+        return try {
+            val jsonArray = org.json.JSONArray(historyJson)
+            val items = mutableListOf<Map<String, Any>>()
+            
+            for (i in 0 until jsonArray.length()) {
+                val jsonItem = jsonArray.getJSONObject(i)
+                items.add(mapOf(
+                    "id" to (jsonItem.optString("id", "")),
+                    "text" to (jsonItem.optString("text", "")),
+                    "timestamp" to (jsonItem.optLong("timestamp", 0L)),
+                    "isPinned" to (jsonItem.optBoolean("isPinned", false)),
+                    "isTemplate" to (jsonItem.optBoolean("isTemplate", false)),
+                    "category" to (jsonItem.optString("category", ""))
+                ))
+            }
+            
+            items
+        } catch (e: Exception) {
+            LogUtil.e("MainActivity", "Error parsing clipboard history", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * Get clipboard settings from SharedPreferences
+     */
+    private fun getClipboardSettings(): Map<String, Any> {
+        val prefs = getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+        return mapOf(
+            "enabled" to prefs.getBoolean("clipboard_enabled", true),
+            "maxHistorySize" to prefs.getInt("max_history_size", 20),
+            "autoExpiryEnabled" to prefs.getBoolean("auto_expiry_enabled", true),
+            "expiryDurationMinutes" to prefs.getLong("expiry_duration_minutes", 60L)
+        )
+    }
+
+    /**
+     * Toggle pin status of a clipboard item
+     */
+    private fun toggleClipboardPin(itemId: String) {
+        val prefs = getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+        val historyJson = prefs.getString("clipboard_items", null) ?: return
+        
+        try {
+            val jsonArray = org.json.JSONArray(historyJson)
+            val newArray = org.json.JSONArray()
+            
+            for (i in 0 until jsonArray.length()) {
+                val jsonItem = jsonArray.getJSONObject(i)
+                if (jsonItem.optString("id", "") == itemId) {
+                    val currentPinned = jsonItem.optBoolean("isPinned", false)
+                    jsonItem.put("isPinned", !currentPinned)
+                }
+                newArray.put(jsonItem)
+            }
+            
+            prefs.edit()
+                .putString("clipboard_items", newArray.toString())
+                .apply()
+                
+            LogUtil.d("MainActivity", "Toggled pin for item: $itemId")
+        } catch (e: Exception) {
+            LogUtil.e("MainActivity", "Error toggling pin", e)
+        }
+    }
+
+    /**
+     * Delete a clipboard item
+     */
+    private fun deleteClipboardItem(itemId: String) {
+        val prefs = getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+        val historyJson = prefs.getString("clipboard_items", null) ?: return
+        
+        try {
+            val jsonArray = org.json.JSONArray(historyJson)
+            val newArray = org.json.JSONArray()
+            
+            for (i in 0 until jsonArray.length()) {
+                val jsonItem = jsonArray.getJSONObject(i)
+                if (jsonItem.optString("id", "") != itemId) {
+                    newArray.put(jsonItem)
+                }
+            }
+            
+            prefs.edit()
+                .putString("clipboard_items", newArray.toString())
+                .apply()
+                
+            LogUtil.d("MainActivity", "Deleted clipboard item: $itemId")
+        } catch (e: Exception) {
+            LogUtil.e("MainActivity", "Error deleting item", e)
+        }
+    }
+
+    /**
+     * Clear all non-pinned clipboard items
+     */
+    private fun clearAllClipboardItems() {
+        val prefs = getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+        val historyJson = prefs.getString("clipboard_items", null) ?: return
+        
+        try {
+            val jsonArray = org.json.JSONArray(historyJson)
+            val newArray = org.json.JSONArray()
+            
+            // Keep only pinned items
+            for (i in 0 until jsonArray.length()) {
+                val jsonItem = jsonArray.getJSONObject(i)
+                if (jsonItem.optBoolean("isPinned", false) || jsonItem.optBoolean("isTemplate", false)) {
+                    newArray.put(jsonItem)
+                }
+            }
+            
+            prefs.edit()
+                .putString("clipboard_items", newArray.toString())
+                .apply()
+                
+            LogUtil.d("MainActivity", "Cleared all non-pinned clipboard items")
+        } catch (e: Exception) {
+            LogUtil.e("MainActivity", "Error clearing clipboard", e)
+        }
     }
 
     override fun onDestroy() {

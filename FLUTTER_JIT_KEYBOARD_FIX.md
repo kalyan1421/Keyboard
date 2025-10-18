@@ -118,3 +118,4 @@ After these fixes:
 - **Stable keyboard functionality** with crash prevention
 
 The keyboard should now work reliably on real iOS devices when built in release mode, while still allowing development and testing in the iOS Simulator with debug builds.
+

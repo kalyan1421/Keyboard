@@ -256,19 +256,15 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             const SizedBox(height: 8),
 
             // Sounds Settings Section
-            _buildSectionTitle('Sounds Settings'),
-            const SizedBox(height: 16),
-
-            // Audio feedback
-            _buildToggleSetting(
-              title: 'Audio feedback',
-              description: audioFeedback ? 'Enabled' : 'Disabled',
-              value: audioFeedback,
-              onChanged: (value) {
+            _buildSectionHeader(
+              title: 'Sounds Settings',
+              isEnabled: audioFeedback,
+              onToggle: (value) {
                 setState(() => audioFeedback = value);
                 _saveSettings();
               },
             ),
+            const SizedBox(height: 16),
 
             const SizedBox(height: 12),
 
@@ -329,19 +325,15 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
             const SizedBox(height: 32),
 
             // Haptic feedback & Vibration Section
-            _buildSectionTitle('Haptic feedback & Vibration'),
-            const SizedBox(height: 16),
-
-            // Haptic feedback
-            _buildToggleSetting(
-              title: 'Haptic feedback',
-              description: hapticFeedback ? 'Enabled' : 'Disabled',
-              value: hapticFeedback,
-              onChanged: (value) {
+            _buildSectionHeader(
+              title: 'Haptic feedback & Vibration',
+              isEnabled: hapticFeedback,
+              onToggle: (value) {
                 setState(() => hapticFeedback = value);
                 _saveSettings();
               },
             ),
+            const SizedBox(height: 16),
 
             const SizedBox(height: 12),
 
@@ -430,6 +422,98 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
       style: AppTextStyle.titleMedium.copyWith(
         color: AppColors.secondary,
         fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  /// Build section header with prominent toggle switch
+  Widget _buildSectionHeader({
+    required String title,
+    required bool isEnabled,
+    required ValueChanged<bool> onToggle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isEnabled 
+            ? [AppColors.secondary.withOpacity(0.1), AppColors.secondary.withOpacity(0.05)]
+            : [AppColors.grey.withOpacity(0.1), AppColors.grey.withOpacity(0.05)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isEnabled ? AppColors.secondary.withOpacity(0.3) : AppColors.grey.withOpacity(0.2),
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Icon indicator
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isEnabled ? AppColors.secondary : AppColors.grey,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              title.contains('Sound') ? Icons.volume_up : Icons.vibration,
+              color: AppColors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          
+          // Title and status
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyle.titleLarge.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isEnabled ? Colors.green : Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      isEnabled ? 'Enabled' : 'Disabled',
+                      style: AppTextStyle.bodySmall.copyWith(
+                        color: isEnabled ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          // Large toggle switch
+          Transform.scale(
+            scale: 1.2,
+            child: CustomToggleSwitch(
+              value: isEnabled,
+              onChanged: onToggle,
+              width: 56.0,
+              height: 20.0,
+              knobSize: 28.0,
+            ),
+          ),
+        ],
       ),
     );
   }

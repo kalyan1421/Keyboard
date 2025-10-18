@@ -19,6 +19,7 @@ import 'keyboard_feedback_system.dart';
 import 'theme_manager.dart';
 import 'theme/theme_editor_v2.dart';
 import 'services/firebase_auth_service.dart';
+import 'services/clipboard_service.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/main%20screens/mainscreen.dart';
@@ -195,6 +196,14 @@ void main() async {
   
   // Initialize language cache manager
   await LanguageCacheManager.initialize();
+  
+  // Initialize clipboard service
+  try {
+    await ClipboardService.initialize();
+    debugPrint('✅ ClipboardService initialized');
+  } catch (e) {
+    debugPrint('⚠️ Error initializing ClipboardService: $e');
+  }
   
   runApp(const AIKeyboardApp());
 }

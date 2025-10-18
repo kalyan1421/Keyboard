@@ -15,7 +15,7 @@ class EmojiSettingsScreen extends StatefulWidget {
 class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
   static const platform = MethodChannel('ai_keyboard/config');
   
-  double emojiHistoryMaxSize = 90.0;
+  double emojiHistoryMaxSize = 30.0;
   bool _isLoading = true;
 
   @override
@@ -28,7 +28,7 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       setState(() {
-        emojiHistoryMaxSize = prefs.getDouble('emoji_history_max_size') ?? 90.0;
+        emojiHistoryMaxSize = prefs.getDouble('emoji_history_max_size') ?? 30.0;
         _isLoading = false;
       });
     } catch (e) {

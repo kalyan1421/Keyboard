@@ -24,8 +24,7 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
   
   // Suggestion Settings
   bool displaySuggestions = true; // Default to true
-  String displayMode = '3'; // Default to 3 columns
-  double historySize = 20.0;
+  String displayMode = '3'; // Default to 3 columns (only 3 or 4 allowed)
   bool clearPrimaryClipAffects = true;
 
   // Internal Settings
@@ -52,7 +51,10 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
     setState(() {
       displaySuggestions = prefs.getBool('display_suggestions') ?? true; // Default true
       displayMode = prefs.getString('display_mode') ?? '3'; // Default 3 columns
-      historySize = prefs.getDouble('clipboard_history_size') ?? 20.0;
+      // Ensure only '3' or '4' are allowed
+      if (displayMode != '3' && displayMode != '4') {
+        displayMode = '3';
+      }
       clearPrimaryClipAffects = prefs.getBool('clear_primary_clip_affects') ?? true;
       
       internalClipboard = prefs.getBool('internal_clipboard') ?? true;
@@ -83,7 +85,6 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
     // Save all settings
     await prefs.setBool('display_suggestions', displaySuggestions);
     await prefs.setString('display_mode', displayMode);
-    await prefs.setDouble('clipboard_history_size', historySize);
     await prefs.setBool('clear_primary_clip_affects', clearPrimaryClipAffects);
     
     await prefs.setBool('internal_clipboard', internalClipboard);
@@ -109,9 +110,9 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
         'displaySuggestions': displaySuggestions,
         'displayMode': displayMode,
         'clipboardSuggestions': {
-          'enabled': internalClipboard, // Use internal clipboard setting
+          'enabled': internalClipboard,
           'windowSec': 60,
-          'historyItems': historySize.toInt(),
+          'historyItems': 20, // Fixed at 20 items
         },
       });
       debugPrint('✅ Typing & Suggestion settings synced to Firebase');
@@ -127,7 +128,7 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
       await _channel.invokeMethod('updateSettings', {
         'displaySuggestions': displaySuggestions,
         'displayMode': displayMode,
-        'clipboardHistorySize': historySize.toInt(),
+        'clipboardHistorySize': 20, // Fixed at 20 items
         'internalClipboard': internalClipboard,
         'syncFromSystem': syncFromSystem,
         'syncToFivive': syncToFivive,
@@ -256,25 +257,8 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
 
             const SizedBox(height: 12),
 
-            // Display mode
+            // Display mode (only 3 or 4 suggestions)
             _buildDisplayModeCard(),
-
-            const SizedBox(height: 12),
-
-            // History Size
-            _buildSliderSetting(
-              title: 'History Size',
-              portraitValue: historySize,
-              onPortraitChanged: (value) {
-                setState(() => historySize = value);
-                _saveSettings();
-              },
-              min: 5.0,
-              max: 100.0,
-              unit: '',
-              portraitLabel: 'Items',
-              showLandscape: false,
-            ),
 
             const SizedBox(height: 12),
 
@@ -395,12 +379,8 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
   }
 
   Widget _buildDisplayModeCard() {
-    // Display text based on mode value
-    String modeText = displayMode == '3' ? '3 Suggestions' :
-                      displayMode == '4' ? '4 Suggestions' :
-                      displayMode == 'dynamic' ? 'Dynamic width' :
-                      displayMode == 'scrollable' ? 'Dynamic width & scrollable' :
-                      '3 Suggestions';
+    // Display text based on mode value (only 3 or 4)
+    String modeText = displayMode == '4' ? '4 Suggestions' : '3 Suggestions';
     
     return GestureDetector(
       onTap: () {
@@ -593,7 +573,7 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
                       ),
                     ),
                     Divider(color: AppColors.lightGrey, thickness: 1),
-                    // Mode Options
+                    // Mode Options (only 3 or 4 suggestions)
                     _buildSimpleModeOptionInDialog('3', '3 Suggestions', tempDisplayMode, (value) {
                       setDialogState(() {
                         tempDisplayMode = value;
@@ -601,18 +581,6 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
                     }),
                     const SizedBox(height: 12),
                     _buildSimpleModeOptionInDialog('4', '4 Suggestions', tempDisplayMode, (value) {
-                      setDialogState(() {
-                        tempDisplayMode = value;
-                      });
-                    }),
-                    const SizedBox(height: 12),
-                    _buildSimpleModeOptionInDialog('dynamic', 'Dynamic width', tempDisplayMode, (value) {
-                      setDialogState(() {
-                        tempDisplayMode = value;
-                      });
-                    }),
-                    const SizedBox(height: 12),
-                    _buildSimpleModeOptionInDialog('scrollable', 'Dynamic width & scrollable', tempDisplayMode, (value) {
                       setDialogState(() {
                         tempDisplayMode = value;
                       });

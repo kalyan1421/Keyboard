@@ -126,3 +126,4 @@ After these fixes:
 - ✅ `ios/Runner/AppDelegate.swift` - Complete Flutter ViewController setup overhaul
 
 The Flutter ViewController assertion error should now be completely resolved!
+

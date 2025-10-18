@@ -4,10 +4,4 @@
    <FileRef
       location = "group:Runner.xcodeproj">
    </FileRef>
-   <FileRef
-      location = "absolute:/Users/kalyan/AI-keyboard/ios/Pods/Pods.xcodeproj">
-   </FileRef>
-   <FileRef
-      location = "group:Pods/Pods.xcodeproj">
-   </FileRef>
 </Workspace>

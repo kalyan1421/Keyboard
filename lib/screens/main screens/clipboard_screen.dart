@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
+import 'package:ai_keyboard/services/clipboard_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 
 class ClipboardScreen extends StatefulWidget {
   const ClipboardScreen({super.key});
@@ -25,27 +27,42 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
   bool syncFromSystem = true;
   bool syncToFivive = true;
   
-  // Clipboard items loaded from SharedPreferences
+  // Clipboard items loaded from Keyboard via MethodChannel
   List<ClipboardItem> clipboardItems = [];
+  
+  // Stream subscriptions
+  StreamSubscription? _historySubscription;
+  StreamSubscription? _newItemSubscription;
   
   @override
   void initState() {
     super.initState();
     _loadSettings();
     _loadClipboardItems();
-    
-    // Listen for clipboard changes to refresh UI in real-time
-    _setupClipboardRefresh();
+    _setupClipboardListeners();
   }
   
-  void _setupClipboardRefresh() {
-    // Reload clipboard items periodically to catch system clipboard changes
-    // This ensures UI stays in sync with the keyboard service
-    Future.delayed(const Duration(milliseconds: 500), () {
+  @override
+  void dispose() {
+    _historySubscription?.cancel();
+    _newItemSubscription?.cancel();
+    super.dispose();
+  }
+  
+  /// Set up real-time listeners for clipboard changes from keyboard
+  void _setupClipboardListeners() {
+    // Listen for history changes
+    _historySubscription = ClipboardService.onHistoryChanged.listen((items) {
       if (mounted) {
         _loadClipboardItems();
-        // Keep checking while screen is visible
-        _setupClipboardRefresh();
+      }
+    });
+    
+    // Listen for new items
+    _newItemSubscription = ClipboardService.onNewItem.listen((item) {
+      if (mounted) {
+        debugPrint('📋 New clipboard item detected: ${item.text}');
+        _loadClipboardItems();
       }
     });
   }
@@ -72,6 +89,19 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
     await prefs.setBool('internal_clipboard', internalClipboard);
     await prefs.setBool('sync_from_system', syncFromSystem);
     await prefs.setBool('sync_to_fivive', syncToFivive);
+    
+    // Send settings to keyboard via MethodChannel
+    debugPrint('🔧 Sending clipboard settings: enabled=$clipboardHistory, maxSize=${historySize.toInt()}');
+    await ClipboardService.updateSettings({
+      'enabled': clipboardHistory,  // ✅ Changed from 'clipboard_history' to 'enabled'
+      'maxHistorySize': historySize.toInt(),  // ✅ Changed from 'history_size'
+      'autoExpiryEnabled': cleanOldHistoryMinutes > 0,  // ✅ Changed from 'clean_old_history_minutes'
+      'expiryDurationMinutes': cleanOldHistoryMinutes.toInt(),  // ✅ Convert to minutes
+      'templates': [],  // ✅ Add templates (empty for now)
+    });
+    debugPrint('✅ Clipboard settings sent successfully');
+    
+    // Also send broadcast for backward compatibility
     _sendBroadcast();
   }
   
@@ -89,9 +119,24 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
   
   Future<void> _loadClipboardItems() async {
     try {
+      // Try to load from keyboard via MethodChannel first
+      final items = await ClipboardService.getHistory(maxItems: 50);
+      if (items.isNotEmpty && mounted) {
+        setState(() {
+          clipboardItems = items.map((item) => ClipboardItem(
+            id: item.id,
+            text: item.text,
+            timestamp: item.timestamp,
+            isPinned: item.isPinned,
+          )).toList();
+        });
+        return;
+      }
+      
+      // Fallback to SharedPreferences for backward compatibility
       final prefs = await SharedPreferences.getInstance();
       final itemsJson = prefs.getString('clipboard_items');
-      if (itemsJson != null) {
+      if (itemsJson != null && mounted) {
         final List<dynamic> itemsList = json.decode(itemsJson);
         setState(() {
           clipboardItems = itemsList
@@ -106,11 +151,17 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
   
   Future<void> _togglePin(ClipboardItem item) async {
     try {
-      final index = clipboardItems.indexWhere((i) => i.id == item.id);
-      if (index != -1) {
-        setState(() {
-          clipboardItems[index] = item.copyWith(isPinned: !item.isPinned);
-        });
+      // Use ClipboardService to toggle pin in keyboard
+      final success = await ClipboardService.togglePin(item.id);
+      if (success) {
+        // Update local state
+        final index = clipboardItems.indexWhere((i) => i.id == item.id);
+        if (index != -1 && mounted) {
+          setState(() {
+            clipboardItems[index] = item.copyWith(isPinned: !item.isPinned);
+          });
+        }
+        // Also save to SharedPreferences for backward compatibility
         await _saveClipboardItems();
       }
     } catch (e) {
@@ -120,10 +171,15 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
   
   Future<void> _deleteItem(ClipboardItem item) async {
     try {
-      setState(() {
-        clipboardItems.removeWhere((i) => i.id == item.id);
-      });
-      await _saveClipboardItems();
+      // Use ClipboardService to delete in keyboard
+      final success = await ClipboardService.deleteItem(item.id);
+      if (success && mounted) {
+        setState(() {
+          clipboardItems.removeWhere((i) => i.id == item.id);
+        });
+        // Also save to SharedPreferences for backward compatibility
+        await _saveClipboardItems();
+      }
     } catch (e) {
       debugPrint('Error deleting item: $e');
     }

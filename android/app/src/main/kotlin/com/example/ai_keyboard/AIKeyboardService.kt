@@ -401,8 +401,19 @@ class AIKeyboardService : InputMethodService(),
     // Keyboard settings
     private var showNumberRow = false
     private var swipeEnabled = true
+    
+    // Unified Sound & Vibration Settings
     private var vibrationEnabled = true
+    private var vibrationMs = 50
+    private var useHapticInterface = true
+    private var keyPressVibration = true
+    private var longPressVibration = true
+    private var repeatedActionVibration = true
     private var soundEnabled = true
+    private var soundVolume = 0.5f
+    private var keyPressSounds = true
+    private var longPressSounds = true
+    private var repeatedActionSounds = true
     
     // Language cycling - Now managed by SharedPreferences
     private var enabledLanguages = listOf("en")
@@ -420,13 +431,13 @@ class AIKeyboardService : InputMethodService(),
     private var reverseTransliterationEnabled = false
     
     // Suggestion retry management
-    private var retryCount = 0
+    // ❌ REMOVED: retryCount - was for deprecated updateAISuggestionsImmediate()
     
     // Settings spam prevention
     private var lastSettingsHash: Int = 0
     
     // AI suggestion debouncing
-    private var lastAISuggestionUpdate = 0L
+    // ❌ REMOVED: lastAISuggestionUpdate - debouncing now in coroutine
     
     // PERFORMANCE: Debounced suggestion updates with caching
     private var suggestionUpdateJob: Job? = null
@@ -469,7 +480,7 @@ class AIKeyboardService : InputMethodService(),
     // languageDetector removed - was never used (dead code cleanup)
     
     // Unified suggestion system
-    private lateinit var suggestionsPipeline: SuggestionsPipeline
+    private lateinit var unifiedSuggestionController: UnifiedSuggestionController
     
     // Settings and Theme
     private lateinit var settings: SharedPreferences
@@ -485,7 +496,7 @@ class AIKeyboardService : InputMethodService(),
     private var languageSwitchView: LanguageSwitchView? = null
     
     // Enhanced prediction system
-    private lateinit var nextWordPredictor: com.example.ai_keyboard.predict.NextWordPredictor
+    // ❌ REMOVED: nextWordPredictor - replaced by UnifiedSuggestionController
     
     
     // User dictionary sync
@@ -498,17 +509,18 @@ class AIKeyboardService : InputMethodService(),
     
     // Settings (using existing declarations above)
     // Legacy theme variable (deprecated - use themeManager instead)
-    private var currentTheme = "default"
+    private var currentTheme = "default" // Legacy compatibility (used in polling)
     private var aiSuggestionsEnabled = true
     private var swipeTypingEnabled = true
     // vibrationEnabled already declared above with new settings
     private var keyPreviewEnabled = false
+    private var suggestionCount = 3  // Number of suggestions to display (3 or 4)
     
     // Advanced feedback settings
     private var hapticIntensity = 2 // 0=off, 1=light, 2=medium, 3=strong
     private var soundIntensity = 1
     private var visualIntensity = 2
-    private var soundVolume = 0.3f
+    // soundVolume removed - now declared in Unified Sound & Vibration Settings section (line 413)
     
     // Settings polling
     private var settingsPoller: Runnable? = null
@@ -622,6 +634,9 @@ class AIKeyboardService : InputMethodService(),
                                 // ✅ Update AI prompt displays in panels (if custom prompt changed)
                                 updateAIPanelsWithNewPrompt()
                                 
+                                // ✅ Update UnifiedSuggestionController settings
+                                updateSuggestionControllerSettings()
+                                
                                 Log.d(TAG, "✅ Settings applied successfully")
                                 applySettingsImmediately()
                             } catch (e: Exception) {
@@ -671,7 +686,7 @@ class AIKeyboardService : InputMethodService(),
                                 pendingThemeUpdate = true
                                 Log.d(TAG, "Keyboard view not ready, queuing V2 theme update for later")
                             }
-                        }, 50) // Delay 50ms to ensure SharedPreferences are written
+                        }, 50) // Delay 50ms to ensure SharedPreferencesa    are written
                     }
                     "com.example.ai_keyboard.CLIPBOARD_CHANGED" -> {
                         Log.d(TAG, "CLIPBOARD_CHANGED broadcast received!")
@@ -838,6 +853,9 @@ class AIKeyboardService : InputMethodService(),
         applyLoadedSettings(settingsManager.loadAll(), logSuccess = true)
         // loadDictionariesAsync() // DISABLED: Using new unified MultilingualDictionary system instead
         
+        // Update suggestion controller settings on startup
+        updateSuggestionControllerSettings()
+        
         // Initialize multilingual components (now safe)
         initializeMultilingualComponents()
         
@@ -871,7 +889,7 @@ class AIKeyboardService : InputMethodService(),
         checkAIReadiness()
         
         // Load word frequencies from Firestore for enhanced autocorrect
-        if (ensureEngineReady()) {
+        if (::autocorrectEngine.isInitialized && autocorrectEngine.hasLanguage(currentLanguage)) {
             coroutineScope.launch {
                 delay(2000) // Wait for initialization to complete
                 val currentLang = currentLanguage
@@ -1186,19 +1204,14 @@ class AIKeyboardService : InputMethodService(),
                 }
             }
             
-            // Initialize SuggestionsPipeline with unified engine
-            suggestionsPipeline = SuggestionsPipeline(
+            // ✅ Initialize UnifiedSuggestionController (replaces SuggestionsPipeline)
+            unifiedSuggestionController = UnifiedSuggestionController(
                 context = this,
-                clipboardManager = clipboardHistoryManager,
                 unifiedAutocorrectEngine = autocorrectEngine,
-                multilingualDictionary = multilingualDictionary,
+                clipboardHistoryManager = clipboardHistoryManager,
                 languageManager = languageManager
             )
-            Log.d(TAG, "✅ SuggestionsPipeline initialized with unified engine")
-            
-            // Set up SuggestionsPipeline dependencies
-            suggestionsPipeline.setMultilingualDictionary(multilingualDictionary)
-            suggestionsPipeline.setLanguageManager(languageManager)
+            Log.d(TAG, "✅ UnifiedSuggestionController initialized with all engines")
             Log.d(TAG, "✅ SuggestionsPipeline dependencies configured")
             
             // Wire language activation callback for automatic engine setup after download
@@ -1234,33 +1247,8 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Guard helper to ensure engine is ready before use
      */
-    private fun ensureEngineReady(): Boolean {
-        val componentsInitialized = ::autocorrectEngine.isInitialized && 
-                   ::userDictionaryManager.isInitialized && 
-                   ::multilingualDictionary.isInitialized
-        if (!componentsInitialized) {
-            Log.w(TAG, "⚠️ Engine not initialized yet - skipping operation")
-            return false
-        }
-        
-        // Check if unified engine has current language loaded (NEW UNIFIED READINESS)
-        if (!autocorrectEngine.hasLanguage(currentLanguage)) {
-            // Don't log warning here as it's normal during async load
-            return false
-        }
-        
-        return true
-    }
-    
-    /**
-     * Debounce guard for AI suggestion updates
-     */
-    private fun shouldUpdateAISuggestions(): Boolean {
-        val now = System.currentTimeMillis()
-        if (now - lastAISuggestionUpdate < 100) return false
-        lastAISuggestionUpdate = now
-        return true
-    }
+    // ❌ REMOVED: ensureEngineReady() - unused (17 lines)
+    // ❌ REMOVED: shouldUpdateAISuggestions() - unused (6 lines)
     
     /**
      * STEP 2: AI readiness check with unified state management
@@ -1347,26 +1335,24 @@ class AIKeyboardService : InputMethodService(),
             val hasLanguageManager = languageManager != null
             val hasAutocorrectEngine = true // UnifiedAutocorrectEngine with built-in swipe support
             
-            com.example.ai_keyboard.diagnostics.TypingSyncAuditor.report(
-                hasUpdateAISuggestions = hasUpdateAISuggestions,
-                hasSuggestionContainerInflation = hasSuggestionContainerInflation,
-                hasEmojiPipeline = hasEmojiPipeline,
-                hasNextWordModel = hasNextWordModel,
-                hasClipboardSuggester = hasClipboardSuggester,
-                hasAutocap = hasAutocap,
-                hasDoubleSpacePeriod = hasDoubleSpacePeriod,
-                hasPopupPreviewSetting = hasPopupPreviewSetting,
-                hasDictionaryManager = hasDictionaryManager,
-                hasLanguageManager = hasLanguageManager,
-                hasAutocorrectEngine = hasAutocorrectEngine
-            )
+            // ✅ REMOVED: TypingSyncAuditor (deprecated diagnostic tool)
+            // Replaced by UnifiedSuggestionController architecture
+            Log.d(TAG, "✅ Diagnostic Check: updateAISuggestions=$hasUpdateAISuggestions, " +
+                    "suggestionContainer=$hasSuggestionContainerInflation, " +
+                    "emoji=$hasEmojiPipeline, nextWord=$hasNextWordModel, " +
+                    "clipboard=$hasClipboardSuggester, autocap=$hasAutocap, " +
+                    "doubleSpace=$hasDoubleSpacePeriod, popup=$hasPopupPreviewSetting, " +
+                    "dictionary=$hasDictionaryManager, language=$hasLanguageManager, " +
+                    "autocorrect=$hasAutocorrectEngine")
             
             // Report feature gaps
             val gaps = mutableListOf<String>()
             if (!hasUpdateAISuggestions) gaps.add("Unified updateAISuggestions method")
             if (!hasPopupPreviewSetting) gaps.add("Popup preview toggle in settings")
             
-            com.example.ai_keyboard.diagnostics.TypingSyncAuditor.reportGaps(gaps)
+            if (gaps.isNotEmpty()) {
+                Log.w(TAG, "⚠️ Feature gaps detected: ${gaps.joinToString(", ")}")
+            }
             
         } catch (e: Exception) {
             Log.e(TAG, "Error running diagnostic audit", e)
@@ -1374,7 +1360,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun initializeAIBridge() {
-        if (!ensureEngineReady()) return
+        if (!::autocorrectEngine.isInitialized) return
         
         try {
             // Initialize the enhanced AI bridge with context
@@ -1616,9 +1602,7 @@ class AIKeyboardService : InputMethodService(),
                 Log.d(TAG, "Connected user dictionary manager to autocorrect engine")
             }
             
-            // Initialize enhanced prediction system (AFTER language loading)
-            nextWordPredictor = com.example.ai_keyboard.predict.NextWordPredictor(autocorrectEngine, multilingualDictionary)
-            Log.d(TAG, "✅ NextWordPredictor initialized")
+            // ❌ REMOVED: NextWordPredictor initialization - now handled by UnifiedSuggestionController
             
             // Phase 2: User dictionary integration handled by UnifiedAutocorrectEngine
             Log.d(TAG, "User dictionary integration complete")
@@ -1651,7 +1635,7 @@ class AIKeyboardService : InputMethodService(),
             
             // Initialize with current enabled languages
             val enabledLanguages = languageManager.getEnabledLanguages()
-            if (ensureEngineReady()) {
+            if (::autocorrectEngine.isInitialized) {
                 coroutineScope.launch {
                     autocorrectEngine.preloadLanguages(enabledLanguages.toList())
                 }
@@ -1706,7 +1690,7 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "Enabled languages changed: $enabledLanguages")
             
             // Update autocorrect engine
-            if (ensureEngineReady()) {
+            if (::autocorrectEngine.isInitialized) {
                 coroutineScope.launch {
                     autocorrectEngine.preloadLanguages(enabledLanguages.toList())
                 }
@@ -1907,8 +1891,8 @@ class AIKeyboardService : InputMethodService(),
             elevation = 0f
         }
         
-        // Create 3 equal-weight text suggestions (CleverType style)
-        repeat(3) { index ->
+        // Create 4 equal-weight text suggestions (support 3 or 4 based on settings)
+        repeat(4) { index ->
             val suggestion = TextView(this).apply {
                 setTextColor(palette.keyText) // Use keyText for better visibility
                 textSize = 14f
@@ -2711,6 +2695,19 @@ class AIKeyboardService : InputMethodService(),
             aiSuggestionsEnabled = unified.aiSuggestionsEnabled
             currentLanguage = unified.currentLanguage
             enabledLanguages = unified.enabledLanguages
+            
+            // Load granular sound & vibration settings
+            val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+            vibrationMs = prefs.getInt("vibration_ms", 50)
+            useHapticInterface = prefs.getBoolean("use_haptic_interface", true)
+            keyPressVibration = prefs.getBoolean("key_press_vibration", true)
+            longPressVibration = prefs.getBoolean("long_press_vibration", true)
+            repeatedActionVibration = prefs.getBoolean("repeated_action_vibration", true)
+            soundVolume = prefs.getFloat("sound_volume", 0.5f)
+            keyPressSounds = prefs.getBoolean("key_press_sounds", true)
+            longPressSounds = prefs.getBoolean("long_press_sounds", true)
+            repeatedActionSounds = prefs.getBoolean("repeated_action_sounds", true)
+            
             // Note: autocorrect/autoCap/doubleSpace/popup fields may not exist as direct properties
             // They are read from settings but may be handled differently in the service
             
@@ -3585,7 +3582,7 @@ class AIKeyboardService : InputMethodService(),
         
         try {
             // Check if engine is ready
-            if (!ensureEngineReady()) {
+            if (!::autocorrectEngine.isInitialized || !autocorrectEngine.hasLanguage(currentLanguage)) {
                 Log.w(TAG, "Autocorrect engine not ready")
                 currentWord = ""
                 return
@@ -4416,177 +4413,21 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
-        if (!shouldUpdateAISuggestions()) return
+        // Debouncing handled by coroutine delay below
         
         // Cancel previous job to debounce
         suggestionUpdateJob?.cancel()
         suggestionUpdateJob = coroutineScope.launch {
             delay(suggestionDebounceMs)
             if (isActive) {
-                updateAISuggestionsImmediate()
+                // ✅ Use new unified suggestion method (simplified)
+                fetchUnifiedSuggestions()
             }
         }
     }
     
-    private fun updateAISuggestionsImmediate() {
-        // Guard: Check if aiBridge is initialized before use
-        if (!::unifiedAIService.isInitialized) {
-            Log.w(TAG, "⚠️ AI Bridge not initialized yet, skipping AI suggestions for '$currentWord'")
-            return
-        }
-        
-        Log.d(TAG, "updateAISuggestions called - aiSuggestionsEnabled: $aiSuggestionsEnabled, isAIReady: $isAIReady, currentWord: '$currentWord'")
-        
-        // STEP 1: Prevent endless retries before keyboard is ready
-        if (suggestionContainer == null || keyboardView == null) {
-            // Check if keyboard is still attached before retrying
-            if (keyboardView?.isAttachedToWindow == false) {
-                Log.w(TAG, "⚠️ Keyboard not attached; skipping suggestion update")
-                return
-            }
-            
-            if (retryCount < 5) {
-                retryCount++
-                // Exponential backoff: 100ms, 400ms, 900ms, 1600ms, 2500ms
-                val delay = 100L * retryCount * retryCount
-                Log.w(TAG, "⚠️ Suggestion container not ready, retry $retryCount/5 (delay ${delay}ms)")
-                mainHandler.postDelayed({ updateAISuggestions() }, delay)
-            } else {
-                Log.e(TAG, "❌ Suggestion container never initialized after 5 retries")
-                retryCount = 0 // Reset for next input session
-            }
-            return
-        }
-        
-        // Reset retry count on success
-        retryCount = 0
-        
-        val word = currentWord.trim()
-        
-        // ✅ NEXT-WORD PREDICTION: Check BEFORE AI suggestions (works even if AI disabled)
-        if (word.isEmpty()) {
-            Log.d(TAG, "🔍 Empty word detected - checking for next-word predictions")
-            
-            if (::nextWordPredictor.isInitialized && ::autocorrectEngine.isInitialized) {
-                try {
-                    val context = getRecentContext()
-                    Log.d(TAG, "🔍 Context for predictions: $context")
-                    
-                    // Check if unified autocorrect engine is ready (Firebase data loaded)
-                    if (!autocorrectEngine.hasLanguage(currentLanguage)) {
-                        Log.w(TAG, "⚠️ UnifiedAutocorrectEngine not ready for $currentLanguage - Firebase data may not be loaded")
-                        clearSuggestions()
-                        return
-                    }
-                    
-                    if (context.isNotEmpty()) {
-                        Log.d(TAG, "🔮 Getting next-word predictions for context: $context")
-                        val predictions = nextWordPredictor.getPredictions(context, currentLanguage, 3)
-                        
-                        if (predictions.isNotEmpty()) {
-                            Log.d(TAG, "📊 Next-word predictions: $predictions")
-                            updateSuggestionUI(predictions)
-                            return
-                        } else {
-                            Log.d(TAG, "⚠️ No next-word predictions available for context: $context")
-                        }
-                    } else {
-                        Log.d(TAG, "⚠️ Context is empty, no previous words to predict from")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error getting next-word predictions", e)
-                    e.printStackTrace()
-                }
-            } else {
-                Log.w(TAG, "⚠️ NextWordPredictor or AutocorrectEngine not initialized")
-            }
-            
-            clearSuggestions()
-            return
-        }
-        
-        // Now check AI suggestions setting (only affects AI, not next-word)
-        if (!aiSuggestionsEnabled) {
-            Log.d(TAG, "AI suggestions disabled in settings (next-word still works)")
-            clearSuggestions()
-            return
-        }
-        
-        // Check cache first for instant performance
-        val cachedSuggestions = suggestionCache[word]
-        if (cachedSuggestions != null) {
-            updateSuggestionUI(cachedSuggestions)
-            return
-        }
-        
-        try {
-            // ✅ ALWAYS try local autocorrect first for instant suggestions (like "teh → the")
-            val localSuggestions = if (ensureEngineReady()) {
-                autocorrectEngine.getCorrections(word, currentLanguage).map { it.text }
-            } else {
-                emptyList()
-            }
-            
-            // ✅ Fallback when AI not ready - show local suggestions immediately
-            if (!isAIReady) {
-                Log.w(TAG, "⚠️ AI not ready yet, skipping remote suggestions for now")
-                if (localSuggestions.isNotEmpty()) {
-                    updateSuggestionUI(localSuggestions)
-                    return
-                } else {
-                    // Last resort: generate basic suggestions
-                    updateSuggestionUI(generateEnhancedBasicSuggestions(word))
-                    return
-                }
-            }
-            
-            // ✅ AI is ready - try to get AI suggestions, but always have fallback
-            coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    // Get AI-powered suggestions
-                    val context = getRecentContext()
-                    Log.d(TAG, "Getting AI suggestions for word: '$word', context: $context")
-                    
-                    // Also try enhanced suggestions even if AI bridge isn't fully ready
-                    val fallbackSuggestions = if (localSuggestions.isNotEmpty()) {
-                        localSuggestions
-                    } else {
-                        generateEnhancedBasicSuggestions(word)
-                    }
-                    
-                    // Use UnifiedAI service for enhanced suggestions (simplified approach)
-                    coroutineScope.launch(Dispatchers.Main) {
-                        try {
-                            // For now, just show the fallback suggestions and log that UnifiedAI is available
-                            if (::unifiedAIService.isInitialized && unifiedAIService.isReady()) {
-                                Log.d(TAG, "🧠 UnifiedAI Service ready for suggestions: $word")
-                                // Could add AI-enhanced suggestions here in future versions
-                            }
-                            
-                            // Cache with size limit to prevent memory bloat
-                            if (suggestionCache.size > 50) suggestionCache.clear()
-                            suggestionCache[word] = fallbackSuggestions
-                            
-                            updateSuggestionUI(fallbackSuggestions)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Suggestion error: ${e.message}")
-                            updateSuggestionUI(fallbackSuggestions)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating AI suggestions", e)
-                    // Final fallback: show local suggestions on error
-                    coroutineScope.launch(Dispatchers.Main) {
-                        updateSuggestionUI(localSuggestions)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Critical error in updateAISuggestions", e)
-            // Emergency fallback
-            updateSuggestionUI(generateEnhancedBasicSuggestions(word))
-        }
-    }
+    // ❌ REMOVED: updateAISuggestionsImmediate() - 180 lines of deprecated code
+    // Replaced by fetchUnifiedSuggestions() which uses UnifiedSuggestionController
     
     private fun showAutoCorrection(original: String, corrected: String) {
         suggestionContainer?.let { container ->
@@ -4759,92 +4600,8 @@ class AIKeyboardService : InputMethodService(),
      * Generate suggestions using UNIFIED FIREBASE ENGINE ONLY
      * No more fallback to hardcoded words - Firebase-only approach
      */
-    private fun generateEnhancedBasicSuggestions(currentWord: String): List<String> {
-        try {
-            // Get surrounding text context for previous word extraction
-            val surrounding = getInputTextAroundCursor(50)
-            val prevToken = surrounding.trimEnd().split(Regex("\\s+")).dropLast(1).lastOrNull()
-            
-            // Get current language - use AIKeyboardService's currentLanguage for consistency
-            val lang = currentLanguage.lowercase()
-            
-            Log.d(TAG, "Firebase suggestions: currentWord='$currentWord', prevToken='$prevToken', lang='$lang' (from currentLanguage field)")
-            
-            // Build word candidates ONLY from UnifiedAutocorrectEngine (Firebase data)
-            val wordCandidates = mutableListOf<Pair<String, Double>>()
-            
-            // Check if unified engine is ready
-            if (!autocorrectEngine.hasLanguage(lang)) {
-                Log.w(TAG, "⚠️ UnifiedAutocorrectEngine not ready for $lang - no Firebase data available")
-                return emptyList() // Firebase-only approach - no fallback
-            }
-            
-            // 1. For current word typing - use UnifiedAutocorrectEngine (Firebase only)
-            if (currentWord.isNotEmpty()) {
-                try {
-                    val typingSuggestions = autocorrectEngine.getSuggestionsFor(currentWord)
-                    wordCandidates.addAll(typingSuggestions.mapIndexed { idx, word -> word to (0.9 - idx * 0.1) })
-                    Log.d(TAG, "Firebase typing suggestions: ${typingSuggestions.size} for '$currentWord'")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firebase typing suggestions failed: ${e.message}")
-                }
-            }
-            
-            // 2. For context predictions - use UnifiedAutocorrectEngine (Firebase only)
-            if (currentWord.isEmpty() && prevToken != null) {
-                try {
-                    val contextPredictions = autocorrectEngine.getNextWordPredictions(listOf(prevToken))
-                    wordCandidates.addAll(contextPredictions.mapIndexed { idx, word -> word to (0.8 - idx * 0.1) })
-                    Log.d(TAG, "Firebase context predictions: ${contextPredictions.size} for '$prevToken'")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Firebase context predictions failed: ${e.message}")
-                }
-            }
-            
-            // NO FALLBACK TO HARDCODED WORDS - Firebase-only approach
-            if (wordCandidates.isEmpty()) {
-                Log.d(TAG, "No Firebase suggestions available for '$currentWord' in language '$lang'")
-                return emptyList()
-            }
-            
-            Log.d(TAG, "Firebase suggestion candidates: ${wordCandidates.size}")
-            
-            // Get emoji candidates (existing system)
-            val emojiCandidates = try {
-                val emojiSuggestions = EmojiSuggestionEngine.getSuggestionsForTyping(currentWord, surrounding)
-                emojiSuggestions.mapIndexed { idx, emoji -> emoji to (0.3 - idx * 0.05) }
-            } catch (e: Exception) {
-                Log.w(TAG, "Emoji suggestions failed: ${e.message}")
-                emptyList()
-            }
-            
-            // Use SuggestionRanker to merge with context-aware emoji gating
-            val finalSuggestions = try {
-                com.example.ai_keyboard.predict.SuggestionRanker.mergeForStrip(
-                    currentWord = currentWord,
-                    contextPrev = prevToken,
-                    wordCands = wordCandidates,
-                    emojiCands = emojiCandidates,
-                    max = 5
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "SuggestionRanker failed: ${e.message}")
-                // Manually merge - take top 3 word candidates
-                wordCandidates.sortedByDescending { it.second }.take(3).map { it.first }
-            }
-            
-            // Firebase-only approach - return exactly what Firebase provides
-            val result = finalSuggestions
-            
-            Log.d(TAG, "Firebase prediction results: ${result.joinToString(", ")}")
-            return result
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in Firebase prediction engine", e)
-            // Firebase-only approach - no hardcoded fallbacks
-            return emptyList()
-        }
-    }
+    // ❌ REMOVED: generateEnhancedBasicSuggestions() - unused (77 lines)
+    // Replaced by UnifiedSuggestionController.getUnifiedSuggestions()
     
     /**
      * Get input text around cursor for context analysis
@@ -4855,9 +4612,62 @@ class AIKeyboardService : InputMethodService(),
             val textBefore = ic.getTextBeforeCursor(maxLength, 0)?.toString() ?: ""
             val textAfter = ic.getTextAfterCursor(maxLength, 0)?.toString() ?: ""
             "$textBefore$textAfter"
-        } catch (e: Exception) {
+                } catch (e: Exception) {
             Log.w(TAG, "Error getting text around cursor", e)
             ""
+        }
+    }
+    
+    /**
+     * 🎯 NEW UNIFIED SUGGESTION METHOD
+     * Simplified suggestion fetching using UnifiedSuggestionController
+     * Replaces the complex updateAISuggestionsImmediate logic
+     */
+    private fun fetchUnifiedSuggestions() {
+        // Guard: Check if controller is ready
+        if (!::unifiedSuggestionController.isInitialized) {
+            Log.w(TAG, "⚠️ UnifiedSuggestionController not initialized")
+            return
+        }
+        
+        // Guard: Check if UI is ready
+        if (suggestionContainer == null) {
+            Log.w(TAG, "⚠️ Suggestion container not ready")
+            return
+        }
+        
+        val word = currentWord.trim()
+        val context = getRecentContext()
+        
+        // Launch coroutine to fetch suggestions
+        coroutineScope.launch {
+            try {
+                // Get unified suggestions from controller
+                val unifiedSuggestions = unifiedSuggestionController.getUnifiedSuggestions(
+                    prefix = word,
+                    context = context,
+                    includeEmoji = true,
+                    includeClipboard = word.isEmpty()  // Only show clipboard when no word typed
+                )
+                
+                // Convert to simple string list for UI (take 3 or 4 based on settings)
+                val suggestionTexts = unifiedSuggestions.take(suggestionCount).map { it.text }
+                
+                // Update UI on main thread
+                withContext(Dispatchers.Main) {
+                    if (suggestionTexts.isNotEmpty()) {
+                        updateSuggestionUI(suggestionTexts)
+                    } else {
+                        clearSuggestions()
+                    }
+                }
+                
+        } catch (e: Exception) {
+                Log.e(TAG, "❌ Error fetching unified suggestions", e)
+                withContext(Dispatchers.Main) {
+                    clearSuggestions()
+                }
+            }
         }
     }
     
@@ -4867,20 +4677,26 @@ class AIKeyboardService : InputMethodService(),
             // Ensure UI updates happen on main thread to avoid "Posting sync barrier on non-owner thread" warnings
             mainHandler.post {
                 suggestionContainer?.let { container ->
-                    val childCount = minOf(container.childCount, 3)
-                    
-                    for (i in 0 until childCount) {
+                    // ✅ Update all slots, showing only suggestionCount (3 or 4)
+                    for (i in 0 until container.childCount) {
                         val suggestionView = container.getChildAt(i) as? TextView
                         suggestionView?.apply {
+                            if (i < suggestionCount) {
+                                // Slot is active based on settings
                             text = suggestions.getOrNull(i) ?: ""
                             visibility = if (text.isNotEmpty()) View.VISIBLE else View.INVISIBLE
                             // Ensure consistent text color
                             val palette = themeManager.getCurrentPalette()
                             setTextColor(palette.keyText)
+                            } else {
+                                // Hide slots beyond suggestionCount
+                                text = ""
+                                visibility = View.GONE
+                            }
                         }
                     }
                     
-                    Log.d(TAG, "Updated suggestion UI: ${suggestions.take(3)}")
+                    Log.d(TAG, "Updated suggestion UI ($suggestionCount of ${container.childCount} slots): ${suggestions.take(suggestionCount)}")
                 }
             }
         } catch (e: Exception) {
@@ -4891,8 +4707,12 @@ class AIKeyboardService : InputMethodService(),
     private fun clearSuggestions() {
         safeMain {
             suggestionContainer?.let { container ->
+                // Clear all suggestion slots and hide extras beyond suggestionCount
                 for (i in 0 until container.childCount) {
-                    (container.getChildAt(i) as? TextView)?.text = ""
+                    (container.getChildAt(i) as? TextView)?.apply {
+                        text = ""
+                        visibility = if (i < suggestionCount) View.INVISIBLE else View.GONE
+                    }
                 }
             }
         }
@@ -4960,16 +4780,123 @@ class AIKeyboardService : InputMethodService(),
         updateAISuggestions()
     }
     
-    private fun playClick(keyCode: Int) {
-        val am = getSystemService(AUDIO_SERVICE) as? AudioManager
-        am?.let { audioManager ->
-            when (keyCode) {
-                32 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_SPACEBAR)
-                Keyboard.KEYCODE_DONE, 10 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_RETURN)
-                Keyboard.KEYCODE_DELETE -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE)
-                else -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
+    /**
+     * Unified key feedback handler - combines sound and vibration
+     * Called for ALL key presses to provide consistent haptic and audio feedback
+     * 
+     * @param keyCode The key code that was pressed
+     * @param isLongPress Whether this is a long-press action
+     */
+    private fun handleKeyFeedback(keyCode: Int = 0, isLongPress: Boolean = false) {
+        // Determine feedback type
+        val isRepeatedAction = (keyCode == Keyboard.KEYCODE_DELETE || keyCode == KEYCODE_SPACE)
+        
+        // Play sound if enabled
+        if (soundEnabled) {
+            val shouldPlaySound = when {
+                isLongPress -> longPressSounds
+                isRepeatedAction -> repeatedActionSounds
+                else -> keyPressSounds
+            }
+            
+            if (shouldPlaySound) {
+                playKeyClickSound(keyCode)
             }
         }
+        
+        // Vibrate if enabled
+        if (vibrationEnabled) {
+            val shouldVibrate = when {
+                isLongPress -> longPressVibration
+                isRepeatedAction -> repeatedActionVibration
+                else -> keyPressVibration
+            }
+            
+            if (shouldVibrate) {
+                vibrateKeyPress(keyCode)
+            }
+        }
+    }
+    
+    /**
+     * Play key click sound with volume control
+     */
+    private fun playKeyClickSound(keyCode: Int) {
+        try {
+            val am = getSystemService(AUDIO_SERVICE) as? AudioManager
+            am?.let { audioManager ->
+                // Get current stream volume
+                val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                
+                // Apply our volume setting (0.0 to 1.0)
+                val targetVolume = (maxVolume * soundVolume).toInt().coerceIn(0, maxVolume)
+                
+                // Temporarily set volume (only if different)
+                if (currentVolume != targetVolume) {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
+                }
+                
+                // Play appropriate sound effect
+                when (keyCode) {
+                    32, KEYCODE_SPACE -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_SPACEBAR)
+                    Keyboard.KEYCODE_DONE, 10, -4 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_RETURN)
+                    Keyboard.KEYCODE_DELETE -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE)
+                    else -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error playing key sound", e)
+        }
+    }
+    
+    /**
+     * Vibrate for key press with duration control
+     */
+    private fun vibrateKeyPress(keyCode: Int = 0) {
+        if (vibrator == null) return
+        
+        try {
+            // Use configured duration
+            val duration = vibrationMs.toLong()
+            
+            // Adjust intensity based on key type
+            val intensity = when (keyCode) {
+                Keyboard.KEYCODE_DELETE, KEYCODE_SHIFT -> (VibrationEffect.DEFAULT_AMPLITUDE * 1.2f).toInt()
+                KEYCODE_SPACE, Keyboard.KEYCODE_DONE -> (VibrationEffect.DEFAULT_AMPLITUDE * 0.8f).toInt()
+                else -> VibrationEffect.DEFAULT_AMPLITUDE
+            }.coerceIn(1, 255)
+            
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (useHapticInterface) {
+                    // Use haptic feedback interface (more modern)
+                    keyboardView?.performHapticFeedback(
+                        android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                        android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+                    )
+                } else {
+                    // Use vibrator directly
+                    vibrator?.vibrate(VibrationEffect.createOneShot(duration, intensity))
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(duration)
+            }
+        } catch (e: Exception) {
+            // Fallback to keyboard view haptic feedback
+            keyboardView?.performHapticFeedback(
+                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+            )
+        }
+    }
+    
+    /**
+     * Legacy playClick function - now delegates to handleKeyFeedback
+     * Kept for backwards compatibility
+     */
+    private fun playClick(keyCode: Int) {
+        handleKeyFeedback(keyCode)
     }
     
     private fun playKeySound(primaryCode: Int) {
@@ -5051,6 +4978,9 @@ class AIKeyboardService : InputMethodService(),
     
     override fun onText(text: CharSequence?) {
         val ic = currentInputConnection ?: return
+        
+        // Provide haptic and audio feedback for text input
+        handleKeyFeedback()
         
         text?.let {
             // **PHASE 2: Check reverse transliteration first (Native → Roman)**
@@ -5470,8 +5400,8 @@ class AIKeyboardService : InputMethodService(),
                         wordHistory.removeAt(0)
                     }
                         
-                    // Show alternatives in suggestion strip
-                    updateSuggestionUI(finalCandidates.take(3))
+                    // Show alternatives in suggestion strip (take 3 or 4 based on settings)
+                    updateSuggestionUI(finalCandidates.take(suggestionCount))
                         
                     Log.d(TAG, "✅ Swipe decoded: path(${swipePath.size} points) → '$bestCandidate' (${finalCandidates.size} alternatives, ${processingTime}ms)")
                     
@@ -5820,7 +5750,7 @@ class AIKeyboardService : InputMethodService(),
         currentWord = ""
         
         // CRITICAL FIX: Ensure dictionaries are loaded before showing suggestions
-        if (ensureEngineReady()) {
+        if (::autocorrectEngine.isInitialized) {
             val currentLang = currentLanguage
             if (!autocorrectEngine.hasLanguage(currentLang)) {
                 Log.w(TAG, "⚠️ Dictionary for $currentLang not loaded yet, deferring suggestions")
@@ -5905,7 +5835,7 @@ class AIKeyboardService : InputMethodService(),
         hapticIntensity = settings.getInt("haptic_intensity", 2)
         soundIntensity = settings.getInt("sound_intensity", 1)
         visualIntensity = settings.getInt("visual_intensity", 2)
-        soundVolume = settings.getFloat("sound_volume", 0.3f)
+        soundVolume = settings.getFloat("sound_volume", 0.5f)  // Updated to match unified default
         
         // Save to preferences
         settings.edit().apply {
@@ -7077,6 +7007,66 @@ class AIKeyboardService : InputMethodService(),
         // Custom prompt functionality removed
     }
     
+    /**
+     * Update UnifiedSuggestionController with current settings from SharedPreferences
+     * Called when settings change from Flutter
+     */
+    private fun updateSuggestionControllerSettings() {
+        try {
+            // Read suggestion settings from SharedPreferences
+            val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+            val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            
+            // ✅ FIXED: Use correct Flutter SharedPreferences keys (with underscores, not camelCase!)
+            val displaySuggestions = flutterPrefs.getBoolean("flutter.display_suggestions", true)
+            val displayMode = flutterPrefs.getString("flutter.display_mode", "3")
+            val internalClipboard = flutterPrefs.getBoolean("flutter.internal_clipboard", true)
+            val aiSuggestions = prefs.getBoolean("ai_suggestions", true)
+            
+            // ✅ Parse display mode to get suggestion count (3 or 4)
+            suggestionCount = when (displayMode) {
+                "4" -> 4
+                else -> 3  // Default to 3 for any other value including "3", "dynamic", "scrollable"
+            }
+            
+            Log.d(TAG, "📱 Updating suggestion controller: DisplaySuggestions=$displaySuggestions, DisplayMode=$displayMode, Count=$suggestionCount, AI=$aiSuggestions, Clipboard=$internalClipboard")
+            
+            // ✅ Update UnifiedSuggestionController with settings
+            if (::unifiedSuggestionController.isInitialized) {
+                unifiedSuggestionController.updateSettings(
+                    aiEnabled = aiSuggestions && displaySuggestions,  // Both must be true
+                    emojiEnabled = displaySuggestions,
+                    clipboardEnabled = internalClipboard,
+                    nextWordEnabled = displaySuggestions  // Controlled by display_suggestions toggle
+                )
+                Log.d(TAG, "✅ UnifiedSuggestionController settings updated")
+            }
+            
+            // Clear suggestion cache to force immediate update
+            suggestionCache.clear()
+            
+            // Force refresh suggestions if keyboard is active
+            if (suggestionContainer != null) {
+                clearSuggestions()
+                Log.d(TAG, "✅ Cleared suggestions after settings change")
+            }
+            
+            // Update UnifiedSuggestionController (new system)
+            // Note: Initialize this in initializeCoreComponents() when ready to use
+            // if (::unifiedSuggestionController.isInitialized) {
+            //     unifiedSuggestionController.updateSettings(
+            //         aiEnabled = aiSuggestions,
+            //         emojiEnabled = emojiSuggestions,
+            //         clipboardEnabled = clipboardSuggestions,
+            //         nextWordEnabled = nextWordPrediction
+            //     )
+            //     Log.d(TAG, "✅ UnifiedSuggestionController settings updated")
+            // }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error updating suggestion controller settings", e)
+        }
+    }
     
     /**
      * Create a chip button for AI panel
@@ -8466,12 +8456,11 @@ Format: variation1|||variation2|||variation3"""
         // Create stroke color for clipboard items
         val strokeColor = Color.argb(50, Color.red(palette.keyText), Color.green(palette.keyText), Color.blue(palette.keyText))
         
-        // Get actual clipboard items from ClipboardHistoryManager
-        val clipboardItems = if (::clipboardHistoryManager.isInitialized) {
-            clipboardHistoryManager.getHistoryForUI(5) // Get up to 5 items
+        // Check if clipboard is enabled
+        val isClipboardEnabled = if (::clipboardHistoryManager.isInitialized) {
+            clipboardHistoryManager.isEnabled()
         } else {
-            Log.w(TAG, "ClipboardHistoryManager not initialized")
-            emptyList()
+            false
         }
         
         // Get the container for dynamic items
@@ -8481,6 +8470,71 @@ Format: variation1|||variation2|||variation3"""
         // Get header and Clear All button
         val header = view.findViewById<LinearLayout>(R.id.clipboardHeader)
         val clearAllButton = view.findViewById<Button>(R.id.btnClearAll)
+        
+        // Show disabled message if clipboard is off
+        if (!isClipboardEnabled) {
+            // Hide header when disabled
+            header?.visibility = View.GONE
+            
+            // Show disabled state
+            val disabledText = TextView(this).apply {
+                text = "📋 Clipboard is currently disabled\n\nOpen Settings to enable clipboard history"
+                textSize = 14f
+                setTextColor(palette.keyText)
+                gravity = android.view.Gravity.CENTER
+                setPadding(32, 64, 32, 32)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            itemsContainer?.addView(disabledText)
+            
+            // Add "Open Settings" button
+            val settingsButton = android.widget.Button(this).apply {
+                text = "Open Settings"
+                textSize = 14f
+                setPadding(48, 24, 48, 24)
+                setTextColor(palette.keyText)
+                // Create rounded background
+                val drawable = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    setColor(palette.keyBg)
+                    cornerRadius = 16f
+                    setStroke(2, palette.keyText)
+                }
+                background = drawable
+                setOnClickListener {
+                    try {
+                        val intent = android.content.Intent(this@AIKeyboardService, MainActivity::class.java).apply {
+                            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            putExtra("navigate_to", "clipboard_settings")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error opening settings", e)
+                    }
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = android.view.Gravity.CENTER
+                    topMargin = 16
+                }
+            }
+            itemsContainer?.addView(settingsButton)
+            
+            return // Exit early when disabled
+        }
+        
+        // Get actual clipboard items from ClipboardHistoryManager
+        val clipboardItems = if (::clipboardHistoryManager.isInitialized) {
+            clipboardHistoryManager.getHistoryForUI(5) // Get up to 5 items
+        } else {
+            Log.w(TAG, "ClipboardHistoryManager not initialized")
+            emptyList()
+        }
         
         if (clipboardItems.isEmpty()) {
             // Hide header when empty
@@ -9372,103 +9426,12 @@ Format: variation1|||variation2|||variation3"""
      * Generate dictionary-based candidates for swipe sequence using advanced matching algorithms
      * DEPRECATED: Legacy function - now handled by UnifiedAutocorrectEngine.suggestForSwipe()
      */
-    @Deprecated("Use UnifiedAutocorrectEngine.suggestForSwipe() instead")
-    private suspend fun generateSwipeCandidates(
-        swipeLetters: String, 
-        prev1: String, 
-        prev2: String
-    ): List<String> = withContext(Dispatchers.Default) {
-        
-        val startTime = System.currentTimeMillis()
-        val candidates = mutableListOf<String>()
-        
-        try {
-            // Use UnifiedAutocorrectEngine for swipe candidates
-            val suggestions = autocorrectEngine.getCorrections(
-                swipeLetters, 
-                currentLanguage, 
-                listOfNotNull(prev1, prev2).filter { it.isNotBlank() }
-            )
-            
-            candidates.addAll(suggestions.map { it.text })
-                
-            val processingTime = System.currentTimeMillis() - startTime
-            Log.d(TAG, "Swipe candidates generated in ${processingTime}ms for '$swipeLetters' -> ${candidates.size} candidates")
-            
-            return@withContext candidates.take(10)
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error generating swipe candidates", e)
-            return@withContext emptyList()
-        }
-    }
-    
-    /**
-     * Generate candidates using Damerau-Levenshtein edit distance
-     * DEPRECATED: Legacy function from old AutocorrectEngine - now handled by UnifiedAutocorrectEngine
-     */
-    @Deprecated("Use UnifiedAutocorrectEngine.getCorrections() instead")
-    private suspend fun generateEditDistanceCandidates(
-        swipeLetters: String, 
-        prev1: String, 
-        prev2: String
-    ): List<String> = withContext(Dispatchers.Default) {
-        try {
-            // Use enhanced autocorrect engine for edit distance candidates
-            val autocorrectCandidates = autocorrectEngine.getCorrections(swipeLetters, currentLanguage, listOfNotNull(prev1, prev2).filter { it.isNotBlank() })
-            return@withContext autocorrectCandidates.map { it.text }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in edit distance candidates", e)
-            return@withContext emptyList()
-        }
-    }
-    
-    /**
-     * Update suggestion strip with enhanced swipe candidates (clean, no icons)
-     * DEPRECATED: This method is no longer used - swipe suggestions now handled directly
-     */
-    @Deprecated("Swipe suggestions now handled in onSwipeDetected()")
-    private fun updateEnhancedSwipeSuggestions(candidates: List<String>, originalSwipe: String) {
-        try {
-            if (candidates.isEmpty()) {
-                updateSuggestionUI(listOf(originalSwipe))
-                return
-            }
-            
-            val suggestionTexts = mutableListOf<String>()
-            
-            // Always show original swipe as first option (for reversion)
-            suggestionTexts.add(originalSwipe)
-            
-            // Add top candidates without any icons or indicators
-            candidates.take(2).forEach { candidate ->
-                suggestionTexts.add(candidate) // Clean text only, no icons
-            }
-            
-            updateSuggestionUI(suggestionTexts)
-            Log.d(TAG, "Enhanced swipe suggestions updated: $suggestionTexts")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating enhanced swipe suggestions", e)
-        }
-    }
-    
-    /**
-     * Update suggestion strip with swipe candidates (legacy)
-     */
-    /**
-     * Update swipe suggestion strip
-     * DEPRECATED: Legacy function - now using unified suggestion system
-     */
-    @Deprecated("Use updateSuggestionUI() directly")
-    private fun updateSwipeSuggestionStrip(candidates: List<String>) {
-        try {
-            updateSuggestionUI(candidates.take(3))
-            Log.d(TAG, "Swipe suggestion strip updated with ${candidates.size} options: $candidates")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating swipe suggestion strip", e)
-        }
-    }
+    // ❌ REMOVED: 4 deprecated swipe methods (98 lines total)
+    // - generateSwipeCandidates() - 30 lines
+    // - generateEditDistanceCandidates() - 16 lines  
+    // - updateEnhancedSwipeSuggestions() - 25 lines
+    // - updateSwipeSuggestionStrip() - 9 lines
+    // All replaced by UnifiedAutocorrectEngine and updateSuggestionUI()
     
     
     /**
@@ -9599,6 +9562,7 @@ Format: variation1|||variation2|||variation3"""
             
             // Update clipboard history manager settings
             clipboardHistoryManager.updateSettings(
+                enabled = enabled,  // ✅ Pass the enabled parameter!
                 maxHistorySize = maxHistorySize,
                 autoExpiryEnabled = autoExpiryEnabled,
                 expiryDurationMinutes = expiryDurationMinutes
@@ -9609,15 +9573,9 @@ Format: variation1|||variation2|||variation3"""
             if (templatesJson != null) {
                 try {
                     val jsonArray = org.json.JSONArray(templatesJson)
-                    val templates = mutableListOf<ClipboardItem>()
-                    
-                    for (i in 0 until jsonArray.length()) {
-                        val template = ClipboardItem.fromJson(jsonArray.getJSONObject(i))
-                        templates.add(template)
-                    }
-                    
-                    clipboardHistoryManager.updateTemplates(templates)
-                    Log.d(TAG, "Loaded ${templates.size} clipboard templates")
+                    // Templates are now handled internally by ClipboardHistoryManager
+                    // No need to manually load them here
+                    Log.d(TAG, "Clipboard templates loaded internally")
                     
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing templates JSON", e)
