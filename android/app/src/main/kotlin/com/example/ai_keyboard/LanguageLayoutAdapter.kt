@@ -29,6 +29,47 @@ class LanguageLayoutAdapter(private val context: Context) {
     companion object {
         private const val TAG = "LanguageLayoutAdapter"
         private const val CACHE_DIR_NAME = "keymaps_cache"
+        
+        /**
+         * Default long press mappings for common keys
+         * Provides accent variants and special characters
+         */
+        private val LONG_PRESS_MAP = mapOf(
+            'a'.code to listOf("á", "à", "â", "ä", "ã", "å", "ā", "ă", "ą"),
+            'e'.code to listOf("é", "è", "ê", "ë", "ē", "ĕ", "ė", "ę", "ě"),
+            'i'.code to listOf("í", "ì", "î", "ï", "ī", "ĭ", "į", "ı"),
+            'o'.code to listOf("ó", "ò", "ô", "ö", "õ", "ō", "ŏ", "ő", "ø"),
+            'u'.code to listOf("ú", "ù", "û", "ü", "ū", "ŭ", "ů", "ű", "ų"),
+            'y'.code to listOf("ý", "ỳ", "ŷ", "ÿ"),
+            'c'.code to listOf("ç", "ć", "ĉ", "ċ", "č"),
+            'd'.code to listOf("ď", "đ"),
+            'g'.code to listOf("ğ", "ĝ", "ġ", "ģ"),
+            'l'.code to listOf("ĺ", "ļ", "ľ", "ŀ", "ł"),
+            'n'.code to listOf("ñ", "ń", "ņ", "ň", "ŉ", "ŋ"),
+            'r'.code to listOf("ŕ", "ŗ", "ř"),
+            's'.code to listOf("ś", "ŝ", "ş", "š"),
+            't'.code to listOf("ţ", "ť", "ŧ"),
+            'z'.code to listOf("ź", "ż", "ž"),
+            '0'.code to listOf("°", "₀", "⁰"),
+            '1'.code to listOf("¹", "₁", "½", "⅓", "¼"),
+            '2'.code to listOf("²", "₂", "⅔"),
+            '3'.code to listOf("³", "₃", "¾"),
+            '4'.code to listOf("⁴", "₄"),
+            '5'.code to listOf("⁵", "₅"),
+            '-'.code to listOf("–", "—", "−", "±"),
+            '='.code to listOf("≠", "≈", "≤", "≥", "±"),
+            '?'.code to listOf("¿", "‽"),
+            '!'.code to listOf("¡", "‼", "⁉"),
+            '.'.code to listOf("…", "·", "•"),
+            '$'.code to listOf("¢", "£", "€", "¥", "₹", "₽", "₩")
+        )
+        
+        /**
+         * Get long press options for a character code
+         */
+        fun getLongPressOptions(code: Int): List<String>? {
+            return LONG_PRESS_MAP[code]
+        }
     }
     
     /**
@@ -267,7 +308,7 @@ class LanguageLayoutAdapter(private val context: Context) {
                     "SPACE", "space" -> 32     // Space (ASCII space)
                     
                     else -> {
-                        // For single-character keys, use their ASCII/Unicode codepoint
+                                // For single-character keys, use their ASCII/Unicode codepoint
                         if (keyLabel.length == 1) {
                             keyLabel.codePointAt(0)
                         } else {
@@ -277,11 +318,14 @@ class LanguageLayoutAdapter(private val context: Context) {
                     }
                 }
                 
+                // Get long press options for this key
+                val longPressOptions = getLongPressOptions(keyCode)
+                
                 // Create key model
                 val keyModel = KeyModel(
                     label = keyLabel,
                     code = keyCode,
-                    longPress = null
+                    longPress = longPressOptions
                 )
                 
                 row.add(keyModel)
@@ -316,15 +360,16 @@ class LanguageLayoutAdapter(private val context: Context) {
                 // Get alt mapping for number row hints
                 val altChar = altMap.optString(baseKey.firstOrNull()?.toString() ?: "")
                 
-                // Get long-press variants
+                // Get long-press variants from keymap or fall back to default mapping
+                val keyCode = mappedChar.codePointAt(0)
                 val longPressVariants = longPressMap.optJSONArray(baseKey)?.let { array ->
                     List(array.length()) { idx -> array.getString(idx) }
-                }
+                } ?: getLongPressOptions(keyCode)  // Fallback to default mapping
                 
                 // Create key model
                 val keyModel = KeyModel(
                     label = mappedChar,
-                    code = mappedChar.codePointAt(0),
+                    code = keyCode,
                     altLabel = altChar.ifEmpty { null },
                     longPress = longPressVariants
                 )

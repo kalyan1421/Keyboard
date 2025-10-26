@@ -46,7 +46,8 @@ class CapsShiftManager(
     }
     
     // State variables
-    private var currentState = STATE_NORMAL
+    var currentState = STATE_NORMAL
+        internal set  // Allow UnifiedLayoutController to set it directly
     private var lastShiftPressTime = 0L
     private var longPressHandler: Handler? = null
     private var isAutoCapitalizationEnabled = true
@@ -232,11 +233,6 @@ class CapsShiftManager(
             Log.d(TAG, "Caps lock ${if (enabled) "enabled" else "disabled"}")
         }
     }
-    
-    /**
-     * Get current state
-     */
-    fun getCurrentState(): Int = currentState
     
     /**
      * Check if shift is active (either SHIFT or CAPS_LOCK)

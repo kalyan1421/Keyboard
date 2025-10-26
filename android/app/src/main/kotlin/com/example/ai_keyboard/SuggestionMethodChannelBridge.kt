@@ -108,7 +108,20 @@ class SuggestionMethodChannelBridge(
                 clipboardEnabled = clipboardEnabled,
                 nextWordEnabled = nextWordEnabled
             )
-            
+
+            clipboardEnabled?.let { enabled ->
+                try {
+                    val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    flutterPrefs.edit().putBoolean("flutter.clipboard_suggestion_enabled", enabled).apply()
+                } catch (e: Exception) {
+                    LogUtil.e(TAG, "Error persisting clipboard suggestion setting", e)
+                }
+            }
+
+            if (clipboardEnabled != null && context is AIKeyboardService) {
+                context.reloadClipboardSettings()
+            }
+
             result.success(true)
             LogUtil.d(TAG, "✅ Settings updated successfully")
             
@@ -204,4 +217,3 @@ class SuggestionMethodChannelBridge(
         }
     }
 }
-

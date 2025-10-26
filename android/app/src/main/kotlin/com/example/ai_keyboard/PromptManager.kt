@@ -167,7 +167,7 @@ object PromptManager {
             }
             
             // Sort by timestamp (newest first)
-            prompts.sortedByDescending { it.timestamp }
+            return prompts.sortedByDescending { it.timestamp }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error reading prompts for category: $category", e)
             emptyList()

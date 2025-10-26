@@ -40,7 +40,8 @@ data class Suggestion(
     val text: String,
     val score: Double,
     val source: SuggestionSource,
-    val isAutoCommit: Boolean = false
+    val isAutoCommit: Boolean = false,
+    val confidence: Double = 0.0
 )
 
 /**
@@ -70,6 +71,8 @@ class UnifiedAutocorrectEngine(
         private const val USER_WEIGHT = 3.0
         private const val CORRECTION_WEIGHT = 4.0
         private const val SWIPE_WEIGHT = 1.5
+
+        private val DEFAULT_FALLBACKS = listOf("I", "The", "You", "We", "It", "Thanks")
     }
 
     // Thread-safe cache for suggestions
@@ -81,9 +84,9 @@ class UnifiedAutocorrectEngine(
     @Volatile
     private var languageResources: LanguageResources? = null
     
-    // QWERTY layout for keyboard proximity scoring (normalized 0.0-1.0 coordinates)
+    // Default QWERTY layout for keyboard proximity scoring (normalized 0.0-1.0 coordinates)
     // Updated to match Android keyboard layout more accurately  
-    private val qwertyLayout = mapOf(
+    private val defaultKeyLayout = mapOf(
         'q' to Pair(0.05f, 0.17f), 'w' to Pair(0.15f, 0.17f), 'e' to Pair(0.25f, 0.17f), 'r' to Pair(0.35f, 0.17f),
         't' to Pair(0.45f, 0.17f), 'y' to Pair(0.55f, 0.17f), 'u' to Pair(0.65f, 0.17f), 'i' to Pair(0.75f, 0.17f),
         'o' to Pair(0.85f, 0.17f), 'p' to Pair(0.95f, 0.17f),
@@ -93,6 +96,16 @@ class UnifiedAutocorrectEngine(
         'z' to Pair(0.15f, 0.71f), 'x' to Pair(0.25f, 0.71f), 'c' to Pair(0.35f, 0.71f), 'v' to Pair(0.45f, 0.71f),
         'b' to Pair(0.55f, 0.71f), 'n' to Pair(0.65f, 0.71f), 'm' to Pair(0.75f, 0.71f)
     )
+    private val keyboardLayouts = ConcurrentHashMap<String, Map<Char, Pair<Float, Float>>>()
+    @Volatile
+    private var currentLayoutCoordinates: Map<Char, Pair<Float, Float>> = defaultKeyLayout
+    
+    private data class SwipeFeedback(var accepted: Int = 0, var rejected: Int = 0)
+    private val swipeFeedback = ConcurrentHashMap<String, SwipeFeedback>()
+    
+    private fun activeLayout(): Map<Char, Pair<Float, Float>> {
+        return if (currentLayoutCoordinates.isEmpty()) defaultKeyLayout else currentLayoutCoordinates
+    }
     
     // Suggestion callback for real-time suggestion updates
     private var suggestionCallback: ((List<String>) -> Unit)? = null
@@ -104,10 +117,26 @@ class UnifiedAutocorrectEngine(
     fun setLanguage(lang: String, resources: LanguageResources) {
         currentLanguage = lang
         languageResources = resources
+        currentLayoutCoordinates = keyboardLayouts[lang] ?: defaultKeyLayout
         suggestionCache.evictAll() // Clear cache when language changes
         LogUtil.d(TAG, "🌐 Firebase language activated: $lang")
         LogUtil.d(TAG, "📖 Loaded $lang: words=${resources.words.size}, bigrams=${resources.bigrams.size}, trigrams=${resources.trigrams.size}")
         LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine ready for $lang")
+    }
+    
+    /**
+     * Update the swipe geometry for a given language
+     */
+    fun updateKeyLayout(language: String, positions: Map<Char, Pair<Float, Float>>) {
+        if (positions.isEmpty()) return
+        val filtered = positions.filterKeys { it.isLetterOrDigit() }
+        if (filtered.isEmpty()) return
+        keyboardLayouts[language] = filtered
+        if (language == currentLanguage) {
+            currentLayoutCoordinates = filtered
+        }
+        suggestionCache.evictAll()
+        LogUtil.d(TAG, "🧭 Updated swipe layout for $language: keys=${filtered.size}")
     }
     
     /**
@@ -262,15 +291,109 @@ class UnifiedAutocorrectEngine(
             val result = suggestions
                 .sortedByDescending { it.score }
                 .take(k)
-            
-            LogUtil.d(TAG, "📊 Next word predictions: ${result.map { it.text }}")
-            suggestionCache.put(cacheKey, result)
-            return result
+
+            if (result.isNotEmpty()) {
+                LogUtil.d(TAG, "📊 Next word predictions: ${result.map { it.text }}")
+                suggestionCache.put(cacheKey, result)
+                return result
+            }
+
+            val fallback = fallbackSuggestions(context, k)
+            if (fallback.isNotEmpty()) {
+                LogUtil.d(TAG, "📊 Next word fallback predictions: ${fallback.map { it.text }}")
+                suggestionCache.put(cacheKey, fallback)
+            }
+            return fallback
             
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error getting next word predictions", e)
-            return emptyList()
+            return fallbackSuggestions(context, k)
         }
+    }
+
+    /**
+     * Provide fallback suggestions leveraging loaded n-gram data.
+     * Used when primary pipelines (Firebase predictions / typed completions) are empty.
+     */
+    fun fallbackSuggestions(
+        context: List<String>,
+        limit: Int = 3,
+        exclude: Set<String> = emptySet()
+    ): List<Suggestion> {
+        val resources = languageResources ?: return DEFAULT_FALLBACKS.take(limit).map {
+            Suggestion(it, 0.0, SuggestionSource.LM_BIGRAM)
+        }
+
+        val normalizedContext = context.map { it.lowercase() }.filter { it.isNotBlank() }
+        val suggestions = mutableListOf<Suggestion>()
+        val seen = exclude.map { it.lowercase() }.toMutableSet()
+
+        fun appendCandidates(candidates: List<Pair<String, Int>>, source: SuggestionSource, boost: Double = 0.0) {
+            candidates.forEach { (word, freq) ->
+                if (seen.add(word.lowercase())) {
+                    val score = (ln(freq.toDouble() + 1) * LM_WEIGHT) + boost
+                    suggestions.add(Suggestion(word, score, source))
+                }
+            }
+        }
+
+        if (normalizedContext.size >= 2) {
+            appendCandidates(
+                getTrigramPredictions(resources, normalizedContext, limit * 2),
+                SuggestionSource.LM_TRIGRAM,
+                boost = 0.2
+            )
+        }
+
+        if (suggestions.size < limit && normalizedContext.isNotEmpty()) {
+            val lastWord = normalizedContext.last()
+            appendCandidates(
+                getBigramPredictions(resources, lastWord, limit * 2),
+                SuggestionSource.LM_BIGRAM
+            )
+        }
+
+        if (suggestions.size < limit) {
+            val topWords = resources.words.entries
+                .asSequence()
+                .filter { it.key.length > 1 }
+                .filter { seen.add(it.key.lowercase()) }
+                .sortedBy { it.value }
+                .take(limit * 2)
+                .map { entry ->
+                    Suggestion(entry.key, ln(entry.value.toDouble() + 1), SuggestionSource.TYPING)
+                }
+            suggestions.addAll(topWords)
+        }
+
+        if (suggestions.size < limit) {
+            suggestions.addAll(
+                DEFAULT_FALLBACKS
+                    .asSequence()
+                    .filter { seen.add(it.lowercase()) }
+                    .map { Suggestion(it, 0.0, SuggestionSource.LM_BIGRAM) }
+            )
+        }
+
+        return suggestions.take(limit)
+    }
+
+    /**
+     * Get global top words for the active language.
+     */
+    fun getTopWords(limit: Int = 5, exclude: Set<String> = emptySet()): List<Suggestion> {
+        val resources = languageResources ?: return DEFAULT_FALLBACKS.take(limit).map {
+            Suggestion(it, 0.0, SuggestionSource.TYPING)
+        }
+        val excludeLower = exclude.map { it.lowercase() }.toSet()
+        return resources.words.entries
+            .asSequence()
+            .filter { it.key.length > 1 }
+            .filter { !excludeLower.contains(it.key.lowercase()) }
+            .sortedBy { it.value }
+            .take(limit)
+            .map { entry -> Suggestion(entry.key, ln(entry.value.toDouble() + 1), SuggestionSource.TYPING) }
+            .toList()
     }
     
     /**
@@ -286,7 +409,7 @@ class UnifiedAutocorrectEngine(
             LogUtil.d(TAG, "🔄 Getting swipe suggestions from Firebase data")
             
             // Use proper path decoding with metrics (NO fallbacks to typed suggestions)
-            val result = decodeSwipePath(path, resources).map { (word, score) ->
+            val result = decodeSwipePath(path, resources, context).map { (word, score) ->
                 Suggestion(word, score, SuggestionSource.SWIPE)
             }
             
@@ -297,6 +420,28 @@ class UnifiedAutocorrectEngine(
             
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error getting swipe suggestions", e)
+            return emptyList()
+        }
+    }
+    
+    /**
+     * NEW: Simplified suggestForSwipe interface for UnifiedKeyboardView
+     * Takes key sequence and normalized path directly
+     */
+    fun suggestForSwipe(sequence: List<Int>, normalizedPath: List<Pair<Float, Float>>): List<String> {
+        try {
+            // Convert to SwipePath format
+            val swipePath = SwipePath(normalizedPath)
+            
+            // Get suggestions using existing logic
+            val suggestions = suggestForSwipe(swipePath, emptyList())
+            
+            LogUtil.d(TAG, "🔄 Swipe suggestions for sequence $sequence: ${suggestions.map { it.text }}")
+            
+            return suggestions.map { it.text }
+            
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error in simplified suggestForSwipe", e)
             return emptyList()
         }
     }
@@ -441,7 +586,7 @@ class UnifiedAutocorrectEngine(
     /**
      * Decode swipe path to candidate words with proper lattice decoding
      */
-    private fun decodeSwipePath(path: SwipePath, resources: LanguageResources): List<Pair<String, Double>> {
+    private fun decodeSwipePath(path: SwipePath, resources: LanguageResources, context: List<String>): List<Pair<String, Double>> {
         if (path.points.size < 2) return emptyList()
         
         try {
@@ -544,7 +689,7 @@ class UnifiedAutocorrectEngine(
             }
             
             // 9) Use unified ranking with proper metrics
-            val final = rankSwipeCandidates(resources, listOf(), metrics, limit = 10)
+            val final = rankSwipeCandidates(resources, context, metrics, limit = 10)
             
             return final.map { Pair(it.text, it.score) }
             
@@ -560,12 +705,13 @@ class UnifiedAutocorrectEngine(
     private fun estimateLetterFromPoint(point: Pair<Float, Float>): String {
         // Simplified keyboard layout estimation
         val (x, y) = point
+        val layout = activeLayout()
         
         // Find closest key
-        var closestKey = 'a'
+        var closestKey = layout.keys.firstOrNull() ?: 'a'
         var minDistance = Float.MAX_VALUE
         
-        qwertyLayout.forEach { (key, pos) ->
+        layout.forEach { (key, pos) ->
             val distance = sqrt((x - pos.first).pow(2) + (y - pos.second).pow(2))
             if (distance < minDistance) {
                 minDistance = distance
@@ -582,13 +728,14 @@ class UnifiedAutocorrectEngine(
      */
     private fun candidatesForEachPoint(points: List<Pair<Float, Float>>, radiusPx: Float): List<List<Char>> {
         val radius = 0.15f // Normalized radius - increased for better key detection
+        val layout = activeLayout().ifEmpty { defaultKeyLayout }
         
         return points.map { point ->
             val (x, y) = point
             val candidates = mutableListOf<Char>()
             
             // Find keys within radius using Euclidean distance on normalized coordinates
-            qwertyLayout.forEach { (key, pos) ->
+            layout.forEach { (key, pos) ->
                 val distance = sqrt((x - pos.first).pow(2) + (y - pos.second).pow(2))
                 if (distance <= radius) {
                     candidates.add(key)
@@ -597,7 +744,7 @@ class UnifiedAutocorrectEngine(
             
             // If no keys in radius, find closest + nearby keys
             if (candidates.isEmpty()) {
-                val distances = qwertyLayout.map { (key, pos) ->
+                val distances = layout.map { (key, pos) ->
                     val distance = sqrt((x - pos.first).pow(2) + (y - pos.second).pow(2))
                     Pair(key, distance)
                 }.sortedBy { it.second }
@@ -668,6 +815,7 @@ class UnifiedAutocorrectEngine(
         
         // Simple scoring based on how well the word letters align with touch points
         val wordChars = word.lowercase().toCharArray()
+        val layout = activeLayout()
         var totalScore = 0.0
         var alignedPoints = 0
         
@@ -684,7 +832,7 @@ class UnifiedAutocorrectEngine(
             if (i < wordChars.size && sampleIndices[i] < points.size) {
                 val point = points[sampleIndices[i]]
                 val expectedChar = wordChars[i]
-                val expectedPos = qwertyLayout[expectedChar]
+                val expectedPos = layout[expectedChar]
                 
                 if (expectedPos != null) {
                     val distance = sqrt((point.first - expectedPos.first).pow(2) + (point.second - expectedPos.second).pow(2))
@@ -705,6 +853,7 @@ class UnifiedAutocorrectEngine(
         if (points.isEmpty() || word.isEmpty()) return 1.0
         
         val wordChars = word.lowercase().toCharArray()
+        val layout = activeLayout()
         var totalDistance = 0.0
         var count = 0
         
@@ -721,7 +870,7 @@ class UnifiedAutocorrectEngine(
             if (i < wordChars.size && sampleIndices[i] < points.size) {
                 val point = points[sampleIndices[i]]
                 val expectedChar = wordChars[i]
-                val expectedPos = qwertyLayout[expectedChar]
+                val expectedPos = layout[expectedChar]
                 
                 if (expectedPos != null) {
                     val distance = sqrt((point.first - expectedPos.first).pow(2) + (point.second - expectedPos.second).pow(2))
@@ -738,7 +887,7 @@ class UnifiedAutocorrectEngine(
      * Rank swipe candidates using proper metrics
      */
     private fun rankSwipeCandidates(resources: LanguageResources, context: List<String>, metrics: List<SwipeMetrics>, limit: Int): List<Suggestion> {
-        val wFreq = 0.6; val wLM = 1.0; val wPath = 1.6; val wProx = 0.6; val wEdit = 0.8; val wUser = 1.0; val wCorr = 0.5
+        val wFreq = 0.6; val wLM = 1.0; val wPath = 1.6; val wProx = 0.6; val wEdit = 0.8; val wUser = 1.0; val wCorr = 0.5; val wFeedback = 0.4
         
         val contextWords = context.takeLast(2)
         val w_2 = contextWords.getOrNull(0)
@@ -749,6 +898,9 @@ class UnifiedAutocorrectEngine(
             val bi = if (w_1 != null) resources.bigrams[Pair(w_1, m.word)] ?: 0 else 0
             val tri = if (w_2 != null && w_1 != null) resources.trigrams[Triple(w_2, w_1, m.word)] ?: 0 else 0
             val lm = getLMBackoff(tri, bi, freq)
+            val feedbackBias = getFeedbackBias(m.word)
+            val baseConfidence = computeSwipeConfidence(m)
+            val confidence = (baseConfidence + (feedbackBias * 0.1)).coerceIn(0.0, 1.0)
             
             val score = wFreq * ln(1.0 / (freq + 1)) +
                        wLM * lm +
@@ -756,12 +908,44 @@ class UnifiedAutocorrectEngine(
                        wProx * (1.0 / (1.0 + m.proximity)) +
                        wEdit * (-m.editDistance.toDouble()) +
                        wUser * (if (resources.userWords.contains(m.word)) 1.0 else 0.0) +
-                       wCorr * (if (resources.corrections.containsValue(m.word)) 1.0 else 0.0)
+                       wCorr * (if (resources.corrections.containsValue(m.word)) 1.0 else 0.0) +
+                       wFeedback * feedbackBias
             
-            LogUtil.d(TAG, "[Unified] swipe-rank: word=${m.word} path=${String.format("%.2f", m.pathScore)} prox=${String.format("%.2f", m.proximity)} edit=${m.editDistance} lm=${String.format("%.2f", lm)} freq=$freq score=${String.format("%.2f", score)}")
+            LogUtil.d(TAG, "[Unified] swipe-rank: word=${m.word} path=${String.format("%.2f", m.pathScore)} prox=${String.format("%.2f", m.proximity)} edit=${m.editDistance} lm=${String.format("%.2f", lm)} freq=$freq fb=${String.format("%.2f", feedbackBias)} conf=${String.format("%.2f", confidence)} score=${String.format("%.2f", score)}")
             
-            Suggestion(m.word, score, SuggestionSource.SWIPE)
+            Suggestion(m.word, score, SuggestionSource.SWIPE, confidence = confidence)
         }.sortedByDescending { it.score }.take(limit)
+    }
+    
+    private fun computeSwipeConfidence(metrics: SwipeMetrics): Double {
+        val pathComponent = metrics.pathScore.coerceIn(0.0, 1.0)
+        val proximityComponent = (1.0 / (1.0 + metrics.proximity)).coerceIn(0.0, 1.0)
+        val editComponent = when {
+            metrics.editDistance <= 0 -> 1.0
+            metrics.editDistance == 1 -> 0.7
+            metrics.editDistance == 2 -> 0.4
+            else -> 0.1
+        }
+        return (pathComponent * 0.5) + (proximityComponent * 0.3) + (editComponent * 0.2)
+    }
+    
+    private fun getFeedbackBias(word: String): Double {
+        val feedback = swipeFeedback[word.lowercase()] ?: return 0.0
+        val total = (feedback.accepted + feedback.rejected).coerceAtLeast(1)
+        return (feedback.accepted - feedback.rejected).toDouble() / total.toDouble()
+    }
+    
+    private fun recordSwipeFeedback(word: String, accepted: Boolean) {
+        if (word.isBlank()) return
+        swipeFeedback.compute(word.lowercase()) { _, existing ->
+            val feedback = existing ?: SwipeFeedback()
+            if (accepted) {
+                feedback.accepted++
+            } else {
+                feedback.rejected++
+            }
+            feedback
+        }
     }
     
     /**
@@ -863,6 +1047,19 @@ class UnifiedAutocorrectEngine(
      */
     fun attachSuggestionCallback(callback: (List<String>) -> Unit) {
         suggestionCallback = callback
+    }
+    
+    fun recordSwipeAcceptance(word: String) {
+        recordSwipeFeedback(word, true)
+    }
+    
+    fun recordSwipeRejection(word: String) {
+        recordSwipeFeedback(word, false)
+    }
+    
+    fun recordSwipeCorrection(previousWord: String, replacement: String) {
+        recordSwipeFeedback(previousWord, false)
+        recordSwipeFeedback(replacement, true)
     }
     
     // ========== LEGACY COMPATIBILITY METHODS ==========
@@ -1199,4 +1396,3 @@ class UnifiedAutocorrectEngine(
         }
     }
 }
-

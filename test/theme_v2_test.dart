@@ -30,6 +30,16 @@ void main() {
       expect(restoredTheme.specialKeys.accent, originalTheme.specialKeys.accent);
     });
 
+    test('preserves alpha channel when serializing colors', () {
+      final pictureTheme = KeyboardThemeV2.createPictureTheme();
+      final json = pictureTheme.toJson();
+      
+      expect(json['keys']['bg'], '#80FFFFFF');
+      
+      final restoredTheme = KeyboardThemeV2.fromJson(json);
+      expect(restoredTheme.keys.bg, pictureTheme.keys.bg);
+    });
+
     test('handles invalid JSON gracefully', () {
       // Empty JSON should return default theme
       final emptyTheme = KeyboardThemeV2.fromJson({});

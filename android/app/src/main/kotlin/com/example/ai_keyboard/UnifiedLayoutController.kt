@@ -34,7 +34,7 @@ class UnifiedLayoutController(
     private val context: Context,
     private val service: AIKeyboardService,
     private val adapter: LanguageLayoutAdapter,
-    private val keyboardView: SwipeKeyboardView,
+    private val keyboardView: UnifiedKeyboardView,  // ✅ Changed to UnifiedKeyboardView
     private val heightManager: KeyboardHeightManager
 ) {
     companion object {
@@ -115,24 +115,19 @@ class UnifiedLayoutController(
                 
                 Log.d(TAG, "📦 Layout model built: ${layoutModel.rows.size} rows, ${layoutModel.rows.flatten().size} keys")
 
-                // Step 2: Apply layout and trigger auto-adjust (on main thread)
+                // Step 2: Apply layout to unified view (on main thread)
                 withContext(Dispatchers.Main) {
-                    // Update keyboard view with new layout
+                    // ✅ Update unified keyboard view with new layout
                     keyboardView.currentLangCode = language
                     keyboardView.currentKeyboardMode = mode
-                    keyboardView.setDynamicLayout(layoutModel, numberRow)
+                    keyboardView.showTypingLayout(layoutModel)  // ✅ New unified API
                     
                     // 🌐 LANGUAGE UI UPDATE: Update language display
                     updateLanguageDisplay(language)
                     
-                    // 🔄 AUTO-ADJUST SEQUENCE: Request layout recalculation
-                    triggerAutoAdjust()
-
-                    // 📏 HEIGHT RECALCULATION: Ensure correct height
-                    applyOptimalHeight(numberRow)
-                    
-                    // 🎨 APPLY THEME: Ensure colors are correct
-                    service.applyTheme()
+                    // ✅ HEIGHT & THEME: Handled automatically by UnifiedKeyboardView
+                    // No manual triggerAutoAdjust() or applyOptimalHeight() needed
+                    // ThemeManager listener already updates view automatically
                     
                     // ⇧ CAPS STATE: Apply auto-capitalization for new language
                     applyCapsStateForLanguage(language)
@@ -275,17 +270,6 @@ class UnifiedLayoutController(
     }
     
     /**
-     * Initialize caps/shift manager (integrated from AIKeyboardService)
-     * Note: This method is now deprecated - caps manager should be initialized directly
-     * in AIKeyboardService before calling initialize()
-     */
-    @Deprecated("Use direct initialization in AIKeyboardService instead")
-    fun initializeCapsManager(settings: android.content.SharedPreferences) {
-        Log.d(TAG, "⚠️ initializeCapsManager called but caps manager should be initialized externally")
-        // No-op - caps manager initialized externally now
-    }
-    
-    /**
      * Get current language configuration
      */
     fun getCurrentLanguageConfig(): LanguageConfig? {
@@ -321,6 +305,71 @@ class UnifiedLayoutController(
      */
     fun handleShiftPress() {
         capsShiftManager?.handleShiftPress()
+    }
+    
+    /**
+     * Process character input through caps/shift manager
+     * Converts character case based on current shift state
+     */
+    fun processCharacterInput(char: Char): Char {
+        return capsShiftManager?.processCharacterInput(char) ?: char
+    }
+    
+    /**
+     * Handle sentence-ending punctuation (., !, ?)
+     * Activates shift state for next character
+     */
+    fun handlePunctuationEnd() {
+        capsShiftManager?.let { manager ->
+            if (manager.currentState == CapsShiftManager.STATE_NORMAL) {
+                // Set to shift state for auto-capitalization
+                manager.currentState = CapsShiftManager.STATE_SHIFT
+                // Trigger visual update
+                refreshKeyboardForShiftState(CapsShiftManager.STATE_SHIFT)
+                Log.d(TAG, "⇧ Auto-capitalization activated after punctuation")
+            }
+        }
+    }
+    
+    /**
+     * Refresh keyboard layout to reflect current shift/caps state
+     */
+    fun refreshKeyboardForShiftState(shiftState: Int) {
+        // Reload the current layout with updated case
+        val mode = keyboardView.currentKeyboardMode
+        val lang = keyboardView.currentLangCode
+        
+        scope.launch {
+            try {
+                // Rebuild layout with current settings
+                val layoutModel = adapter.buildLayoutFor(lang, mode, numberRowEnabled = false)
+                
+                // Update key labels based on shift state
+                val isUpperCase = shiftState != CapsShiftManager.STATE_NORMAL
+                val updatedLayout = layoutModel.copy(
+                    rows = layoutModel.rows.map { row: List<LanguageLayoutAdapter.KeyModel> ->
+                        row.map { key: LanguageLayoutAdapter.KeyModel ->
+                            if (key.label.length == 1 && Character.isLetter(key.label[0])) {
+                                val newLabel = if (isUpperCase) {
+                                    key.label.uppercase()
+                                } else {
+                                    key.label.lowercase()
+                                }
+                                key.copy(label = newLabel)
+                            } else {
+                                key
+                            }
+                        }
+                    }
+                )
+                
+                // Update the view with modified layout
+                keyboardView.showTypingLayout(updatedLayout)
+                Log.d(TAG, "✅ Keyboard refreshed for shift state: $shiftState (uppercase=$isUpperCase)")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to refresh keyboard for shift", e)
+            }
+        }
     }
     
     /**

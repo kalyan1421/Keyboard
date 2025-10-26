@@ -85,6 +85,7 @@ flutter:
     - assets/onboarding/
     - assets/icons/
     - assets/keyboards/
+    - assets/animations/
     
 
   # An image asset can refer to one or more resolution-specific "variants", see
@@ -95,3 +96,4 @@ flutter:
 
   # Google Fonts are now used instead of asset fonts
   # See: https://pub.dev/packages/google_fonts
+  

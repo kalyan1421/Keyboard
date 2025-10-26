@@ -282,7 +282,7 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
           name: 'Custom Image Theme',
           background: ThemeBackground(
             type: 'image',
-            color: const Color(0xFF000000),
+            color: Colors.transparent,
             imagePath: savedPath,
             imageOpacity: 0.85,
             gradient: null,
@@ -479,7 +479,7 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
         name: '${image.category} Theme',
         background: ThemeBackground(
           type: 'image',
-          color: const Color(0xFF000000),
+          color: Colors.transparent,
           imagePath: image.imageUrl,
           imageOpacity: 0.85,
           gradient: null,

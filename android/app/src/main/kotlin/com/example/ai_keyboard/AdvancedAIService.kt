@@ -44,51 +44,18 @@ class AdvancedAIService(private val context: Context) {
     private var rateLimitResetTime = 0L
     
     /**
-     * Check if we can make a request (rate limiting)
+     * Check if we can make a request (rate limiting) - DISABLED
      */
     private fun canMakeRequest(): Boolean {
-        val currentTime = System.currentTimeMillis()
-        
-        // Check if we're still in a rate limit period
-        if (isRateLimited && currentTime < rateLimitResetTime) {
-            Log.w(TAG, "Still rate limited, ${(rateLimitResetTime - currentTime) / 1000}s remaining")
-            return false
-        } else if (isRateLimited && currentTime >= rateLimitResetTime) {
-            // Reset rate limit
-            isRateLimited = false
-            rateLimitResetTime = 0L
-            requestTimestamps.clear()
-            Log.d(TAG, "Rate limit reset")
-        }
-        
-        // Check minimum interval between requests
-        if (currentTime - lastRequestTime < MIN_REQUEST_INTERVAL_MS) {
-            Log.w(TAG, "Request too soon, minimum interval: ${MIN_REQUEST_INTERVAL_MS}ms")
-            return false
-        }
-        
-        // Clean old timestamps (older than 1 minute)
-        requestTimestamps.removeAll { currentTime - it > RATE_LIMIT_WINDOW_MS }
-        
-        // Check if we've exceeded the rate limit
-        if (requestTimestamps.size >= MAX_REQUESTS_PER_MINUTE) {
-            Log.w(TAG, "Rate limit exceeded: ${requestTimestamps.size} requests in last minute")
-            isRateLimited = true
-            rateLimitResetTime = currentTime + RATE_LIMIT_WINDOW_MS
-            return false
-        }
-        
+        // Rate limiting disabled - always allow requests
         return true
     }
     
     /**
-     * Record a successful request
+     * Record a successful request - DISABLED
      */
     private fun recordRequest() {
-        val currentTime = System.currentTimeMillis()
-        requestTimestamps.add(currentTime)
-        lastRequestTime = currentTime
-        Log.d(TAG, "Request recorded, total in window: ${requestTimestamps.size}")
+        // Rate limiting disabled - no need to record requests
     }
     
     /**
@@ -230,6 +197,24 @@ class AdvancedAIService(private val context: Context) {
     }
     
     /**
+     * Translate text to a target language
+     */
+    suspend fun translateText(text: String, targetLanguage: String): AIResult {
+        val normalizedTarget = targetLanguage.trim()
+        if (normalizedTarget.equals("english", ignoreCase = true)) {
+            return processText(text, ProcessingFeature.TRANSLATE_TO_ENGLISH)
+        }
+        
+        val systemPrompt = """
+            Translate the following text into $normalizedTarget.
+            Detect the source language automatically.
+            Return only the translated text without additional commentary, notes, or quotation marks.
+        """.trimIndent()
+        val cacheSuffix = "translate_${normalizedTarget.lowercase().replace("\\s+".toRegex(), "_")}"
+        return processWithAI(text, systemPrompt, cacheSuffix)
+    }
+    
+    /**
      * Generate smart replies with context
      */
     suspend fun generateSmartReplies(
@@ -250,6 +235,19 @@ class AdvancedAIService(private val context: Context) {
         """.trimIndent()
         
         return processWithAI(message, systemPrompt, "replies_${context}_$count")
+    }
+
+    suspend fun processCustomPrompt(
+        text: String,
+        systemPrompt: String,
+        cacheKeySuffix: String = "custom_prompt"
+    ): AIResult {
+        val sanitizedPrompt = if (systemPrompt.isBlank()) {
+            PromptManager.getDefaultPrompt("assistant")
+        } else {
+            systemPrompt
+        }
+        return processWithAI(text, sanitizedPrompt, cacheKeySuffix)
     }
     
     

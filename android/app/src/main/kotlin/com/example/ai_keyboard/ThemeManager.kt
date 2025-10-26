@@ -11,10 +11,14 @@ import com.example.ai_keyboard.managers.BaseManager
 import com.example.ai_keyboard.themes.KeyboardThemeV2
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import org.json.JSONObject
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.core.graphics.ColorUtils
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.math.*
+import android.view.Gravity
 
 /**
  * CleverType Theme Engine V2 - Single Source of Truth
@@ -96,6 +100,11 @@ class ThemeManager(context: Context) : BaseManager(context) {
                 currentTheme = theme
                 currentPalette = ThemePaletteV2(theme)
                 themeHash = newHash
+                
+                android.util.Log.d(
+                    "ThemeManager",
+                    "Loaded theme: ${theme.name}, backgroundType=${theme.background.type}, preset=${theme.keys.preset}, usesImage=${currentPalette?.usesImageBackground}, keyBg=0x${Integer.toHexString(theme.keys.bg)}"
+                )
                 
                 // Clear caches on theme change
                 drawableCache.evictAll()
@@ -269,45 +278,33 @@ class ThemeManager(context: Context) : BaseManager(context) {
      * Create cached toolbar background drawable
      */
     fun createToolbarBackground(): Drawable {
+        val palette = getCurrentPalette()
+        if (palette.usesImageBackground) {
+            return ColorDrawable(Color.TRANSPARENT)
+        }
         val cacheKey = "toolbar_bg_$themeHash"
         drawableCache.get(cacheKey)?.let { return it }
-        val palette = getCurrentPalette()
         val drawable = GradientDrawable().apply {
             setColor(palette.toolbarBg)
-            cornerRadius = 0f // No corner radius for seamless connection
+            cornerRadius = 4f // No corner radius for seamless connection
         }
         drawableCache.put(cacheKey, drawable)
         return drawable
     }
 
     fun createSuggestionBarBackground(): Drawable {
+        val palette = getCurrentPalette()
+        if (palette.usesImageBackground) {
+            return ColorDrawable(Color.TRANSPARENT)
+        }
         val cacheKey = "suggestion_bg_$themeHash"
         drawableCache.get(cacheKey)?.let { return it }
-        val palette = getCurrentPalette()
         val drawable = GradientDrawable().apply {
             setColor(palette.suggestionBg)
             cornerRadius = 0f // No corner radius for seamless connection
         }
         drawableCache.put(cacheKey, drawable)
         return drawable
-    }
-
-    /**
-     * DEPRECATED: Chips removed - suggestions are now text-only
-     * Returning transparent drawable for backward compatibility
-     */
-    @Deprecated("Suggestions are now text-only, no chip backgrounds")
-    fun createSuggestionChip(isPressed: Boolean): Drawable {
-        return ColorDrawable(Color.TRANSPARENT)
-    }
-    
-    /**
-     * DEPRECATED: Chips removed - suggestions are now text-only
-     * Returning transparent drawable for backward compatibility
-     */
-    @Deprecated("Suggestions are now text-only, no chip backgrounds")
-    fun createSuggestionChipDrawable(): Drawable {
-        return ColorDrawable(Color.TRANSPARENT)
     }
     
     /**
@@ -363,19 +360,25 @@ class ThemeManager(context: Context) : BaseManager(context) {
     
     private fun buildKeyDrawable(): Drawable {
         val palette = getCurrentPalette()
-        val theme = getCurrentTheme()
+        val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+        val density = context.resources.displayMetrics.density
+        val radiusPx = palette.keyRadius * density
         
         val drawable = GradientDrawable()
         drawable.shape = GradientDrawable.RECTANGLE
-        drawable.setColor(palette.keyBg)
-        drawable.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        drawable.setColor(if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg)
+        drawable.cornerRadius = radiusPx
         
-        // Apply border if enabled
-        if (palette.keyBorderEnabled) {
-            drawable.setStroke(
-                (palette.keyBorderWidth * context.resources.displayMetrics.density).toInt(),
+        val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
+        if (isTransparentStyle) {
+            val strokeColor = if (palette.keyBorderEnabled) {
                 palette.keyBorderColor
-            )
+            } else {
+                ColorUtils.setAlphaComponent(palette.keyText, 170)
+            }
+            drawable.setStroke(strokeWidth, strokeColor)
+        } else if (palette.keyBorderEnabled) {
+            drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
         // Add shadow/elevation if enabled
@@ -389,17 +392,28 @@ class ThemeManager(context: Context) : BaseManager(context) {
     
     private fun buildKeyPressedDrawable(): Drawable {
         val palette = getCurrentPalette()
+        val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+        val density = context.resources.displayMetrics.density
+        val radiusPx = palette.keyRadius * density
         
         val drawable = GradientDrawable()
         drawable.shape = GradientDrawable.RECTANGLE
-        drawable.setColor(palette.keyPressed)
-        drawable.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        drawable.setColor(
+            if (isTransparentStyle) ColorUtils.setAlphaComponent(palette.specialAccent, 200)
+            else palette.keyPressed
+        )
+        drawable.cornerRadius = radiusPx
         
-        if (palette.keyBorderEnabled) {
-            drawable.setStroke(
-                (palette.keyBorderWidth * context.resources.displayMetrics.density).toInt(),
+        val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
+        if (isTransparentStyle) {
+            val strokeColor = if (palette.keyBorderEnabled) {
                 palette.keyBorderColor
-            )
+            } else {
+                ColorUtils.setAlphaComponent(palette.keyText, 190)
+            }
+            drawable.setStroke(strokeWidth, strokeColor)
+        } else if (palette.keyBorderEnabled) {
+            drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
         return drawable
@@ -407,30 +421,31 @@ class ThemeManager(context: Context) : BaseManager(context) {
     
     private fun buildSpecialKeyDrawable(): Drawable {
         val palette = getCurrentPalette()
+        val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+        val density = context.resources.displayMetrics.density
+        val radiusPx = palette.keyRadius * density
         
         val drawable = GradientDrawable()
         drawable.shape = GradientDrawable.RECTANGLE
-        drawable.setColor(palette.specialAccent)
-        drawable.cornerRadius = palette.keyRadius * context.resources.displayMetrics.density
+        drawable.setColor(
+            if (isTransparentStyle) ColorUtils.setAlphaComponent(palette.specialAccent, 220)
+            else palette.specialAccent
+        )
+        drawable.cornerRadius = radiusPx
         
-        if (palette.keyBorderEnabled) {
-            drawable.setStroke(
-                (palette.keyBorderWidth * context.resources.displayMetrics.density).toInt(),
+        val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
+        if (isTransparentStyle) {
+            val strokeColor = if (palette.keyBorderEnabled) {
                 palette.keyBorderColor
-            )
+            } else {
+                ColorUtils.setAlphaComponent(palette.keyText, 170)
+            }
+            drawable.setStroke(strokeWidth, strokeColor)
+        } else if (palette.keyBorderEnabled) {
+            drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
         return drawable
-    }
-    
-    @Deprecated("Chips removed - suggestions are text-only")
-    private fun buildSuggestionChipDrawable(): Drawable {
-        return ColorDrawable(Color.TRANSPARENT)
-    }
-    
-    @Deprecated("Chips removed - suggestions are text-only")
-    private fun buildSuggestionChipPressedDrawable(): Drawable {
-        return ColorDrawable(Color.TRANSPARENT)
     }
     
     private fun buildSolidDrawable(color: Int): Drawable {
@@ -465,25 +480,50 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val imagePath = theme.background.imagePath
         
         if (imagePath.isNullOrEmpty()) {
-            return buildSolidDrawable(theme.background.color ?: Color.BLACK)
+            return buildSolidDrawable(theme.background.color ?: Color.TRANSPARENT)
         }
         
-        // Try to load cached image
-        val cacheKey = "bg_image_$imagePath"
+        val cacheKey = "bg_image_layer_$imagePath"
         return imageCache.get(cacheKey) ?: run {
             try {
-                // Load image (handles local and network paths)
                 val bitmap = loadImageBitmap(imagePath)
-                val drawable = BitmapDrawable(context.resources, bitmap)
-                drawable.alpha = (theme.background.imageOpacity * 255).toInt()
-                
-                // Cache the drawable
-                imageCache.put(cacheKey, drawable)
-                drawable
+                val bitmapDrawable = BitmapDrawable(context.resources, bitmap).apply {
+                    alpha = (theme.background.imageOpacity * 255).toInt().coerceIn(0, 255)
+                    isFilterBitmap = true
+                    gravity = Gravity.FILL
+                    tileModeX = Shader.TileMode.CLAMP
+                    tileModeY = Shader.TileMode.CLAMP
+                }
+
+                val baseColor = when {
+                    theme.background.color == null -> Color.TRANSPARENT
+                    theme.background.color == Color.BLACK && theme.background.overlayEffects.isEmpty() -> Color.TRANSPARENT
+                    else -> theme.background.color
+                }
+                val layers = mutableListOf<Drawable>().apply {
+                    if (baseColor != Color.TRANSPARENT) {
+                        add(ColorDrawable(baseColor))
+                    }
+                    add(bitmapDrawable)
+                    if (theme.background.overlayEffects.contains("darken")) {
+                        add(
+                            GradientDrawable(
+                                GradientDrawable.Orientation.TOP_BOTTOM,
+                                intArrayOf(
+                                    ColorUtils.setAlphaComponent(Color.BLACK, 0),
+                                    ColorUtils.setAlphaComponent(Color.BLACK, 120)
+                                )
+                            )
+                        )
+                    }
+                }
+
+                val layered = LayerDrawable(layers.toTypedArray())
+                imageCache.put(cacheKey, layered)
+                layered
             } catch (e: Exception) {
                 android.util.Log.e("ThemeManager", "Failed to load background image: $imagePath", e)
-                // Fallback to solid color
-                buildSolidDrawable(theme.background.color ?: Color.BLACK)
+                buildSolidDrawable(theme.background.color ?: Color.TRANSPARENT)
             }
         }
     }
@@ -555,13 +595,18 @@ class ThemeManager(context: Context) : BaseManager(context) {
             return null
         }
         
+        val isImageTheme = palette.usesImageBackground
         val rippleColor = ColorStateList.valueOf(
-            Color.argb(
-                (palette.rippleAlpha * 255).toInt(),
-                Color.red(palette.keyText),
-                Color.green(palette.keyText),
-                Color.blue(palette.keyText)
-            )
+            if (isImageTheme) {
+                ColorUtils.setAlphaComponent(palette.specialAccent, (palette.rippleAlpha * 255).toInt())
+            } else {
+                Color.argb(
+                    (palette.rippleAlpha * 255).toInt(),
+                    Color.red(palette.keyText),
+                    Color.green(palette.keyText),
+                    Color.blue(palette.keyText)
+                )
+            }
         )
         
         val mask = GradientDrawable()
@@ -763,14 +808,23 @@ class ThemeManager(context: Context) : BaseManager(context) {
      */
     fun getKeyboardBackgroundColor(): Int {
         val theme = getCurrentTheme()
-        return theme.background.color ?: getCurrentPalette().keyboardBg
+        val palette = getCurrentPalette()
+        if (palette.usesImageBackground) {
+            return palette.panelSurface
+        }
+        return theme.background.color ?: palette.keyboardBg
     }
     
     /**
      * Get key background color for panel UI elements
      */
     fun getKeyColor(): Int {
-        return getCurrentPalette().keyBg
+        val palette = getCurrentPalette()
+        return if (palette.usesImageBackground) {
+            ColorUtils.setAlphaComponent(Color.WHITE, 40)
+        } else {
+            palette.keyBg
+        }
     }
     
     /**
@@ -791,14 +845,188 @@ class ThemeManager(context: Context) : BaseManager(context) {
      * Get toolbar background color
      */
     fun getToolbarBackgroundColor(): Int {
-        return getCurrentPalette().toolbarBg
+        val palette = getCurrentPalette()
+        return if (palette.usesImageBackground) Color.TRANSPARENT else palette.toolbarBg
     }
     
     /**
      * Get suggestion bar background color
      */
     fun getSuggestionBackgroundColor(): Int {
-        return getCurrentPalette().suggestionBg
+        val palette = getCurrentPalette()
+        return if (palette.usesImageBackground) Color.TRANSPARENT else palette.suggestionBg
+    }
+    
+    // ===== UNIFIED KEYBOARD VIEW THEMING EXTENSIONS =====
+    
+    /**
+     * Apply toolbar theme to container
+     */
+    fun applyToolbarTheme(toolbar: LinearLayout) {
+        val palette = getCurrentPalette()
+        toolbar.background = createToolbarBackground()
+        
+        // Apply theme to all child buttons
+        for (i in 0 until toolbar.childCount) {
+            val child = toolbar.getChildAt(i)
+            if (child is TextView) {
+                child.setTextColor(palette.keyText)
+                child.background = createKeyDrawable()
+            }
+        }
+    }
+    
+    /**
+     * Apply suggestion bar theme to container
+     */
+    fun applySuggestionBarTheme(container: LinearLayout) {
+        val palette = getCurrentPalette()
+        container.background = createSuggestionBarBackground()
+        
+        // Apply theme to all child suggestion items
+        for (i in 0 until container.childCount) {
+            val child = container.getChildAt(i)
+            if (child is TextView) {
+                child.setTextColor(palette.suggestionText)
+                child.background = createKeyDrawable()
+            }
+        }
+    }
+    
+    /**
+     * Get toolbar button background drawable resource ID
+     */
+    fun getToolbarButtonBackground(): Int {
+        // Return a themed drawable resource ID
+        return android.R.drawable.btn_default
+    }
+    
+    /**
+     * Get suggestion chip background drawable resource ID
+     */
+    fun getSuggestionChipBackground(): Int {
+        // Return a themed drawable resource ID for regular suggestions
+        return android.R.drawable.btn_default
+    }
+    
+    /**
+     * Get primary suggestion background drawable resource ID (auto-commit)
+     */
+    fun getPrimarySuggestionBackground(): Int {
+        // Return a themed drawable resource ID for primary suggestions
+        return android.R.drawable.btn_default
+    }
+    
+    /**
+     * Get floating keyboard background drawable resource ID
+     */
+    fun getFloatingKeyboardBackground(): Int {
+        // Return a themed drawable resource ID for floating mode
+        return android.R.drawable.dialog_frame
+    }
+    
+    /**
+     * Create suggestion chip drawable with proper styling
+     */
+    fun createSuggestionChipDrawable(isActive: Boolean = false): Drawable {
+        val palette = getCurrentPalette()
+        val density = context.resources.displayMetrics.density
+        val radiusPx = palette.keyRadius * density * 0.6f
+
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(if (isActive) palette.specialAccent else palette.suggestionBg)
+            cornerRadius = radiusPx
+        }
+
+        return drawable
+    }
+    
+    /**
+     * Create toolbar button drawable with proper styling
+     */
+    fun createToolbarButtonDrawable(): Drawable {
+        val palette = getCurrentPalette()
+        val isImageTheme = palette.usesImageBackground
+        val density = context.resources.displayMetrics.density
+        val radiusDp = palette.keyRadius.coerceAtMost(8f)
+        val radiusPx = radiusDp * density
+        
+        val drawable = GradientDrawable()
+        drawable.shape = GradientDrawable.RECTANGLE
+        drawable.setColor(
+            if (isImageTheme) ColorUtils.setAlphaComponent(palette.specialAccent, 220)
+            else palette.specialAccent
+        )
+        drawable.cornerRadius = radiusPx
+        
+        // Apply border if enabled
+        if (palette.keyBorderEnabled && !isImageTheme) {
+            drawable.setStroke(
+                (palette.keyBorderWidth * density * 0.5f).toInt(),
+                palette.specialAccent
+            )
+        }
+        
+        return drawable
+    }
+    
+    /**
+     * Style auto-commit chip with check icon and accent color
+     */
+    fun styleAutoCommitChip(view: TextView, isPrimary: Boolean) {
+        val palette = getCurrentPalette()
+        
+        view.background = createSuggestionChipDrawable(isPrimary)
+        view.setTextColor(if (isPrimary) getAccentOnColor() else palette.suggestionText)
+        view.setCompoundDrawables(null, null, null, null)
+    }
+    
+    /**
+     * Get theme-aware text color for toolbar buttons
+     */
+    fun getToolbarTextColor(): Int {
+        val palette = getCurrentPalette()
+        if (palette.usesImageBackground) {
+            return Color.WHITE
+        }
+        val luminance = ColorUtils.calculateLuminance(palette.toolbarBg)
+        return if (luminance > 0.5) Color.BLACK else Color.WHITE
+    }
+    
+    /**
+     * Get theme-aware text color for suggestions
+     */
+    fun getSuggestionTextColor(): Int {
+        return getCurrentPalette().suggestionText
+    }
+
+    fun getAccentOnColor(): Int {
+        val palette = getCurrentPalette()
+        val luminance = ColorUtils.calculateLuminance(palette.specialAccent)
+        return if (luminance > 0.5) Color.BLACK else Color.WHITE
+    }
+    
+    /**
+     * Get theme-aware background color for floating keyboard
+     */
+    fun getFloatingBackgroundColor(): Int {
+        val palette = getCurrentPalette()
+        // Slightly darker/lighter than main background for floating effect
+        return when {
+            palette.keyboardBg == Color.BLACK -> Color.parseColor("#1A1A1A")
+            palette.keyboardBg == Color.WHITE -> Color.parseColor("#F5F5F5")
+            else -> {
+                val hsv = FloatArray(3)
+                Color.colorToHSV(palette.keyboardBg, hsv)
+                hsv[2] = (hsv[2] * 0.9f).coerceIn(0f, 1f) // Slightly darker
+                Color.HSVToColor(hsv)
+            }
+        }
+    }
+
+    fun isImageBackground(): Boolean {
+        return getCurrentPalette().usesImageBackground
     }
     
     // ===== LEGACY COMPATIBILITY =====

@@ -14,7 +14,6 @@ import android.text.TextWatcher
 import android.util.Log
 import com.example.ai_keyboard.utils.LogUtil
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -29,6 +28,7 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.ai_keyboard.themes.ThemePaletteV2
 import com.example.ai_keyboard.stickers.StickerServiceAdapter
 import com.example.ai_keyboard.stickers.StickerData
 import kotlinx.coroutines.CoroutineScope
@@ -60,6 +60,7 @@ class EmojiPanelController(
     private var emojiGrid: RecyclerView? = null
     private var btnABC: TextView? = null
     private var btnDelete: ImageView? = null
+    private var bottomBar: LinearLayout? = null
     private var emojiSearchInput: EditText? = null
     private var emojiCategories: LinearLayout? = null
     
@@ -82,42 +83,146 @@ class EmojiPanelController(
     fun inflate(parent: ViewGroup): View {
         if (root != null) return root!!
         
-        LogUtil.d(TAG, "Inflating emoji panel layout")
-        root = LayoutInflater.from(context).inflate(R.layout.panel_emoji, parent, false)
+        LogUtil.d(TAG, "Building emoji panel programmatically (100% dynamic, no XML)")
         
-        // Find views
-        emojiGrid = root!!.findViewById(R.id.emojiGrid)
-        btnABC = root!!.findViewById(R.id.btnEmojiToABC)
-        btnDelete = root!!.findViewById(R.id.btnEmojiDelete)
-        emojiSearchInput = root!!.findViewById(R.id.emojiSearchInput)
-        emojiCategories = root!!.findViewById(R.id.emojiCategories)
-        
-        
-        // Set keyboard height to match normal keyboard with FIXED dimensions
+        val palette = themeManager.getCurrentPalette()
         val keyboardHeight = getKeyboardHeight()
-        root!!.layoutParams = ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            keyboardHeight
-        )
         
-        // Ensure the root panel itself is completely FIXED - no scrolling at all
-        root!!.isScrollContainer = false
-        root!!.overScrollMode = View.OVER_SCROLL_NEVER
-        
-        // Ensure all parent containers don't scroll
-        (root as? LinearLayout)?.apply {
+        // Create root layout programmatically
+        root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                keyboardHeight
+            )
+            background = buildPanelGradient(palette)
+            setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(10))
             isScrollContainer = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            
+            // ✅ Consume all touch events to prevent keyboard keys from being triggered
+            isClickable = true
+            isFocusable = true
+            setOnTouchListener { _, _ -> true }
         }
         
+        val rootLinearLayout = root as LinearLayout
+        
+        // 1. Category Bar (Toolbar) - HorizontalScrollView with categories
+        val categoryScrollView = HorizontalScrollView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(56)
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(0, dpToPx(4), 0, dpToPx(8))
+            isHorizontalScrollBarEnabled = false
+            isSmoothScrollingEnabled = true
+        }
+        
+        emojiCategories = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setPadding(dpToPx(8), 0, dpToPx(8), 0)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        
+        categoryScrollView.addView(emojiCategories)
+        rootLinearLayout.addView(categoryScrollView)
+        
+        // 2. Emoji Grid (RecyclerView)
+        emojiGrid = RecyclerView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f // Take remaining space
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(0, dpToPx(4), 0, dpToPx(8))
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isNestedScrollingEnabled = true
+            setHasFixedSize(true)
+            isScrollbarFadingEnabled = true
+            scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
+        }
+        
+        rootLinearLayout.addView(emojiGrid)
+        
+        // 3. Bottom Bar (Footer) with ABC and Delete buttons
+        val bottomBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(48)
+            )
+            background = createBottomBarDrawable(palette)
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        
+        // ABC Button
+        btnABC = TextView(context).apply {
+            text = "ABC"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(palette.keyText)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f
+            )
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(
+                    ColorUtils.blendARGB(palette.specialAccent, Color.WHITE, 0.12f),
+                    palette.specialAccent
+                )
+            ).apply { cornerRadius = dpToPx(12).toFloat() }
+        }
+        bottomBar.addView(btnABC)
+        
+        // Spacer
+        bottomBar.addView(View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(8), dpToPx(1))
+        })
+        
+        // Delete Button
+        btnDelete = ImageView(context).apply {
+            setImageResource(android.R.drawable.ic_input_delete)
+            setColorFilter(Color.WHITE)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            layoutParams = LinearLayout.LayoutParams(
+                dpToPx(56),
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(
+                    ColorUtils.blendARGB(palette.specialAccent, Color.WHITE, 0.12f),
+                    palette.specialAccent
+                )
+            ).apply { cornerRadius = dpToPx(12).toFloat() }
+            setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
+        }
+        bottomBar.addView(btnDelete)
+        
+        rootLinearLayout.addView(bottomBar)
+        this.bottomBar = bottomBar
+        
+        // Setup functionality
         setupEmojiGrid()
         setupFooterButtons()
         setupToolbar()
         applyTheme()
         
         val orientation = if (context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) "landscape" else "portrait"
-        LogUtil.d(TAG, "✓ Emoji panel inflated with FIXED height: ${keyboardHeight}px ($orientation)")
-        LogUtil.d(TAG, "  - Height calculation based on key_height, gaps, and padding from dimens.xml")
-        LogUtil.d(TAG, "  - Grid will scroll inside this fixed panel (NOT fullscreen)")
+        LogUtil.d(TAG, "✓ Emoji panel built programmatically with FIXED height: ${keyboardHeight}px ($orientation)")
+        LogUtil.d(TAG, "  - 100% dynamic UI, zero XML dependencies")
+        LogUtil.d(TAG, "  - Grid scrolls inside fixed panel")
         return root!!
     }
     
@@ -192,7 +297,7 @@ class EmojiPanelController(
                 cornerRadius = dpToPx(12).toFloat()
                 setColor(palette.keyBg)
             }
-            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+            setPadding(dpToPx(12), dpToPx(4), dpToPx(12), dpToPx(8))
             elevation = dpToPx(8).toFloat()
         }
         
@@ -332,8 +437,13 @@ class EmojiPanelController(
      */
     private fun scrollToSelectedCategory(selectedView: TextView) {
         try {
-            val categoryScrollView = root?.findViewById<HorizontalScrollView>(R.id.emojiCategoryScroll)
-            categoryScrollView?.let { scrollView ->
+            // Find the HorizontalScrollView parent of emojiCategories
+            var parent = emojiCategories?.parent
+            while (parent != null && parent !is HorizontalScrollView) {
+                parent = (parent as? View)?.parent
+            }
+            
+            (parent as? HorizontalScrollView)?.let { scrollView ->
                 // Calculate the position of the selected category
                 val scrollX = selectedView.left - (scrollView.width / 2) + (selectedView.width / 2)
                 
@@ -350,40 +460,37 @@ class EmojiPanelController(
     fun applyTheme() {
         try {
             val palette = themeManager.getCurrentPalette()
-            
-            // 1. Apply main background (overrides XML @color/kb_panel_bg)
-            root?.setBackgroundColor(palette.keyboardBg)
-            
-            // 2. Apply category bar background (now HorizontalScrollView)
-            root?.findViewById<HorizontalScrollView>(R.id.emojiCategoryScroll)?.apply {
-                setBackgroundColor(palette.keyboardBg)
-                // Ensure smooth horizontal scrolling for categories
-                isSmoothScrollingEnabled = true
-                isHorizontalScrollBarEnabled = false // Hide scrollbar for clean look
+
+            root?.background = buildPanelGradient(palette)
+            emojiCategories?.setBackgroundColor(Color.TRANSPARENT)
+            emojiGrid?.setBackgroundColor(Color.TRANSPARENT)
+            bottomBar?.background = createBottomBarDrawable(palette)
+
+            btnABC?.apply {
+                setTextColor(Color.WHITE)
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(
+                        ColorUtils.blendARGB(palette.specialAccent, Color.WHITE, 0.12f),
+                        palette.specialAccent
+                    )
+                ).apply { cornerRadius = dpToPx(12).toFloat() }
             }
-            root?.findViewById<LinearLayout>(R.id.emojiCategories)?.setBackgroundColor(palette.keyboardBg)
-            
-            // 3. Apply emoji grid background
-            root?.findViewById<View>(R.id.emojiGrid)?.setBackgroundColor(palette.keyboardBg)
-            
-            // 4. Apply bottom bar background (overrides hardcoded colors)
-            root?.findViewById<View>(R.id.emojiBottomBar)?.setBackgroundColor(palette.keyboardBg)
-            
-            // 5. Apply button text colors (ABC button - overrides @color/kb_text_primary)
-            btnABC?.setTextColor(palette.keyText)
-            btnDelete?.setColorFilter(palette.keyText)
-            
-            // 6. Apply search input colors if visible
-            emojiSearchInput?.apply {
-                setTextColor(palette.keyText)
-                setHintTextColor(palette.keyText)
-                setBackgroundColor(palette.keyBg)
+
+            btnDelete?.apply {
+                setColorFilter(Color.WHITE)
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(
+                        ColorUtils.blendARGB(palette.specialAccent, Color.WHITE, 0.12f),
+                        palette.specialAccent
+                    )
+                ).apply { cornerRadius = dpToPx(12).toFloat() }
             }
-            
-            // 7. Apply category button theming
+
             applyCategoryTheme()
-            
-            LogUtil.d(TAG, "✅ Complete theme applied to emoji panel (overriding XML colors)")
+
+            LogUtil.d(TAG, "✅ Complete theme applied to emoji panel (100% programmatic)")
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error applying theme", e)
         }
@@ -393,8 +500,7 @@ class EmojiPanelController(
         val palette = themeManager.getCurrentPalette()
         
         // Force override container backgrounds to match keyboard theme
-        emojiCategories?.setBackgroundColor(palette.keyboardBg)
-        root?.findViewById<HorizontalScrollView>(R.id.emojiCategoryScroll)?.setBackgroundColor(palette.keyboardBg)
+        emojiCategories?.setBackgroundColor(Color.TRANSPARENT)
         
         emojiCategories?.let { container ->
             for (i in 0 until container.childCount) {
@@ -406,9 +512,8 @@ class EmojiPanelController(
                 // Selected: Use theme accent background for clear visibility
                 // Unselected: Transparent background with reduced opacity
                 if (isAbcButton) {
-                    child.background = null
                     child.alpha = 1.0f
-                    child.setTextColor(palette.keyText)
+                    child.setTextColor(Color.WHITE)
                 } else if (isSelected) {
                     val selectedBg = GradientDrawable().apply {
                         cornerRadius = dpToPx(16).toFloat()
@@ -784,6 +889,36 @@ class EmojiPanelController(
     private fun dpToPx(dp: Int): Int {
         return (dp * context.resources.displayMetrics.density).toInt()
     }
+
+    private fun buildPanelGradient(palette: ThemePaletteV2): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                ColorUtils.blendARGB(palette.keyboardBg, Color.WHITE, 0.04f),
+                ColorUtils.blendARGB(palette.keyboardBg, Color.BLACK, 0.75f)
+            )
+        )
+    }
+
+    private fun createBottomBarDrawable(palette: ThemePaletteV2): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(
+                ColorUtils.blendARGB(palette.toolbarBg, Color.WHITE, 0.08f),
+                ColorUtils.blendARGB(palette.toolbarBg, Color.BLACK, 0.4f)
+            )
+        ).apply { cornerRadius = dpToPx(16).toFloat() }
+    }
+    
+    /**
+     * Helper to create rounded drawable for buttons
+     */
+    private fun createRoundedDrawable(color: Int, radiusPx: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radiusPx.toFloat()
+        }
+    }
     
     private fun getKeyboardHeight(): Int {
         // Match the letters keyboard height exactly
@@ -840,7 +975,7 @@ class EmojiPanelController(
                 cornerRadius = dpToPx(12).toFloat()
                 setColor(palette.keyBg)
             }
-            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+            setPadding(dpToPx(12), dpToPx(4), dpToPx(12), dpToPx(8))
             elevation = dpToPx(8).toFloat()
         }
         
@@ -1238,4 +1373,3 @@ class EmojiPanelController(
         }
     }
 }
-

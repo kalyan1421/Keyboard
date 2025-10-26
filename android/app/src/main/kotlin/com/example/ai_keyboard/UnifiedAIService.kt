@@ -105,6 +105,76 @@ class UnifiedAIService(private val context: Context) {
             ))
         }
     }.flowOn(Dispatchers.IO)
+
+    fun processCustomPrompt(
+        text: String,
+        prompt: String,
+        stream: Boolean = true
+    ): Flow<UnifiedResult> = flow {
+        val startTime = System.currentTimeMillis()
+        val systemPrompt = prompt.ifBlank { PromptManager.getDefaultPrompt("assistant") }
+        val cacheSuffix = "custom_${systemPrompt.hashCode()}"
+
+        try {
+            if (!config.isAIFeaturesEnabled()) {
+                emit(
+                    UnifiedResult(
+                        success = false,
+                        text = "",
+                        error = "AI features disabled. Please enable them in settings."
+                    )
+                )
+                return@flow
+            }
+
+            if (!config.hasApiKey()) {
+                emit(
+                    UnifiedResult(
+                        success = false,
+                        text = "",
+                        error = "AI API key not configured. Please set up your OpenAI API key."
+                    )
+                )
+                return@flow
+            }
+
+            if (stream) {
+                streaming.processTextStreaming(text, systemPrompt, cacheSuffix)
+                    .collect { chunk ->
+                        emit(
+                            UnifiedResult(
+                                success = true,
+                                text = chunk.currentText,
+                                fromCache = chunk.fromCache,
+                                time = System.currentTimeMillis() - startTime,
+                                isComplete = chunk.isComplete
+                            )
+                        )
+                    }
+            } else {
+                val result = advanced.processCustomPrompt(text, systemPrompt, cacheSuffix)
+                emit(
+                    UnifiedResult(
+                        success = result.success,
+                        text = result.text,
+                        error = result.error,
+                        fromCache = result.fromCache,
+                        time = result.processingTimeMs
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing custom prompt", e)
+            emit(
+                UnifiedResult(
+                    success = false,
+                    text = "",
+                    error = "Processing error: ${e.message}",
+                    time = System.currentTimeMillis() - startTime
+                )
+            )
+        }
+    }.flowOn(Dispatchers.IO)
     
     /**
      * Handle streaming AI requests

@@ -6,8 +6,7 @@ import 'package:flutter/services.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/keyboard_cloud_sync.dart';
 import '../main.dart';
-import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
-
+import 'package:ai_keyboard/screens/onboarding/onboarding_view.dart';
 import 'package:ai_keyboard/screens/login/mobile_login_screen.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
@@ -141,7 +140,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   // If it's first launch, show onboarding screen first
   if (_isFirstLaunch!) {
     print('🔵 [AuthWrapper] Showing onboarding screen for first launch');
-    return const AnimatedOnboardingScreen();
+    return const OnboardingView();
   }
 
     // For subsequent launches, check authentication status

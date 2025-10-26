@@ -34,6 +34,9 @@
     
     <!-- Messages -->
     <string name="voice_input_coming_soon">Voice input feature coming soon!</string>
+    <string name="voice_input_not_available">Voice input not available</string>
+    <string name="voice_input_listening">Listening...</string>
+    <string name="voice_input_error">Unable to start voice input</string>
     <string name="keyboard_not_enabled">Please enable AI Keyboard in system settings</string>
     <string name="keyboard_not_active">Please select AI Keyboard as your input method</string>
     
@@ -50,4 +53,26 @@
     <string name="space">Space</string>
     <string name="send">Send</string>
     <string name="delete">Delete</string>
+    
+    <!-- Toolbar -->
+    <string name="toolbar_settings">Keyboard settings</string>
+    <string name="toolbar_voice">Voice input</string>
+    <string name="toolbar_emoji">Emoji panel</string>
+    <string name="toolbar_ai_assistant">AI assistant</string>
+    <string name="toolbar_grammar">Grammar tools</string>
+    <string name="toolbar_tone">Tone editor</string>
+    
+    <!-- Suggestions -->
+    <string name="suggestion_placeholder">Suggest</string>
+
+    <!-- AI Panel -->
+    <string name="ai_panel_button_back">Back to Keyboard</string>
+    <string name="ai_panel_button_replace">Replace Text</string>
+    <string name="ai_panel_status_prompt">Type something to try AI Writing Assistance.</string>
+    <string name="panel_prompt_grammar">Type something to fix Grammar.</string>
+    <string name="panel_prompt_tone">Type something to adjust Tone.</string>
+    <string name="translation_loading">Translating to %1$s...</string>
+    <string name="translation_error">Translation unavailable (%1$s)</string>
+    <string name="keyboard_button_back">Back to keyboard</string>
+    <string name="panel_result_pending">Results will appear here…</string>
 </resources>

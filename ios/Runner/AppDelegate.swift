@@ -1,11 +1,32 @@
 import UIKit
 import Flutter
-import Firebase
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
     
+    // ✅ Explicit Flutter engine management
+    var flutterEngine: FlutterEngine?
+    
     private let CHANNEL = "ai_keyboard/config"
+    
+    private var keyboardExtensionBundleIds: [String] {
+        var identifiers: [String] = []
+        
+        if let configured = Bundle.main.object(forInfoDictionaryKey: "AIKeyboardExtensionBundleId") as? String,
+           !configured.isEmpty {
+            identifiers.append(configured)
+        }
+        
+        if let baseBundleId = Bundle.main.bundleIdentifier, !baseBundleId.isEmpty {
+            identifiers.append("\(baseBundleId).keyboard")
+            identifiers.append("\(baseBundleId).KeyboardExtension")
+        }
+        
+        // Fallback to known identifiers used across release/dev builds
+        identifiers.append("com.kvive.aikeyboard.keyboard")
+        
+        return Array(Set(identifiers))
+    }
     
     override func application(
         _ application: UIApplication,
@@ -14,36 +35,31 @@ import Firebase
         
         print("🚀 App launching - AppDelegate didFinishLaunching")
         
-        // ✅ Initialize Firebase FIRST, before accessing any Flutter components
-        do {
-            FirebaseApp.configure()
-            print("✅ Firebase configured successfully")
-        } catch {
-            print("❌ Firebase configuration failed: \(error)")
-        }
-        
-        // ✅ Call super first to ensure Flutter is properly initialized
+        // ✅ Call super FIRST to let Flutter framework initialize properly
         let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
-        print("✅ Flutter super.application completed with result: \(result)")
+        print("✅ Flutter super.application completed")
         
-        // ✅ Now safely access Flutter engine after initialization
+        // ✅ Now access the Flutter engine and register plugins
         guard let window = self.window else {
             print("❌ Window is nil")
             return result
         }
         
         guard let controller = window.rootViewController as? FlutterViewController else {
-            print("❌ Failed to get FlutterViewController - rootViewController type: \(type(of: window.rootViewController))")
+            print("❌ Failed to get FlutterViewController")
             return result
         }
         
-        print("✅ FlutterViewController obtained successfully")
+        // ✅ Store reference to the engine
+        flutterEngine = controller.engine
+        
+        // ✅ Register plugins with the controller's engine
+        GeneratedPluginRegistrant.register(with: controller.engine)
+        print("✅ Plugins registered with FlutterViewController's engine")
         
         // ✅ Setup method channel with error handling
         setupMethodChannel(controller: controller)
-        
-        // ✅ Register Flutter plugins
-        GeneratedPluginRegistrant.register(with: self)
+        setupAIStubChannels(controller: controller)
         
         // Setup shortcuts for easier access (commented out until ShortcutsManager is added to Runner target)
         // if #available(iOS 12.0, *) {
@@ -87,8 +103,8 @@ import Firebase
                     self.showKeyboardTutorial()
                     result(true)
                 case "openKeyboardsDirectly":
-                    self.openKeyboardsDirectly()
-                    result(true)
+                    let opened = self.openKeyboardsDirectly()
+                    result(opened)
                 case "checkKeyboardPermissions":
                     result(self.checkKeyboardPermissions())
                 default:
@@ -103,15 +119,78 @@ import Firebase
         }
     }
     
+    private func setupAIStubChannels(controller: FlutterViewController) {
+        let aiChannel = FlutterMethodChannel(
+            name: "ai_keyboard/unified_ai",
+            binaryMessenger: controller.binaryMessenger
+        )
+        
+        aiChannel.setMethodCallHandler { [weak self] call, result in
+            guard self != nil else {
+                result(FlutterError(code: "NO_SELF", message: "AppDelegate deallocated", details: nil))
+                return
+            }
+            
+            switch call.method {
+            case "getServiceStatus":
+                result([
+                    "isReady": false,
+                    "hasApiKey": false,
+                    "aiEnabled": false,
+                    "fromStub": true
+                ])
+            case "getCacheStats":
+                result([
+                    "cachedItems": 0,
+                    "memoryUsage": 0,
+                    "fromStub": true
+                ])
+            case "clearCache":
+                result(true)
+            case "getAvailableTones", "getAvailableFeatures":
+                result([])
+            case "generateSmartReplies", "processText", "testConnection":
+                result(FlutterError(code: "UNAVAILABLE", message: "AI service not available on iOS yet", details: call.method))
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+        
+        let promptsChannel = FlutterMethodChannel(
+            name: "ai_keyboard/prompts",
+            binaryMessenger: controller.binaryMessenger
+        )
+        
+        promptsChannel.setMethodCallHandler { [weak self] call, result in
+            guard self != nil else {
+                result(FlutterError(code: "NO_SELF", message: "AppDelegate deallocated", details: nil))
+                return
+            }
+            
+            switch call.method {
+            case "getPrompts":
+                result([])
+            case "savePrompt":
+                result(true)
+            case "deletePrompt":
+                result(true)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+    }
+    
     private func isKeyboardEnabled() -> Bool {
         // Check if the keyboard extension is enabled
-        // This is a simplified check - in production, you might want more sophisticated detection
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
-        let keyboardBundleId = "\(bundleIdentifier).KeyboardExtension"
-        
         // Check if keyboard is in the list of enabled keyboards
-        if let keyboards = UserDefaults.standard.object(forKey: "AppleKeyboards") as? [String] {
-            return keyboards.contains(keyboardBundleId)
+        guard let keyboards = UserDefaults.standard.object(forKey: "AppleKeyboards") as? [String] else {
+            return false
+        }
+        
+        for candidate in keyboardExtensionBundleIds {
+            if keyboards.contains(candidate) {
+                return true
+            }
         }
         
         return false
@@ -142,7 +221,7 @@ import Firebase
     
     private func updateKeyboardSettings(_ settings: [String: Any]) {
         // Share settings with keyboard extension using App Groups
-        if let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard.shared") {
+        if let userDefaults = UserDefaults(suiteName: "group.com.kvive.aikeyboard.shared") {
             userDefaults.set(settings["theme"] as? String ?? "default", forKey: "keyboard_theme")
             userDefaults.set(settings["aiSuggestions"] as? Bool ?? true, forKey: "ai_suggestions")
             userDefaults.set(settings["swipeTyping"] as? Bool ?? true, forKey: "swipe_typing")
@@ -188,7 +267,8 @@ import Firebase
         rootViewController.present(alert, animated: true)
     }
     
-    private func openKeyboardsDirectly() {
+    @discardableResult
+    private func openKeyboardsDirectly() -> Bool {
         // Multiple attempts to open keyboard settings directly
         let keyboardUrls = [
             "App-prefs:General&path=Keyboard",
@@ -201,16 +281,15 @@ import Firebase
             if let url = URL(string: urlString),
                UIApplication.shared.canOpenURL(url) {
                 UIApplication.shared.open(url, completionHandler: nil)
-                return
+                return true
             }
         }
+        
+        return false
     }
     
     private func checkKeyboardPermissions() -> Bool {
         // Enhanced keyboard permission checking
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
-        let keyboardBundleId = "\(bundleIdentifier).KeyboardExtension"
-        
         // Check multiple sources for keyboard status
         let sources = [
             UserDefaults.standard.object(forKey: "AppleKeyboards") as? [String],
@@ -218,15 +297,26 @@ import Firebase
         ]
         
         for keyboards in sources {
-            if let keyboards = keyboards,
-               keyboards.contains(where: { $0.contains(keyboardBundleId) }) {
-                return true
+            if let keyboards = keyboards {
+                let hasMatch = keyboards.contains { entry in
+                    keyboardExtensionBundleIds.contains { candidate in
+                        entry == candidate || entry.contains(candidate)
+                    }
+                }
+                
+                if hasMatch {
+                    return true
+                }
             }
         }
         
         return false
     }
 }
+
+// MARK: - Firebase Configuration
+// ✅ Firebase is initialized by Flutter's firebase_core plugin
+// No manual configuration needed here
 
 // MARK: - Keyboard Extension Manager
 class KeyboardExtensionManager {
@@ -235,7 +325,7 @@ class KeyboardExtensionManager {
     private init() {}
     
     func sendSettingsUpdate(theme: String, aiSuggestions: Bool, swipeTyping: Bool, voiceInput: Bool) {
-        guard let userDefaults = UserDefaults(suiteName: "group.com.example.aiKeyboard.shared") else { return }
+        guard let userDefaults = UserDefaults(suiteName: "group.com.kvive.aikeyboard.shared") else { return }
         
         userDefaults.set(theme, forKey: "keyboard_theme")
         userDefaults.set(aiSuggestions, forKey: "ai_suggestions")

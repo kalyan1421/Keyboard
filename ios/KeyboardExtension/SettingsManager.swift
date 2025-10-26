@@ -4,7 +4,7 @@ import Foundation
 class SettingsManager {
     static let shared = SettingsManager()
     
-    private let appGroupIdentifier = "group.com.example.aiKeyboard.shared"
+    private let appGroupIdentifier = "group.com.kvive.aikeyboard.shared"
     
     private var userDefaults: UserDefaults? {
         // Try to use App Groups, fallback to standard UserDefaults if not available

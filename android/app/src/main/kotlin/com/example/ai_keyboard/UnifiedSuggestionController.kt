@@ -2,6 +2,8 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.ai_keyboard.Suggestion
+import com.example.ai_keyboard.SuggestionSource
 import com.example.ai_keyboard.utils.LogUtil
 import kotlinx.coroutines.*
 
@@ -43,6 +45,17 @@ class UnifiedSuggestionController(
         private const val WEIGHT_CLIPBOARD = 0.8
         private const val WEIGHT_NEXT_WORD = 0.9
         private const val WEIGHT_AI_REWRITE = 1.2
+        private const val WEIGHT_SENTENCE_STARTER = 0.85
+        
+        // Common sentence starter words
+        private val SENTENCE_STARTERS = listOf(
+            "I", "The", "A", "We", "You", "It", "They", "This", "That",
+            "My", "What", "How", "When", "Where", "Why", "Who", "Can",
+            "Will", "Would", "Should", "Could", "Have", "Has", "Do",
+            "Does", "Did", "Is", "Are", "Was", "Were", "Be", "Been"
+        )
+
+        private val DEFAULT_FALLBACKS = listOf("I", "The", "You", "We", "It", "Thanks")
     }
     
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -54,6 +67,9 @@ class UnifiedSuggestionController(
     @Volatile private var emojiSuggestionsEnabled = true
     @Volatile private var clipboardSuggestionsEnabled = true
     @Volatile private var nextWordPredictionEnabled = true
+    
+    // Track if a new clipboard item was just copied
+    @Volatile private var hasNewClipboardItem = false
     
     // LRU Cache for recent suggestions
     private val suggestionCache = object : android.util.LruCache<String, List<UnifiedSuggestion>>(CACHE_SIZE) {}
@@ -195,8 +211,8 @@ class UnifiedSuggestionController(
                 LogUtil.d(TAG, "😊 Emoji suggestions: ${emojiSuggestions.size}")
             }
             
-            // 3️⃣ Clipboard Suggestions (if enabled and no prefix)
-            if (includeClipboard && clipboardSuggestionsEnabled && prefix.isEmpty()) {
+            // 3️⃣ Clipboard Suggestions (if enabled and new item available)
+            if (includeClipboard && clipboardSuggestionsEnabled && prefix.isEmpty() && hasNewClipboardItem) {
                 val clipboardSuggestions = getClipboardSuggestions()
                 allSuggestions.addAll(clipboardSuggestions)
                 LogUtil.d(TAG, "📋 Clipboard suggestions: ${clipboardSuggestions.size}")
@@ -232,38 +248,149 @@ class UnifiedSuggestionController(
      */
     private suspend fun getTextSuggestions(prefix: String, context: List<String>): List<UnifiedSuggestion> {
         return try {
-            if (prefix.isEmpty() && nextWordPredictionEnabled && context.isNotEmpty()) {
-                // Next-word prediction
-                val predictions = unifiedAutocorrectEngine.nextWord(context, 3)
-                predictions.map { suggestion ->
-                    UnifiedSuggestion(
-                        text = suggestion.text,
-                        type = SuggestionType.NEXT_WORD,
-                        score = suggestion.score * WEIGHT_NEXT_WORD,
-                        source = "NextWord",
-                        metadata = mapOf("source" to suggestion.source.name)
-                    )
+            val trimmedPrefix = prefix.trim()
+            val baseSuggestions = when {
+                trimmedPrefix.isEmpty() && nextWordPredictionEnabled && context.isNotEmpty() -> {
+                    if (isStartOfSentence(context)) {
+                        getSentenceStarterSuggestions()
+                    } else {
+                        unifiedAutocorrectEngine.nextWord(context, MAX_SUGGESTIONS)
+                            .map { it.toUnifiedSuggestion(WEIGHT_NEXT_WORD, SuggestionType.NEXT_WORD) }
+                    }
                 }
-            } else if (prefix.isNotEmpty()) {
-                // Typing suggestions
-                val suggestions = unifiedAutocorrectEngine.suggestForTyping(prefix, context)
-                suggestions.map { suggestion ->
-                    UnifiedSuggestion(
-                        text = suggestion.text,
-                        type = if (suggestion.isAutoCommit) SuggestionType.AUTOCORRECT else SuggestionType.TYPING,
-                        score = suggestion.score * WEIGHT_TEXT_SUGGESTION,
-                        source = "AutocorrectEngine",
-                        metadata = mapOf("source" to suggestion.source.name),
-                        isAutoCommit = suggestion.isAutoCommit
-                    )
+                trimmedPrefix.isNotEmpty() -> {
+                    unifiedAutocorrectEngine.suggestForTyping(trimmedPrefix, context)
+                        .map { suggestion ->
+                            val defaultType = if (suggestion.isAutoCommit) SuggestionType.AUTOCORRECT else SuggestionType.TYPING
+                            suggestion.toUnifiedSuggestion(WEIGHT_TEXT_SUGGESTION, defaultType)
+                        }
                 }
-            } else {
-                emptyList()
+                trimmedPrefix.isEmpty() && context.isEmpty() -> {
+                    getSentenceStarterSuggestions()
+                }
+                else -> emptyList()
             }
+
+            val resolved = if (baseSuggestions.isNotEmpty()) {
+                baseSuggestions
+            } else {
+                buildFallbackTextSuggestions(trimmedPrefix, context)
+            }
+
+            if (resolved.isEmpty()) getSentenceStarterSuggestions() else resolved.take(MAX_SUGGESTIONS)
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error getting text suggestions", e)
-            emptyList()
+            getSentenceStarterSuggestions()
         }
+    }
+
+    private fun buildFallbackTextSuggestions(prefix: String, context: List<String>): List<UnifiedSuggestion> {
+        val results = mutableListOf<UnifiedSuggestion>()
+        val limit = MAX_SUGGESTIONS
+
+        fun MutableList<UnifiedSuggestion>.appendUnique(candidates: List<UnifiedSuggestion>) {
+            val seen = this.map { it.text.lowercase() }.toMutableSet()
+            candidates.forEach { candidate ->
+                if (candidate.text.isNotBlank() && seen.add(candidate.text.lowercase())) {
+                    this.add(candidate)
+                }
+            }
+        }
+
+        try {
+            if (prefix.isEmpty()) {
+                val fallback = unifiedAutocorrectEngine.fallbackSuggestions(context, limit)
+                    .map { it.toUnifiedSuggestion(WEIGHT_NEXT_WORD, SuggestionType.NEXT_WORD) }
+                results.appendUnique(fallback)
+            } else {
+                val ngramFallback = unifiedAutocorrectEngine.fallbackSuggestions(context, limit * 2)
+                    .filter { it.text.startsWith(prefix, ignoreCase = true) }
+                    .map { it.toUnifiedSuggestion(WEIGHT_TEXT_SUGGESTION) }
+                results.appendUnique(ngramFallback)
+
+                if (results.size < limit) {
+                    val topMatches = unifiedAutocorrectEngine.getTopWords(limit * 2)
+                        .filter { it.text.startsWith(prefix, ignoreCase = true) }
+                        .map { it.toUnifiedSuggestion(WEIGHT_TEXT_SUGGESTION) }
+                    results.appendUnique(topMatches)
+                }
+            }
+        } catch (e: Exception) {
+            LogUtil.w(TAG, "Fallback suggestion generation error", e)
+        }
+
+        if (results.size < limit) {
+            val starters = if (prefix.isEmpty()) {
+                getSentenceStarterSuggestions()
+            } else {
+                getSentenceStarterSuggestions().filter { it.text.startsWith(prefix, ignoreCase = true) }
+            }
+            results.appendUnique(starters)
+        }
+
+        if (results.isEmpty() && prefix.isNotEmpty()) {
+            results.appendUnique(getSentenceStarterSuggestions())
+        }
+
+        if (results.isEmpty()) {
+            DEFAULT_FALLBACKS.take(limit).map { word ->
+                UnifiedSuggestion(
+                    text = word,
+                    type = SuggestionType.NEXT_WORD,
+                    score = WEIGHT_SENTENCE_STARTER,
+                    source = "Fallback"
+                )
+            }.let { results.appendUnique(it) }
+        }
+
+        return results.take(limit)
+    }
+    
+    /**
+     * Check if we're at the start of a new sentence
+     */
+    private fun isStartOfSentence(context: List<String>): Boolean {
+        if (context.isEmpty()) return true
+        
+        // Check if the last word ends with sentence-ending punctuation
+        val lastWord = context.lastOrNull() ?: return true
+        return lastWord.endsWith(".") || lastWord.endsWith("!") || 
+               lastWord.endsWith("?") || lastWord.endsWith("\n")
+    }
+    
+    /**
+     * Get sentence starter suggestions
+     */
+    private fun getSentenceStarterSuggestions(): List<UnifiedSuggestion> {
+        return SENTENCE_STARTERS.take(MAX_SUGGESTIONS).mapIndexed { index, word ->
+            UnifiedSuggestion(
+                text = word,
+                type = SuggestionType.NEXT_WORD,
+                score = WEIGHT_SENTENCE_STARTER * (1.0 - index * 0.05), // Gradually decrease score
+                source = "SentenceStarter",
+                metadata = mapOf("category" to "sentence_starter")
+            )
+        }
+    }
+
+    private fun Suggestion.toUnifiedSuggestion(
+        weight: Double,
+        defaultType: SuggestionType = SuggestionType.TYPING
+    ): UnifiedSuggestion {
+        val derivedType = when {
+            isAutoCommit || source == SuggestionSource.CORRECTION -> SuggestionType.AUTOCORRECT
+            source == SuggestionSource.LM_BIGRAM || source == SuggestionSource.LM_TRIGRAM || source == SuggestionSource.LM_QUADGRAM -> SuggestionType.NEXT_WORD
+            else -> defaultType
+        }
+        val effectiveScore = if (score == 0.0) weight else score * weight
+        return UnifiedSuggestion(
+            text = text,
+            type = derivedType,
+            score = effectiveScore,
+            source = "AutocorrectEngine",
+            metadata = mapOf("source" to source.name),
+            isAutoCommit = derivedType == SuggestionType.AUTOCORRECT || isAutoCommit
+        )
     }
     
     /**
@@ -288,18 +415,23 @@ class UnifiedSuggestionController(
     }
     
     /**
-     * Get clipboard suggestions
+     * Get clipboard suggestions (only if new item was copied)
      */
     private fun getClipboardSuggestions(): List<UnifiedSuggestion> {
         return try {
+            if (!hasNewClipboardItem) return emptyList()
+            
             val recentItems = clipboardHistoryManager.getHistoryItems()
             if (recentItems.isEmpty()) return emptyList()
             
             val item = recentItems.firstOrNull() ?: return emptyList()
             val ageSeconds = (System.currentTimeMillis() - item.timestamp) / 1000
             
-            // Only suggest if within time window (60 seconds)
-            if (ageSeconds > 60) return emptyList()
+            // Only suggest if within time window (120 seconds)
+            if (ageSeconds > 120) {
+                hasNewClipboardItem = false
+                return emptyList()
+            }
             
             // Truncate long text for display
             val displayText = if (item.text.length > 30) {
@@ -432,6 +564,25 @@ class UnifiedSuggestionController(
     }
     
     /**
+     * Notify that a new clipboard item was copied
+     * Call this when user copies something to show it in suggestions
+     */
+    fun onNewClipboardItem() {
+        hasNewClipboardItem = true
+        clearCache() // Clear cache to force new suggestions
+        LogUtil.d(TAG, "📋 New clipboard item - will show in suggestions")
+    }
+    
+    /**
+     * Clear clipboard suggestion flag (call when user uses the clipboard suggestion)
+     */
+    fun clearClipboardSuggestion() {
+        hasNewClipboardItem = false
+        clearCache() // Clear cache to update suggestions
+        LogUtil.d(TAG, "📋 Clipboard suggestion cleared")
+    }
+    
+    /**
      * Cleanup resources
      */
     fun cleanup() {
@@ -455,4 +606,3 @@ class UnifiedSuggestionController(
         )
     }
 }
-

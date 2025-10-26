@@ -1168,20 +1168,12 @@ class SwipeKeyboardView @JvmOverloads constructor(
         var lastKeyCode = -1
         
         sampledPoints.forEach { point ->
-            val keyIndex = keyboard?.let { findKeyAtPoint(point[0].toInt(), point[1].toInt()) } ?: -1
-            if (keyIndex >= 0) {
-                try {
-                    keyboard?.keys?.get(keyIndex)?.codes?.get(0)?.let { keyCode ->
-                        if (Character.isLetter(keyCode)) {
-                            // Only add if it's a different key from the last one
-                            if (keyCode != lastKeyCode) {
-                                keySequence.add(keyCode)
-                                lastKeyCode = keyCode
-                            }
-                        }
+            resolveKeyCode(point[0], point[1])?.let { keyCode ->
+                if (Character.isLetter(keyCode)) {
+                    if (keyCode != lastKeyCode) {
+                        keySequence.add(keyCode)
+                        lastKeyCode = keyCode
                     }
-                } catch (e: Exception) {
-                    // Ignore errors in key detection
                 }
             }
         }
@@ -1193,12 +1185,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
         android.util.Log.d("SwipeKeyboardView", "📐 bounds w=${width} h=${height} points=${swipePoints.size}")
         
         // Convert swipePoints to normalized coordinates before passing to listener
-        val normalizedPath = swipePoints.map { point ->
-            val normalizedX = point[0] / width.toFloat()
-            val normalizedY = point[1] / height.toFloat()
-            android.util.Log.v("SwipeKeyboardView", "📍 raw(${point[0]},${point[1]}) → norm($normalizedX,$normalizedY)")
-            Pair(normalizedX, normalizedY)
-        }
+        val normalizedPath = buildNormalizedPath(swipePoints)
         
         swipeListener?.onSwipeDetected(swipedKeys, swipePattern, keySequence, normalizedPath)
     }
@@ -1214,7 +1201,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
         sampledPoints.add(points.first()) // Always include start point
         
         var totalDistance = 0f
-        val samplingDistance = 15f // Sample every 15 pixels
+        val samplingDistance = getSamplingDistance()
         
         for (i in 1 until points.size) {
             val prevPoint = points[i - 1]
@@ -1264,6 +1251,129 @@ class SwipeKeyboardView @JvmOverloads constructor(
         swipePoints.clear()
         swipePath.reset()
         invalidate() // Clear the drawn path
+    }
+    
+    private fun resolveKeyCode(x: Float, y: Float): Int? {
+        return if (isDynamicLayoutMode && dynamicKeys.isNotEmpty()) {
+            findDynamicKeyAtPoint(x, y)?.code
+        } else {
+            keyboard?.keys?.let { keys ->
+                getKeyAtPosition(x, y, keys)?.codes?.firstOrNull()
+            }
+        }
+    }
+    
+    private fun findDynamicKeyAtPoint(x: Float, y: Float): DynamicKey? {
+        val direct = dynamicKeys.firstOrNull { key ->
+            x >= key.x && x < (key.x + key.width) &&
+            y >= key.y && y < (key.y + key.height)
+        }
+        if (direct != null) return direct
+        return nearestDynamicKey(x, y)
+    }
+    
+    private fun nearestDynamicKey(x: Float, y: Float): DynamicKey? {
+        if (dynamicKeys.isEmpty()) return null
+        var closest: DynamicKey? = null
+        var minDistance = Float.MAX_VALUE
+        dynamicKeys.forEach { key ->
+            val centerX = key.x + key.width / 2f
+            val centerY = key.y + key.height / 2f
+            val distance = sqrt((centerX - x).pow(2) + (centerY - y).pow(2))
+            if (distance < minDistance) {
+                minDistance = distance
+                closest = key
+            }
+        }
+        return closest
+    }
+    
+    private fun buildNormalizedPath(points: List<FloatArray>): List<Pair<Float, Float>> {
+        if (points.isEmpty() || width == 0 || height == 0) return emptyList()
+        val widthF = width.toFloat()
+        val heightF = height.toFloat()
+        
+        return points.map { point ->
+            val (centerX, centerY) = when {
+                isDynamicLayoutMode && dynamicKeys.isNotEmpty() -> {
+                    val key = findDynamicKeyAtPoint(point[0], point[1])
+                    if (key != null) {
+                        Pair(key.x + key.width / 2f, key.y + key.height / 2f)
+                    } else {
+                        Pair(point[0], point[1])
+                    }
+                }
+                keyboard?.keys?.isNotEmpty() == true -> {
+                    val key = getKeyAtPosition(point[0], point[1], keyboard!!.keys)
+                    if (key != null) {
+                        Pair(key.x + key.width / 2f, key.y + key.height / 2f)
+                    } else {
+                        Pair(point[0], point[1])
+                    }
+                }
+                else -> Pair(point[0], point[1])
+            }
+            
+            val normalizedX = (centerX / widthF).coerceIn(0f, 1f)
+            val normalizedY = (centerY / heightF).coerceIn(0f, 1f)
+            Pair(normalizedX, normalizedY)
+        }
+    }
+    
+    private fun getSamplingDistance(): Float {
+        if (isDynamicLayoutMode && dynamicKeys.isNotEmpty()) {
+            val avgWidth = dynamicKeys.map { it.width }.filter { it > 0 }.average().toFloat()
+            if (avgWidth > 0f) {
+                return (avgWidth * 0.35f).coerceIn(8f, 40f)
+            }
+        }
+        val legacyKeys = keyboard?.keys
+        if (!legacyKeys.isNullOrEmpty()) {
+            val avgWidth = legacyKeys.map { it.width }.filter { it > 0 }.average().toFloat()
+            if (avgWidth > 0f) {
+                return (avgWidth * 0.35f).coerceIn(8f, 40f)
+            }
+        }
+        return 15f
+    }
+    
+    private fun publishSwipeGeometry() {
+        val service = context as? AIKeyboardService ?: return
+        if (width == 0 || height == 0) return
+        val widthF = width.toFloat()
+        val heightF = height.toFloat()
+        val positions = mutableMapOf<Char, Pair<Float, Float>>()
+        
+        if (isDynamicLayoutMode && dynamicKeys.isNotEmpty()) {
+            dynamicKeys.forEach { key ->
+                codePointToChar(key.code)?.let { ch ->
+                    val centerX = (key.x + key.width / 2f) / widthF
+                    val centerY = (key.y + key.height / 2f) / heightF
+                    positions[ch.lowercaseChar()] = Pair(centerX, centerY)
+                }
+            }
+        } else {
+            keyboard?.keys?.forEach { key ->
+                val code = key.codes.firstOrNull() ?: return@forEach
+                codePointToChar(code)?.let { ch ->
+                    val centerX = (key.x + key.width / 2f) / widthF
+                    val centerY = (key.y + key.height / 2f) / heightF
+                    positions[ch.lowercaseChar()] = Pair(centerX, centerY)
+                }
+            }
+        }
+        
+        if (positions.isNotEmpty()) {
+            service.updateSwipeGeometry(currentLangCode, positions)
+        }
+    }
+    
+    private fun codePointToChar(codePoint: Int): Char? {
+        if (codePoint < 0) return null
+        val chars = Character.toChars(codePoint)
+        if (chars.size != 1) return null
+        val ch = chars[0]
+        return if (Character.isLetterOrDigit(ch)) ch else null
     }
     
     
@@ -1452,6 +1562,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
         
         android.util.Log.d("SwipeKeyboardView", "✅ Dynamic layout set: ${dynamicKeys.size} keys (${layout.direction}, numberRow: $showNumberRow)")
+        publishSwipeGeometry()
         invalidate()
         requestLayout()
     }
@@ -1719,7 +1830,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
         isDynamicLayoutMode = false
         dynamicKeys.clear()
         android.util.Log.d("SwipeKeyboardView", "Switched to legacy Keyboard XML mode")
+        publishSwipeGeometry()
         invalidate()
+    }
+    
+    override fun setKeyboard(keyboard: Keyboard?) {
+        super.setKeyboard(keyboard)
+        if (!isDynamicLayoutMode) {
+            post { publishSwipeGeometry() }
+        }
     }
     
     /**

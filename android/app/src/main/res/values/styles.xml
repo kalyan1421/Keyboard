@@ -62,4 +62,14 @@
     </style>
     
     <style name="KeyButton.Secondary"/>
+
+    <style name="AiChip">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="AiChipOutlined" parent="AiChip"/>
 </resources>

@@ -649,7 +649,7 @@ class KeyboardThemeV2 {
       mode: 'unified',
       background: const ThemeBackground(
         type: 'image',
-        color: Color(0xFF000000),
+        color: Color(0x00000000),
         imagePath: 'user_upload.jpg',
         imageOpacity: 0.85,
         gradient: null,
@@ -2384,7 +2384,8 @@ Color? _parseColor(String? colorStr) {
 }
 
 String _colorToHex(Color color) {
-  return '#${color.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+  final hex = color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
+  return '#$hex';
 }
 
 /// Theme management functions

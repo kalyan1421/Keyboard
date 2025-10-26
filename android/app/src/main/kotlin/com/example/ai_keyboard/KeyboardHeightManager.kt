@@ -252,4 +252,17 @@ class KeyboardHeightManager(private val context: Context) {
         
         // Log.d(TAG, "Applied height to view: ${newHeight}px")
     }
+    
+    /**
+     * Get panel height for dynamic panel creation
+     * Returns height suitable for panels (without toolbar and suggestions)
+     * 
+     * @return Panel height in pixels
+     */
+    fun getPanelHeight(): Int {
+        return calculateKeyboardHeight(
+            includeToolbar = false,
+            includeSuggestions = false
+        )
+    }
 }
