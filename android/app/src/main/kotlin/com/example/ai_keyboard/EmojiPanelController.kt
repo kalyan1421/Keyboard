@@ -168,7 +168,7 @@ class EmojiPanelController(
             text = "ABC"
             textSize = 16f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(palette.keyText)
+            setTextColor(getContrastColor(palette.specialAccent))
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 0,
@@ -193,7 +193,7 @@ class EmojiPanelController(
         // Delete Button
         btnDelete = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_input_delete)
-            setColorFilter(Color.WHITE)
+            setColorFilter(getContrastColor(palette.specialAccent))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             layoutParams = LinearLayout.LayoutParams(
                 dpToPx(56),
@@ -467,7 +467,7 @@ class EmojiPanelController(
             bottomBar?.background = createBottomBarDrawable(palette)
 
             btnABC?.apply {
-                setTextColor(Color.WHITE)
+                setTextColor(getContrastColor(palette.specialAccent))
                 background = GradientDrawable(
                     GradientDrawable.Orientation.LEFT_RIGHT,
                     intArrayOf(
@@ -478,7 +478,7 @@ class EmojiPanelController(
             }
 
             btnDelete?.apply {
-                setColorFilter(Color.WHITE)
+                setColorFilter(getContrastColor(palette.specialAccent))
                 background = GradientDrawable(
                     GradientDrawable.Orientation.LEFT_RIGHT,
                     intArrayOf(
@@ -513,7 +513,7 @@ class EmojiPanelController(
                 // Unselected: Transparent background with reduced opacity
                 if (isAbcButton) {
                     child.alpha = 1.0f
-                    child.setTextColor(Color.WHITE)
+                    child.setTextColor(getContrastColor(palette.specialAccent))
                 } else if (isSelected) {
                     val selectedBg = GradientDrawable().apply {
                         cornerRadius = dpToPx(16).toFloat()
@@ -522,7 +522,7 @@ class EmojiPanelController(
                     }
                     child.background = selectedBg
                     child.alpha = 1.0f
-                    child.setTextColor(Color.WHITE) // White text on accent background
+                    child.setTextColor(getContrastColor(palette.specialAccent))
                 } else {
                     child.background = null
                     child.alpha = 0.6f
@@ -890,24 +890,23 @@ class EmojiPanelController(
         return (dp * context.resources.displayMetrics.density).toInt()
     }
 
+    private fun getContrastColor(color: Int): Int {
+        return if (ColorUtils.calculateLuminance(color) > 0.5) Color.BLACK else Color.WHITE
+    }
+
     private fun buildPanelGradient(palette: ThemePaletteV2): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(
-                ColorUtils.blendARGB(palette.keyboardBg, Color.WHITE, 0.04f),
-                ColorUtils.blendARGB(palette.keyboardBg, Color.BLACK, 0.75f)
-            )
-        )
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(palette.keyboardBg)
+        }
     }
 
     private fun createBottomBarDrawable(palette: ThemePaletteV2): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.LEFT_RIGHT,
-            intArrayOf(
-                ColorUtils.blendARGB(palette.toolbarBg, Color.WHITE, 0.08f),
-                ColorUtils.blendARGB(palette.toolbarBg, Color.BLACK, 0.4f)
-            )
-        ).apply { cornerRadius = dpToPx(16).toFloat() }
+        return GradientDrawable().apply {
+            cornerRadius = dpToPx(16).toFloat()
+            setColor(palette.keyboardBg)
+            setStroke(1, ColorUtils.setAlphaComponent(palette.keyBorderColor, 100))
+        }
     }
     
     /**

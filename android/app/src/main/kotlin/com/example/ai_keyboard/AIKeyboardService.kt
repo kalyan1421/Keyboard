@@ -16,9 +16,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Vibrator
 import android.os.VibrationEffect
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.text.TextUtils
 import android.util.Log
 import com.example.ai_keyboard.utils.LogUtil
@@ -100,6 +97,14 @@ class AIKeyboardService : InputMethodService(),
         EXTENDED_SYMBOLS,
         DIALER,
         EMOJI
+    }
+
+    private fun KeyboardMode.toLayoutMode(): LanguageLayoutAdapter.KeyboardMode = when (this) {
+        KeyboardMode.LETTERS -> LanguageLayoutAdapter.KeyboardMode.LETTERS
+        KeyboardMode.NUMBERS, KeyboardMode.SYMBOLS -> LanguageLayoutAdapter.KeyboardMode.SYMBOLS
+        KeyboardMode.EXTENDED_SYMBOLS -> LanguageLayoutAdapter.KeyboardMode.EXTENDED_SYMBOLS
+        KeyboardMode.DIALER -> LanguageLayoutAdapter.KeyboardMode.DIALER
+        KeyboardMode.EMOJI -> LanguageLayoutAdapter.KeyboardMode.LETTERS
     }
     
     /**
@@ -193,7 +198,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     // UI Components
-    private var keyboardView: SwipeKeyboardView? = null // ⚠️ DEPRECATED - Use unifiedKeyboardView instead
+    private var keyboardView: SwipeKeyboardView? = null // Legacy keyboard view (still actively used)
     private var unifiedKeyboardView: UnifiedKeyboardView? = null // ✅ NEW: Unified view for keyboard + panels
     private var unifiedViewReady = false // Track if view is fully initialized
     private var pendingSuggestions: List<String>? = null // Buffer suggestions before view is ready
@@ -208,6 +213,7 @@ class AIKeyboardService : InputMethodService(),
     // ✅ UNIFIED PANEL MANAGER - Single source for all panels
     private var unifiedPanelManager: UnifiedPanelManager? = null
     private var currentAiSourceText: String = ""
+    private lateinit var voiceInputManager: VoiceInputManager
     
     // Emoji panel visibility helper (delegates to UnifiedPanelManager)
     private var isEmojiPanelVisible: Boolean
@@ -363,11 +369,6 @@ class AIKeyboardService : InputMethodService(),
     private var swipeStartTime = 0L
     private var isCurrentlySwiping = false
     
-    // Voice input recognition
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var speechRecognizerIntent: Intent? = null
-    private var isVoiceListening = false
-
     private fun isSwipeAllowedForCurrentState(): Boolean {
         if (!swipeEnabled || !swipeTypingEnabled) return false
         if (currentKeyboardMode != KeyboardMode.LETTERS) return false
@@ -433,7 +434,7 @@ class AIKeyboardService : InputMethodService(),
     private val syncInterval = 10 * 60 * 1000L // 10 minutes
     
     // Settings (using existing declarations above)
-    // Legacy theme variable (deprecated - use themeManager instead)
+    // Theme variable (managed by themeManager)
     private var currentTheme = "default" // Legacy compatibility (used in polling)
     private var aiSuggestionsEnabled = true
     private var swipeTypingEnabled = true
@@ -458,7 +459,10 @@ class AIKeyboardService : InputMethodService(),
     private lateinit var clipboardHistoryManager: ClipboardHistoryManager
     private var clipboardPanel: ClipboardPanel? = null
     private var clipboardSuggestionEnabled = true
+    private var pendingClipboardSuggestionText: String? = null
+    private var clipboardSuggestionConsumed = true
     private var clipboardStripView: ClipboardStripView? = null
+    private var showUtilityKeyEnabled = true
     
     // Dictionary management
     private lateinit var dictionaryManager: DictionaryManager
@@ -489,6 +493,8 @@ class AIKeyboardService : InputMethodService(),
         }
         
         override fun onNewClipboardItem(item: ClipboardItem) {
+            clipboardSuggestionConsumed = false
+            pendingClipboardSuggestionText = null
             // ✅ Notify UnifiedSuggestionController about new clipboard item
             if (clipboardSuggestionEnabled && clipboardHistoryManager.isEnabled()) {
                 if (::unifiedSuggestionController.isInitialized) {
@@ -511,46 +517,6 @@ class AIKeyboardService : InputMethodService(),
         override fun onExpansionTriggered(shortcut: String, expansion: String) {
             Log.d(TAG, "Dictionary expansion: $shortcut -> $expansion")
         }
-    }
-    
-    private val voiceRecognitionListener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            showVoiceInputFeedback(true)
-        }
-
-        override fun onBeginningOfSpeech() {}
-
-        override fun onRmsChanged(rmsdB: Float) {}
-
-        override fun onBufferReceived(buffer: ByteArray?) {}
-
-        override fun onEndOfSpeech() {
-            showVoiceInputFeedback(false)
-        }
-
-        override fun onError(error: Int) {
-            isVoiceListening = false
-            showVoiceInputFeedback(false)
-            Toast.makeText(
-                this@AIKeyboardService,
-                getString(R.string.voice_input_error),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-
-        override fun onResults(results: Bundle?) {
-            isVoiceListening = false
-            showVoiceInputFeedback(false)
-            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val transcript = matches?.firstOrNull()?.trim().orEmpty()
-            if (transcript.isNotEmpty()) {
-                currentInputConnection?.commitText("$transcript ", 1)
-            }
-        }
-
-        override fun onPartialResults(partialResults: Bundle?) {}
-
-        override fun onEvent(eventType: Int, params: Bundle?) {}
     }
     
     // Broadcast receiver for settings changes and AI prompt updates
@@ -760,6 +726,11 @@ class AIKeyboardService : InputMethodService(),
     override fun onCreate() {
         super.onCreate()
         
+        // ✅ Set instance for UnifiedKeyboardView to access
+        instance = this
+
+        voiceInputManager = VoiceInputManager(this)
+        
         // Initialize keyboard height manager
         keyboardHeightManager = KeyboardHeightManager(this)
         
@@ -957,7 +928,8 @@ class AIKeyboardService : InputMethodService(),
         // initializeMultilingualDictionary()
         
         // Run diagnostic audit (analysis phase)
-        runDiagnosticAudit()
+        // Commented out - causes error with uninitialized capsShiftManager
+        // runDiagnosticAudit()
         
             // onCreate complete
     }
@@ -989,15 +961,21 @@ class AIKeyboardService : InputMethodService(),
             
             // ✅ FIX: Remove bottom gap by ensuring touch region extends to bottom edge
             // Set input view height to exactly fill the available space 
-            val windowHeight = resources.displayMetrics.heightPixels
-            val statusBarHeight = getStatusBarHeight()
             val navBarHeight = getNavigationBarHeight()
-            val availableHeight = windowHeight - statusBarHeight
             
             // Make sure keyboard view fills entire bottom area (no gaps)
             inputView.layoutParams = inputView.layoutParams.apply {
                 height = desiredHeight
             }
+            if (inputView.paddingBottom != navBarHeight) {
+                inputView.setPadding(
+                    inputView.paddingLeft,
+                    inputView.paddingTop,
+                    inputView.paddingRight,
+                    navBarHeight
+                )
+            }
+            inputView.clipToPadding = false
             
             // Ensure touch region covers the entire keyboard
             insets.touchableInsets = Insets.TOUCHABLE_INSETS_REGION
@@ -1375,6 +1353,7 @@ class AIKeyboardService : InputMethodService(),
             val hintedNumberRow = p.getBoolean("flutter.keyboard.hintedNumberRow", false) && !numberRow
             val hintedSymbols = p.getBoolean("flutter.keyboard.hintedSymbols", true)
             val utilityAction = p.getStringCompat("flutter.keyboard.utilityKeyAction", "emoji")
+            val showUtilityKey = utilityAction != "none"
             val showLangOnSpace = p.getBoolean("flutter.keyboard.showLanguageOnSpace", true)
             val fontScaleP = p.getFloatCompat("flutter.keyboard.fontScalePortrait", 1.0f)
             val fontScaleL = p.getFloatCompat("flutter.keyboard.fontScaleLandscape", 1.0f)
@@ -1385,8 +1364,9 @@ class AIKeyboardService : InputMethodService(),
             val landscapeFull = p.getBoolean("flutter.keyboard.landscapeFullscreen", true)
             val scaleX = p.getFloatCompat("flutter.keyboard.scaleX", 1.0f)
             val scaleY = p.getFloatCompat("flutter.keyboard.scaleY", 1.0f)
-            val spaceVdp = p.getIntCompat("flutter.keyboard.keySpacingVdp", 4)
-            val spaceHdp = p.getIntCompat("flutter.keyboard.keySpacingHdp", 2)
+            val spaceVdp = p.getIntCompat("flutter.keyboard.keySpacingVdp", 7)
+            val spaceHdp = p.getIntCompat("flutter.keyboard.keySpacingHdp", 4)
+            val edgePaddingDp = max(10, spaceHdp * 2)
             val bottomP = p.getIntCompat("flutter.keyboard.bottomOffsetPortraitDp", 1)
             val bottomL = p.getIntCompat("flutter.keyboard.bottomOffsetLandscapeDp", 2)
             val popupPreview = p.getBoolean("flutter.keyboard.popupPreview", true)
@@ -1400,6 +1380,25 @@ class AIKeyboardService : InputMethodService(),
             if (numberRowChanged) {
                 showNumberRow = numberRow
                 Log.d(TAG, "✅ Number row changed to $numberRow, keyboard height updated")
+            }
+
+            keyboardHeightManager.setNumberRowEnabled(numberRow)
+            if (showUtilityKeyEnabled != showUtilityKey) {
+                showUtilityKeyEnabled = showUtilityKey
+                languageLayoutAdapter.setShowUtilityKey(showUtilityKey)
+                if (::unifiedController.isInitialized) {
+                    val targetMode = currentKeyboardMode.toLayoutMode()
+                    val enableNumberRow = showNumberRow && currentKeyboardMode == KeyboardMode.LETTERS
+                    unifiedController.buildAndRender(currentLanguage, targetMode, enableNumberRow)
+                } else {
+                    try {
+                        switchKeyboardMode(currentKeyboardMode)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error rebuilding keyboard after utility key change", e)
+                    }
+                }
+            } else {
+                languageLayoutAdapter.setShowUtilityKey(showUtilityKey)
             }
             
             // Determine font scale and bottom offset based on orientation
@@ -1434,6 +1433,8 @@ class AIKeyboardService : InputMethodService(),
                 // CRITICAL: Apply ALL settings to the view in proper order
                 view.setLabelScale(fontScale)
                 view.setBorderless(borderless)
+                view.setHintedNumberRow(hintedNumberRow)
+                view.setHintedSymbols(hintedSymbols)
                 view.setShowLanguageOnSpace(showLangOnSpace)
                 view.setCurrentLanguage(currentLanguage.uppercase())
                 view.setPreviewEnabled(popupPreview)
@@ -1462,6 +1463,24 @@ class AIKeyboardService : InputMethodService(),
                     "spacing=$spaceVdp/$spaceHdp, scale=$scaleX×$scaleY, longPress=${longPressDelay}ms, " +
                     "sound=$soundEnabled@$soundIntensity, haptic=$hapticIntensity")
             }
+        }
+
+        unifiedKeyboardView?.let { view ->
+            view.setLabelScale(fontScale)
+            view.setBorderless(borderless)
+            view.setHintedNumberRow(hintedNumberRow)
+            view.setHintedSymbols(hintedSymbols)
+            view.setShowLanguageOnSpace(showLangOnSpace)
+            view.setOneHandedMode(ohEnabled, ohSide, ohWidth)
+            view.setKeySpacing(spaceVdp, spaceHdp)
+            view.setEdgePadding(edgePaddingDp)
+            view.scaleX = scaleX
+            view.scaleY = scaleY
+            view.invalidate()
+            view.requestLayout()
+            Log.d(TAG, "✓ UnifiedKeyboardView settings applied: " +
+                "fontScale=$fontScale, borderless=$borderless, showLang=$showLangOnSpace, " +
+                "spacing=$spaceVdp/$spaceHdp, edgePadding=$edgePaddingDp, scale=$scaleX×$scaleY")
         }
         
         // Apply bottom offset to container
@@ -1527,6 +1546,7 @@ class AIKeyboardService : InputMethodService(),
             
             // Initialize language layout adapter (JSON-based dynamic layouts)
             languageLayoutAdapter = LanguageLayoutAdapter(this)
+            languageLayoutAdapter.setShowUtilityKey(showUtilityKeyEnabled)
             Log.d(TAG, "✓ LanguageLayoutAdapter initialized")
             
             // 🔍 AUDIT: Verify all key mappings at startup (after languageLayoutAdapter is ready)
@@ -1797,6 +1817,37 @@ class AIKeyboardService : InputMethodService(),
         }
         pendingSuggestions = null
         pendingInputSnapshot = null
+
+        // ✅ CRITICAL FIX: Apply window insets to handle navigation bar
+        unifiedKeyboardView?.let { view ->
+            // Make view fit system windows
+            view.fitsSystemWindows = false
+            view.clipToPadding = false
+            view.clipChildren = false
+            
+            // Apply bottom padding for navigation bar
+            keyboardHeightManager.applySystemInsets(
+                view = view,
+                applyBottom = true,
+                applyTop = false
+            ) { topInset, bottomInset ->
+                Log.d(TAG, "🔧 Navigation bar insets applied - Top: $topInset, Bottom: $bottomInset")
+            }
+            
+            // Additional fallback: Add bottom padding manually if insets not applied
+            view.post {
+                val navBarHeight = keyboardHeightManager.getNavigationBarHeight()
+                if (navBarHeight > 0 && view.paddingBottom < navBarHeight / 2) {
+                    view.setPadding(
+                        view.paddingLeft,
+                        view.paddingTop,
+                        view.paddingRight,
+                        navBarHeight
+                    )
+                    Log.d(TAG, "🔧 Manual navigation bar padding applied: $navBarHeight px")
+                }
+            }
+        }
 
         return unifiedKeyboardView!!
     }
@@ -2579,7 +2630,7 @@ class AIKeyboardService : InputMethodService(),
             -10 -> "?123"
             -11 -> "ABC"
             -20 -> "=<"
-            -21 -> "1234"
+            -21 -> "123"
             else -> if (primaryCode > 0 && primaryCode < 128) primaryCode.toChar().toString() else "CODE_$primaryCode"
         }
         
@@ -2637,7 +2688,7 @@ class AIKeyboardService : InputMethodService(),
             KEYCODE_LETTERS -> returnToLetters()    // ABC key returns to letters
             KEYCODE_NUMBERS -> cycleKeyboardMode()  // Also cycle
             -20 -> switchKeyboardMode(KeyboardMode.EXTENDED_SYMBOLS)  // =< key
-            -21 -> switchKeyboardMode(KeyboardMode.DIALER)  // 1234 key
+            -21 -> switchKeyboardMode(KeyboardMode.DIALER)  // 123 key
             KEYCODE_VOICE -> {
                 startVoiceInput()
                 ensureCursorStability()
@@ -3085,10 +3136,62 @@ class AIKeyboardService : InputMethodService(),
     
     // For double-backspace revert functionality
     private var lastBackspaceTime = 0L
+
+    private fun tryDeleteLastSwipeCommit(ic: InputConnection): Boolean {
+        if (lastCommittedSwipeWord.isBlank()) return false
+
+        val swipeWord = lastCommittedSwipeWord
+        val expectedTail = if (lastSwipeAutoInsertedSpace) {
+            "$swipeWord "
+        } else {
+            swipeWord
+        }
+
+        val buffer = ic.getTextBeforeCursor(expectedTail.length + 1, 0)?.toString() ?: return false
+        if (!buffer.endsWith(expectedTail)) return false
+
+        var batchStarted = false
+        return try {
+            batchStarted = ic.beginBatchEdit()
+            ic.deleteSurroundingText(expectedTail.length, 0)
+            if (batchStarted) {
+                ic.endBatchEdit()
+            }
+
+            // Remove swipe word from history if it was the last entry
+            if (wordHistory.isNotEmpty() && wordHistory.lastOrNull()?.equals(swipeWord, ignoreCase = true) == true) {
+                wordHistory.removeAt(wordHistory.lastIndex)
+            }
+
+            lastCommittedSwipeWord = ""
+            lastSwipeAutoInsertedSpace = true
+            currentWord = ""
+            Log.d(TAG, "🧼 Deleted swipe commit with single backspace: '$swipeWord'")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting swipe commit", e)
+            if (batchStarted) {
+                try {
+                    ic.endBatchEdit()
+                } catch (_: Exception) {
+                    // Ignore secondary failures
+                }
+            }
+            false
+        }
+    }
     
     private fun handleBackspace(ic: InputConnection) {
         val currentTime = System.currentTimeMillis()
         
+        // Handle swipe commit deletion shortcut
+        if (tryDeleteLastSwipeCommit(ic)) {
+            if (aiSuggestionsEnabled) {
+                updateAISuggestions()
+            }
+            return
+        }
+
         // Handle Gboard-style undo autocorrect on first backspace
         // ✅ FIX: Use safe call instead of !!
         if (undoAvailable) {
@@ -3611,12 +3714,10 @@ class AIKeyboardService : InputMethodService(),
             }
             
             KeyboardMode.NUMBERS -> {
-                keyboard = Keyboard(this, R.xml.symbols)  // Use symbols.xml which has numbers row
-                currentKeyboard = KEYBOARD_NUMBERS
-                keyboardView?.keyboard = keyboard
-                keyboardView?.showNormalLayout()
-                rebindKeyboardListener()  // NOTE: Always rebind after layout change
-                applyTheme()
+                // LEGACY: Old XML-based system - no longer used
+                // Now handled by UnifiedKeyboardView with JSON layouts
+                // Use SYMBOLS mode instead
+                unifiedController.buildAndRender(currentLanguage, LanguageLayoutAdapter.KeyboardMode.SYMBOLS, false)
             }
             
             KeyboardMode.SYMBOLS -> {
@@ -3714,19 +3815,15 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Get the appropriate keyboard resource ID for a given language and number row setting
+     * LEGACY FUNCTION - NO LONGER USED
+     * Old XML-based keyboard resource mapping
+     * Replaced by JSON-based LanguageLayoutAdapter system
      */
+    @Deprecated("Use LanguageLayoutAdapter with JSON keymaps instead")
     private fun getKeyboardResourceForLanguage(language: String, withNumbers: Boolean): Int {
-        return when (language) {
-            "EN" -> if (withNumbers) R.xml.qwerty_with_numbers else R.xml.qwerty
-            "ES" -> if (withNumbers) R.xml.qwerty_es_with_numbers else R.xml.qwerty_es
-            "FR" -> if (withNumbers) R.xml.qwerty_fr_with_numbers else R.xml.qwerty_fr
-            "DE" -> if (withNumbers) R.xml.qwerty_de_with_numbers else R.xml.qwerty_de
-            "HI" -> if (withNumbers) R.xml.qwerty_hi_with_numbers else R.xml.qwerty_hi
-            "TE" -> if (withNumbers) R.xml.qwerty_te_with_numbers else R.xml.qwerty_te
-            "TA" -> if (withNumbers) R.xml.qwerty_ta_with_numbers else R.xml.qwerty_ta
-            else -> if (withNumbers) R.xml.qwerty_with_numbers else R.xml.qwerty // Default to English
-        }
+        // Return dummy value - this function is no longer called
+        // All layouts now loaded via UnifiedKeyboardView + JSON
+        return 0
     }
     
     
@@ -4065,7 +4162,7 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun applySuggestion(suggestion: String) {
+    fun applySuggestion(suggestion: String) {
         Log.d(TAG, "applySuggestion called with: '$suggestion', currentWord: '$currentWord'")
         
         val ic = currentInputConnection ?: run {
@@ -4076,6 +4173,7 @@ class AIKeyboardService : InputMethodService(),
         // Clean suggestion text (remove correction indicators)
         val cleanSuggestion = suggestion.replace("✓ ", "").trim()
         Log.d(TAG, "Clean suggestion: '$cleanSuggestion'")
+        val wasClipboardSuggestion = pendingClipboardSuggestionText?.let { it == cleanSuggestion } == true
         
         // Check if suggestion is an emoji
         val isEmoji = cleanSuggestion.length <= 8 && cleanSuggestion.matches(Regex(".*[\\p{So}\\p{Sk}\\p{Sm}\\p{Sc}\\p{Cn}].*"))
@@ -4119,6 +4217,14 @@ class AIKeyboardService : InputMethodService(),
                 if (wordHistory.size > 20) {
                     wordHistory.removeAt(0)
                 }
+            }
+        }
+        
+        if (wasClipboardSuggestion) {
+            clipboardSuggestionConsumed = true
+            pendingClipboardSuggestionText = null
+            if (::unifiedSuggestionController.isInitialized) {
+                unifiedSuggestionController.clearClipboardSuggestion()
             }
         }
         
@@ -4749,6 +4855,17 @@ class AIKeyboardService : InputMethodService(),
                             lastSwipeAutoInsertedSpace = true
                             if (isConfident) {
                                 autocorrectEngine.recordSwipeAcceptance(bestCandidate)
+                                
+                                // Phase 1: Learn from swipe acceptance for personalization
+                                userDictionaryManager?.learnFromSwipe(bestCandidate)
+                                
+                                // Phase 1: Learn sequence pattern for NextWordPredictor
+                                if (wordHistory.isNotEmpty()) {
+                                    autocorrectEngine.nextWordPredictor?.learnFromInput(
+                                        wordHistory.last(),
+                                        bestCandidate
+                                    )
+                                }
                             }
                         } else {
                             lastCommittedSwipeWord = ""
@@ -4929,8 +5046,26 @@ class AIKeyboardService : InputMethodService(),
      */
     private fun applyKeyboardSettings() {
         try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
             // Apply number row setting
             showNumberRow = keyboardSettings.numberRow
+            keyboardHeightManager.setNumberRowEnabled(keyboardSettings.numberRow)
+            if (showUtilityKeyEnabled != keyboardSettings.showUtilityKey) {
+                showUtilityKeyEnabled = keyboardSettings.showUtilityKey
+                languageLayoutAdapter.setShowUtilityKey(keyboardSettings.showUtilityKey)
+                if (::unifiedController.isInitialized) {
+                    val targetMode = currentKeyboardMode.toLayoutMode()
+                    val enableNumberRow = showNumberRow && currentKeyboardMode == KeyboardMode.LETTERS
+                    unifiedController.buildAndRender(currentLanguage, targetMode, enableNumberRow)
+                }
+                keyboardView?.let { legacyView ->
+                    if (legacyView is SwipeKeyboardView) {
+                        legacyView.setKeyboardMode(legacyView.currentKeyboardMode, languageLayoutAdapter, showNumberRow)
+                    }
+                }
+            } else {
+                languageLayoutAdapter.setShowUtilityKey(keyboardSettings.showUtilityKey)
+            }
             
             // Apply font size settings (multiplier as percentage)
             val fontMultiplier = (keyboardSettings.portraitFontSize / 100.0).toFloat()
@@ -4952,9 +5087,25 @@ class AIKeyboardService : InputMethodService(),
                 val horizontalPadding = (keyboardSettings.horizontalKeySpacing * resources.displayMetrics.density).toInt()
                 val verticalPadding = (keyboardSettings.verticalKeySpacing * resources.displayMetrics.density).toInt()
                 view.setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
-                
+
+                if (view is SwipeKeyboardView) {
+                    val numberHintsEnabled = keyboardSettings.hintedNumberRow && !keyboardSettings.numberRow
+                    view.setHintedNumberRow(numberHintsEnabled)
+                    view.setHintedSymbols(keyboardSettings.hintedSymbols)
+                }
+
                 // Invalidate to redraw with new settings
                 view.invalidate()
+            }
+
+            unifiedKeyboardView?.let { view ->
+                val numberHintsEnabled = keyboardSettings.hintedNumberRow && !keyboardSettings.numberRow
+                view.setHintedNumberRow(numberHintsEnabled)
+                view.setHintedSymbols(keyboardSettings.hintedSymbols)
+                val widthPct = (keyboardSettings.oneHandedModeWidth / 100.0).toFloat().coerceIn(0.6f, 0.9f)
+                val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                val sidePref = prefs.getString("flutter.keyboard.oneHanded.side", "right") ?: "right"
+                view.setOneHandedMode(keyboardSettings.oneHandedMode, sidePref, widthPct)
             }
             
             // Apply long press delay
@@ -5105,13 +5256,9 @@ class AIKeyboardService : InputMethodService(),
         Log.d(TAG, "[KeyboardHeightManager] Configuration changed - Landscape: $isLandscape, Height: $newHeight")
         
         // Reinitialize keyboard for new configuration
-        keyboardView?.let { view ->
-            val keyboardResource = getKeyboardResourceForLanguage(currentLanguage.uppercase(), showNumberRow)
-            val newKeyboard = Keyboard(this, keyboardResource)
-            view.keyboard = newKeyboard
-            view.setKeyboard(newKeyboard)
-            keyboard = newKeyboard
-        }
+        // LEGACY: Old XML-based reload removed
+        // UnifiedKeyboardView handles configuration changes automatically
+        // No manual reload needed with JSON-based system
     }
     
     // Method to update settings from Flutter
@@ -5157,9 +5304,9 @@ class AIKeyboardService : InputMethodService(),
     override fun onDestroy() {
         super.onDestroy()
         stopVoiceInput()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        speechRecognizerIntent = null
+        if (::voiceInputManager.isInitialized) {
+            voiceInputManager.destroy()
+        }
         
         // Clear singleton instance
         instance = null
@@ -5855,42 +6002,10 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun startVoiceInput() {
-        if (isVoiceListening) {
-            Log.d(TAG, "Voice input already running - ignoring duplicate request")
-            return
+        if (!::voiceInputManager.isInitialized) {
+            voiceInputManager = VoiceInputManager(this)
         }
-        
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, getString(R.string.voice_input_not_available), Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val recognizer = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
-            it.setRecognitionListener(voiceRecognitionListener)
-            speechRecognizer = it
-        }
-
-        if (speechRecognizerIntent == null) {
-            speechRecognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            }
-        }
-
-        try {
-            recognizer.cancel()
-            isVoiceListening = true
-            showVoiceInputFeedback(true)
-            recognizer.startListening(speechRecognizerIntent)
-            Toast.makeText(this, getString(R.string.voice_input_listening), Toast.LENGTH_SHORT).show()
-            Log.d(TAG, "Voice recognition started")
-        } catch (e: Exception) {
-            isVoiceListening = false
-            showVoiceInputFeedback(false)
-            Log.e(TAG, "Error starting voice input", e)
-            Toast.makeText(this, getString(R.string.voice_input_error), Toast.LENGTH_SHORT).show()
-        }
+        voiceInputManager.startListening(currentLanguage)
     }
 
     fun startVoiceInputFromToolbar() {
@@ -5899,19 +6014,15 @@ class AIKeyboardService : InputMethodService(),
     }
 
     private fun stopVoiceInput() {
-        try {
-            speechRecognizer?.cancel()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error while cancelling voice input", e)
+        if (::voiceInputManager.isInitialized) {
+            voiceInputManager.stopListening()
         }
-        isVoiceListening = false
-        showVoiceInputFeedback(false)
     }
 
     /**
      * Show visual feedback for voice input state
      */
-    private fun showVoiceInputFeedback(isActive: Boolean) {
+    fun showVoiceInputFeedback(isActive: Boolean) {
         keyboardView?.let { view ->
             // Update voice key appearance
             view.setVoiceKeyActive(isActive)
@@ -6444,6 +6555,7 @@ class AIKeyboardService : InputMethodService(),
     private fun buildClipboardSuggestionText(): String? {
         if (!::clipboardHistoryManager.isInitialized) return null
         if (!clipboardSuggestionEnabled || !clipboardHistoryManager.isEnabled()) return null
+        if (clipboardSuggestionConsumed) return null
         if (currentWord.isNotEmpty()) return null
         val item = clipboardHistoryManager.getMostRecentItem() ?: return null
         val sanitized = item.text.replace("\\s+".toRegex(), " ").trim()
@@ -6452,7 +6564,12 @@ class AIKeyboardService : InputMethodService(),
     }
 
     private fun injectClipboardSuggestion(base: List<String>): List<String> {
-        val clipText = buildClipboardSuggestionText() ?: return base
+        val clipText = buildClipboardSuggestionText()
+        if (clipText == null) {
+            pendingClipboardSuggestionText = null
+            return base
+        }
+        pendingClipboardSuggestionText = clipText
         val max = suggestionCount.coerceAtLeast(1)
         val result = mutableListOf<String>()
         result.add(clipText)

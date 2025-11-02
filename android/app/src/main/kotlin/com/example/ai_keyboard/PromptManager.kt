@@ -28,6 +28,8 @@ object PromptManager {
     
     private lateinit var prefs: SharedPreferences
     private var initialized = false
+    private const val SEED_VERSION_KEY = "prompt_seed_version"
+    private const val CURRENT_SEED_VERSION = 1
 
     /**
      * Data class representing a single prompt item
@@ -156,6 +158,7 @@ object PromptManager {
             val jsonString = prefs.getString(key, "[]") ?: "[]"
             val promptArray = JSONArray(jsonString)
             val prompts = mutableListOf<PromptItem>()
+            val seedVersion = prefs.getInt(SEED_VERSION_KEY, 0)
             
             for (i in 0 until promptArray.length()) {
                 try {
@@ -166,8 +169,19 @@ object PromptManager {
                 }
             }
             
-            // Sort by timestamp (newest first)
-            return prompts.sortedByDescending { it.timestamp }
+            val sortedPrompts = prompts.sortedByDescending { it.timestamp }
+            if (sortedPrompts.isNotEmpty()) {
+                return sortedPrompts
+            }
+
+            // Seed defaults if none stored or seed version changed
+            val seedPrompts = getSeedPrompts(category)
+            if (seedPrompts.isNotEmpty() && seedVersion < CURRENT_SEED_VERSION) {
+                persistSeedPrompts(key, seedPrompts)
+                return seedPrompts
+            }
+
+            return seedPrompts
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error reading prompts for category: $category", e)
             emptyList()
@@ -251,6 +265,36 @@ object PromptManager {
             "assistant" -> "Improve the text clarity, structure, and impact while maintaining the original meaning."
             else -> "Enhance and improve the text quality."
         }
+    }
+    
+    private fun getSeedPrompts(category: String): List<PromptItem> {
+        return when (category.lowercase()) {
+            "assistant" -> {
+                val now = System.currentTimeMillis()
+                listOf(
+                    PromptItem(
+                        title = "Humanise",
+                        prompt = "Rewrite this text to sound more human and natural while maintaining the original meaning.",
+                        timestamp = now
+                    ),
+                    PromptItem(
+                        title = "Reply",
+                        prompt = "Generate a thoughtful and appropriate reply to this message.",
+                        timestamp = now - 1
+                    )
+                )
+            }
+            else -> emptyList()
+        }
+    }
+
+    private fun persistSeedPrompts(key: String, prompts: List<PromptItem>) {
+        val array = JSONArray()
+        prompts.forEach { array.put(it.toJSON()) }
+        prefs.edit()
+            .putString(key, array.toString())
+            .putInt(SEED_VERSION_KEY, CURRENT_SEED_VERSION)
+            .apply()
     }
 
     /**

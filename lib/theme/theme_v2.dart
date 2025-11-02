@@ -38,15 +38,15 @@ class KeyboardThemeV2 {
     required this.advanced,
   });
 
-  /// Create default dark theme
+  /// Create default light theme (primary fallback)
   static KeyboardThemeV2 createDefault() {
     return KeyboardThemeV2(
       id: 'default_theme',
-      name: 'Default Dark',
+      name: 'Default Light',
       mode: 'unified',
       background: const ThemeBackground(
         type: 'solid',
-        color: Color(0xFF1B1B1F),
+        color: Color(0xFFFFFFFF),
         imagePath: null,
         imageOpacity: 0.85,
         gradient: null,
@@ -55,19 +55,19 @@ class KeyboardThemeV2 {
       ),
       keys: const ThemeKeys(
         preset: 'bordered',
-        bg: Color(0xFF3A3A3F),
-        text: Color(0xFFFFFFFF),
-        pressed: Color(0xFF505056),
+        bg: Color(0xFFFFFFFF),
+        text: Color(0xFF3C4043),
+        pressed: Color(0xFFE8EAED),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(
           enabled: true,
-          color: Color(0xFF636366),
+          color: Color(0xFFDADCE0),
           widthDp: 1.0,
         ),
-        radius: 10.0,
+        radius: 8.0,
         shadow: ThemeKeysShadow(
           enabled: true,
-          elevationDp: 2.0,
+          elevationDp: 1.0,
           glow: false,
         ),
         font: ThemeKeysFont(
@@ -78,27 +78,27 @@ class KeyboardThemeV2 {
         ),
       ),
       specialKeys: const ThemeSpecialKeys(
-        accent: Color(0xFFFF9F1A),
+        accent: Color(0xFF1A73E8),
         useAccentForEnter: true,
         applyTo: ['enter', 'globe', 'emoji', 'mic'],
-        spaceLabelColor: Color(0xFFFFFFFF),
+        spaceLabelColor: Color(0xFF5F6368),
       ),
       toolbar: const ThemeToolbar(
         inheritFromKeys: true,
-        bg: Color(0xFF3A3A3F),
-        icon: Color(0xFFFFFFFF),
+        bg: Color(0xFFFFFFFF),
+        icon: Color(0xFF5F6368),
         heightDp: 44.0,
-        activeAccent: Color(0xFFFF9F1A),
+        activeAccent: Color(0xFF1A73E8),
         iconPack: 'default',
       ),
       suggestions: const ThemeSuggestions(
         inheritFromKeys: true,
-        bg: Color(0xFF3A3A3F),
-        text: Color(0xFFFFFFFF),
+        bg: Color(0xFFFFFFFF),
+        text: Color(0xFF3C4043),
         chip: ThemeChip(
-          bg: Color(0xFF4A4A50),
-          text: Color(0xFFFFFFFF),
-          pressed: Color(0xFF5A5A60),
+          bg: Color(0xFFF1F3F4),
+          text: Color(0xFF3C4043),
+          pressed: Color(0xFFE8EAED),
           radius: 14.0,
           spacingDp: 6.0,
         ),
@@ -161,7 +161,7 @@ class KeyboardThemeV2 {
           color: Color(0xFFDADCE0),
           widthDp: 1.0,
         ),
-        radius: 10.0,
+        radius: 8.0,
         shadow: ThemeKeysShadow(
           enabled: true,
           elevationDp: 1.0,
@@ -2559,6 +2559,32 @@ extension ThemeAdaptiveCopyWith on ThemeAdaptive {
       enabled: enabled ?? this.enabled,
       source: source ?? this.source,
       materialYou: materialYou ?? this.materialYou,
+    );
+  }
+}
+
+extension ThemeKeysCopyWith on ThemeKeys {
+  ThemeKeys copyWith({
+    String? preset,
+    Color? bg,
+    Color? text,
+    Color? pressed,
+    double? rippleAlpha,
+    ThemeKeysBorder? border,
+    double? radius,
+    ThemeKeysShadow? shadow,
+    ThemeKeysFont? font,
+  }) {
+    return ThemeKeys(
+      preset: preset ?? this.preset,
+      bg: bg ?? this.bg,
+      text: text ?? this.text,
+      pressed: pressed ?? this.pressed,
+      rippleAlpha: rippleAlpha ?? this.rippleAlpha,
+      border: border ?? this.border,
+      radius: radius ?? this.radius,
+      shadow: shadow ?? this.shadow,
+      font: font ?? this.font,
     );
   }
 }

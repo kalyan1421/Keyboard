@@ -1,4 +1,4 @@
-import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
+import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
@@ -13,6 +13,8 @@ class OnboardingView extends StatefulWidget {
 class _OnboardingViewState extends State<OnboardingView> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
+  bool _userInteracted = false;
+  int _animationLoopCount = 0;
 
   final List<OnboardingPageData> _pages = [
     OnboardingPageData(
@@ -41,6 +43,34 @@ class _OnboardingViewState extends State<OnboardingView> {
     super.dispose();
   }
 
+  void _onAnimationComplete() {
+    print('_onAnimationComplete called. UserInteracted: $_userInteracted, AnimationLoopCount: $_animationLoopCount');
+    
+    // Don't auto-advance if user has interacted
+    if (_userInteracted) return;
+    
+    _animationLoopCount++;
+    
+    // Auto-advance after 2 animation loops
+    if (_animationLoopCount >= 2) {
+      print('Auto-advancing to next page after $_animationLoopCount loops');
+      _animationLoopCount = 0; // Reset for next page
+      
+      // Small delay before advancing
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted && !_userInteracted) {
+          _nextPage();
+        }
+      });
+    }
+  }
+
+  void _markUserInteraction() {
+    setState(() {
+      _userInteracted = true;
+    });
+  }
+
   void _nextPage() {
     if (_currentPage < _pages.length - 1) {
       _pageController.nextPage(
@@ -54,8 +84,16 @@ class _OnboardingViewState extends State<OnboardingView> {
 
   void _navigateToHome() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const mainscreen()),
+      MaterialPageRoute(builder: (context) => const LoginIllustraionScreen()),
     );
+  }
+
+  void _onPageChanged(int page) {
+    setState(() {
+      _currentPage = page;
+      _animationLoopCount = 0; // Reset loop count for new page
+      _userInteracted = false; // Reset interaction flag for new page
+    });
   }
 
   @override
@@ -71,17 +109,21 @@ class _OnboardingViewState extends State<OnboardingView> {
 
             // PageView with all onboarding pages
             Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                onPageChanged: (int page) {
-                  setState(() {
-                    _currentPage = page;
-                  });
-                },
-                itemCount: _pages.length,
-                itemBuilder: (context, index) {
-                  return _OnboardingPage(data: _pages[index]);
-                },
+              child: GestureDetector(
+                onPanDown: (_) => _markUserInteraction(),
+                onHorizontalDragStart: (_) => _markUserInteraction(),
+                child: PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: _onPageChanged,
+                  itemCount: _pages.length,
+                  itemBuilder: (context, index) {
+                    return _OnboardingPage(
+                      data: _pages[index],
+                      onAnimationComplete: _onAnimationComplete,
+                      isCurrentPage: index == _currentPage,
+                    );
+                  },
+                ),
               ),
             ),
 
@@ -181,29 +223,13 @@ class _OnboardingViewState extends State<OnboardingView> {
             ),
             const Spacer(),
 
-            // Next Button
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
+            // Swipe hint text (replaces Next button)
+            Text(
+              'Swipe →',
+              style: AppTextStyle.bodyMedium.copyWith(
                 color: const Color(0xFFFF9900),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: _nextPage,
-                  child: Center(
-                    child: Icon(
-                      _currentPage == _pages.length - 1
-                          ? Icons.check
-                          : Icons.arrow_forward_ios,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                ),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -227,19 +253,88 @@ class OnboardingPageData {
 }
 
 // Individual onboarding page widget
-class _OnboardingPage extends StatelessWidget {
+class _OnboardingPage extends StatefulWidget {
   final OnboardingPageData data;
+  final VoidCallback onAnimationComplete;
+  final bool isCurrentPage;
 
-  const _OnboardingPage({required this.data});
+  const _OnboardingPage({
+    required this.data,
+    required this.onAnimationComplete,
+    required this.isCurrentPage,
+  });
+
+  @override
+  State<_OnboardingPage> createState() => _OnboardingPageState();
+}
+
+class _OnboardingPageState extends State<_OnboardingPage>
+    with TickerProviderStateMixin {
+  AnimationController? _lottieController;
+
+  @override
+  void dispose() {
+    _lottieController?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Lottie.asset(
-        data.animationPath,
+        widget.data.animationPath,
         fit: BoxFit.contain,
-        repeat: true,
+        repeat: false, // We'll handle repeat manually
+        onLoaded: (composition) {
+          if (!mounted) return;
+          
+          _lottieController?.dispose();
+          _lottieController = AnimationController(
+            vsync: this,
+            duration: composition.duration,
+          );
+
+          // Listen for animation completion
+          _lottieController!.addStatusListener((status) {
+            if (!mounted) return;
+            
+            if (status == AnimationStatus.completed) {
+              print('Animation completed. IsCurrentPage: ${widget.isCurrentPage}');
+              
+              // Only trigger callback if this is the current page
+              if (widget.isCurrentPage) {
+                print('Calling onAnimationComplete callback');
+                widget.onAnimationComplete();
+              }
+              
+              // Repeat the animation
+              if (mounted) {
+                _lottieController!.forward(from: 0);
+              }
+            }
+          });
+
+          // Start the animation
+          if (mounted && widget.isCurrentPage) {
+            print('Starting animation for page: ${widget.data.title}');
+            _lottieController!.forward();
+          }
+        },
+        controller: _lottieController,
       ),
     );
+  }
+
+  @override
+  void didUpdateWidget(_OnboardingPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    
+    // Start animation if this page becomes current
+    if (oldWidget.isCurrentPage != widget.isCurrentPage) {
+      if (widget.isCurrentPage && _lottieController != null) {
+        print('Page ${widget.data.title} became current, restarting animation');
+        _lottieController!.forward(from: 0);
+      }
+    }
   }
 }

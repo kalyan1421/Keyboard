@@ -28,6 +28,8 @@ import 'theme/theme_editor_v2.dart';
 import 'screens/main screens/emoji_settings_screen.dart';
 import 'screens/main screens/dictionary_screen.dart';
 import 'screens/main screens/clipboard_screen.dart';
+import 'screens/main screens/ai_writing_assistance_screen.dart';
+import 'screens/main screens/ai_rewriting_screen.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
 /// Language Cache Manager for handling downloaded languages
@@ -208,12 +210,80 @@ void main() async {
   runApp(const AIKeyboardApp());
 }
 
-class AIKeyboardApp extends StatelessWidget {
+// Global navigator key for deep linking
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+class AIKeyboardApp extends StatefulWidget {
   const AIKeyboardApp({super.key});
+
+  @override
+  State<AIKeyboardApp> createState() => _AIKeyboardAppState();
+}
+
+class _AIKeyboardAppState extends State<AIKeyboardApp> {
+  static const platform = MethodChannel('ai_keyboard/config');
+
+  @override
+  void initState() {
+    super.initState();
+    _setupNavigationListener();
+  }
+
+  void _setupNavigationListener() {
+    platform.setMethodCallHandler((call) async {
+      if (call.method == 'navigate') {
+        final route = call.arguments['route'] as String?;
+        debugPrint('🧭 Flutter received navigation: $route');
+        if (route != null) {
+          _handleNavigation(route);
+        }
+      }
+    });
+  }
+
+  void _handleNavigation(String route) {
+    final context = navigatorKey.currentContext;
+    if (context == null) {
+      debugPrint('⚠️ Navigator context not available');
+      return;
+    }
+
+    debugPrint('✅ Navigating to: $route');
+
+    switch (route) {
+      case 'ai_writing_custom':
+        // Navigate to AI Writing Assistance, Custom Assistance tab
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const AIWritingAssistanceScreen(initialTabIndex: 1),
+          ),
+        );
+        break;
+      case 'custom_grammar':
+        // Navigate to Custom Grammar
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const CustomGrammarScreen(),
+          ),
+        );
+        break;
+      case 'custom_tones':
+        // Navigate to Custom Tones
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const CustomTonesScreen(),
+          ),
+        );
+        break;
+      default:
+        debugPrint('⚠️ Unknown navigation route: $route');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,  // ✅ Add global key for deep linking
       debugShowCheckedModeBanner: false,
       title: 'AI Keyboard',
       theme: ThemeData(

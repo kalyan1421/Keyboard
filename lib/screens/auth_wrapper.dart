@@ -165,34 +165,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (snapshot.hasData && snapshot.data != null) {
-          // User is signed in, check keyboard setup status
-          print('🟢 [AuthWrapper] User authenticated, checking keyboard setup...');
-          
-          // Check keyboard status if not already checked
-          if (_isKeyboardSetup == null) {
-            _checkKeyboardStatus();
-            return const Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Checking keyboard setup...'),
-                  ],
-                ),
-              ),
-            );
-          }
-          
-          // If keyboard is not setup, show keyboard setup screen
-          if (_isKeyboardSetup == false) {
-            print('🟡 [AuthWrapper] Keyboard not setup, showing setup screen');
-            return const KeyboardSetupScreen();
-          }
-          
-          // Keyboard is setup, show main screen
-          print('🟢 [AuthWrapper] Keyboard setup complete, showing home screen');
+          // User is signed in, go directly to main screen
+          print('🟢 [AuthWrapper] User authenticated, showing home screen');
           return const mainscreen();
         } else {
           // User is not signed in, show welcome screen

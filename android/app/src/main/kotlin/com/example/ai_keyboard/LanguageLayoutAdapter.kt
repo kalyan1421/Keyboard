@@ -85,6 +85,8 @@ class LanguageLayoutAdapter(private val context: Context) {
         }
     }
     
+    private var showUtilityKey = true
+    
     /**
      * Key model representing a single keyboard key
      */
@@ -103,7 +105,8 @@ class LanguageLayoutAdapter(private val context: Context) {
         val languageCode: String,
         val layoutType: String,
         val direction: String = "LTR",
-        val numberRow: List<KeyModel> = emptyList()
+        val numberRow: List<KeyModel> = emptyList(),
+        val rowHeightsDp: List<Int> = emptyList()
     )
     
     /**
@@ -123,6 +126,10 @@ class LanguageLayoutAdapter(private val context: Context) {
                 longPress = null
             )
         }
+    }
+    
+    fun setShowUtilityKey(enabled: Boolean) {
+        showUtilityKey = enabled
     }
     
     /**
@@ -197,16 +204,47 @@ class LanguageLayoutAdapter(private val context: Context) {
         
         // Step 5: Normalize special keys to ensure consistency across all layouts
         val normalizedRows = normalizeSpecialKeys(rows)
-        
+            .map { row ->
+                if (showUtilityKey) row else row.filter { it.code != -14 }
+            }
+    
         // Step 6: Build number row separately (not included in rows by default)
-        val numberRowKeys = buildNumberRow(languageCode)
+        val numberRowKeys = if (numberRowEnabled) buildNumberRow(languageCode) else emptyList()
         
+        val baseRowHeights = when (mode) {
+            KeyboardMode.LETTERS -> {
+                val heights = MutableList(4) { 56 }
+                if (numberRowEnabled) {
+                    heights.add(0, 52)
+                }
+                heights
+            }
+            KeyboardMode.SYMBOLS, KeyboardMode.EXTENDED_SYMBOLS,
+            KeyboardMode.DIALER -> MutableList(4) { 56 }
+        }
+        val adjustedRowHeights = if (baseRowHeights.isNotEmpty()) {
+            val mutableHeights = baseRowHeights.toMutableList()
+            val targetSize = normalizedRows.size
+            if (targetSize > 0) {
+                while (mutableHeights.size < targetSize) {
+                    mutableHeights.add(mutableHeights.last())
+                }
+                if (mutableHeights.size > targetSize) {
+                    mutableHeights.subList(targetSize, mutableHeights.size).clear()
+                }
+            }
+            mutableHeights
+        } else {
+            emptyList()
+        }
+
         val layout = LayoutModel(
             rows = normalizedRows,
             languageCode = languageCode,
             layoutType = templateName,
             direction = direction,
-            numberRow = numberRowKeys
+            numberRow = numberRowKeys,
+            rowHeightsDp = adjustedRowHeights
         )
         
         Log.d(TAG, "✅ Layout built: ${normalizedRows.size} rows, ${normalizedRows.flatten().size} keys, numberRow: ${numberRowKeys.size} keys")
@@ -256,7 +294,7 @@ class LanguageLayoutAdapter(private val context: Context) {
             "?123" to KeyModel("?123", -10),  // Switch to symbols
             "ABC" to KeyModel("ABC", -11),    // Switch to letters
             "=<" to KeyModel("=<", -20),      // Switch to extended symbols
-            "1234" to KeyModel("1234", -21)   // Switch to dialer
+            "123" to KeyModel("123", -21)   // Switch to dialer
         )
         
         return rows.map { row ->
@@ -298,7 +336,7 @@ class LanguageLayoutAdapter(private val context: Context) {
                     "?123" -> -10     // Switch to symbols (or -3 for XML compat)
                     "ABC" -> -11      // Switch to letters (or -2 for XML compat)
                     "=<" -> -20       // Switch to extended symbols
-                    "1234" -> -21     // Switch to dialer
+                    "123" -> -21     // Switch to dialer
                     
                     // Special function keys
                     "SHIFT", "⇧" -> -1         // Shift key (android.inputmethodservice.Keyboard.KEYCODE_SHIFT)
@@ -346,6 +384,11 @@ class LanguageLayoutAdapter(private val context: Context) {
         val baseMap = keymap.optJSONObject("base") ?: JSONObject()
         val altMap = keymap.optJSONObject("alt") ?: JSONObject()
         val longPressMap = keymap.optJSONObject("long_press") ?: JSONObject()
+
+        val defaultNumberHints = mapOf(
+            "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
+            "y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0"
+        )
         
         for (i in 0 until rowsArray.length()) {
             val rowArray = rowsArray.getJSONArray(i)
@@ -358,19 +401,44 @@ class LanguageLayoutAdapter(private val context: Context) {
                 val mappedChar = baseMap.optString(baseKey, baseKey)
                 
                 // Get alt mapping for number row hints
-                val altChar = altMap.optString(baseKey.firstOrNull()?.toString() ?: "")
+                val altRaw = altMap.optString(baseKey, altMap.optString(baseKey.lowercase(), ""))
+                val defaultHint = defaultNumberHints[baseKey.lowercase()]
+                val altChar = when {
+                    altRaw.isNotEmpty() -> altRaw
+                    !defaultHint.isNullOrEmpty() -> defaultHint
+                    else -> ""
+                }
                 
                 // Get long-press variants from keymap or fall back to default mapping
                 val keyCode = mappedChar.codePointAt(0)
-                val longPressVariants = longPressMap.optJSONArray(baseKey)?.let { array ->
+                val configuredLongPress = longPressMap.optJSONArray(baseKey)?.let { array ->
                     List(array.length()) { idx -> array.getString(idx) }
                 } ?: getLongPressOptions(keyCode)  // Fallback to default mapping
+
+                val mergedLongPress = mutableListOf<String>()
+                if (altChar.isNotEmpty()) mergedLongPress.add(altChar)
+                if (!configuredLongPress.isNullOrEmpty()) mergedLongPress.addAll(configuredLongPress)
+                val longPressVariants = if (mergedLongPress.isEmpty()) null else mergedLongPress.distinct()
                 
                 // Create key model
+                val hintLabel = when {
+                    altChar.isNotEmpty() -> altChar
+                    !longPressVariants.isNullOrEmpty() && longPressVariants.first().isNotEmpty() -> longPressVariants.first()
+                    else -> ""
+                }
+
+                val symbolHint = longPressVariants?.firstOrNull { variant ->
+                    variant.isNotEmpty() && !variant[0].isLetterOrDigit()
+                }
+
                 val keyModel = KeyModel(
                     label = mappedChar,
                     code = keyCode,
-                    altLabel = altChar.ifEmpty { null },
+                    altLabel = when {
+                        hintLabel.isNotEmpty() -> hintLabel
+                        !symbolHint.isNullOrEmpty() -> symbolHint
+                        else -> null
+                    },
                     longPress = longPressVariants
                 )
                 
@@ -603,7 +671,7 @@ class LanguageLayoutAdapter(private val context: Context) {
             "RETURN", "sym_keyboard_return",
             "SPACE", "space",
             "GLOBE", "🌐",
-            "?123", "ABC", "=<", "1234"
+            "?123", "ABC", "=<", "123"
         )
         
         testLabels.forEach { label ->
@@ -625,7 +693,7 @@ class LanguageLayoutAdapter(private val context: Context) {
             "?123" -> -10
             "ABC" -> -11
             "=<" -> -20
-            "1234" -> -21
+            "123" -> -21
             
             // Special function keys
             "SHIFT", "⇧" -> -1
@@ -654,7 +722,7 @@ class LanguageLayoutAdapter(private val context: Context) {
             "?123" -> -10  // Custom symbols switch
             "ABC" -> -11  // Custom letters switch
             "=<" -> -20  // Custom extended symbols
-            "1234" -> -21  // Custom dialer
+            "123" -> -21  // Custom dialer
             else -> if (label.length == 1) label.codePointAt(0) else -1000
         }
     }
@@ -682,4 +750,3 @@ class LanguageLayoutAdapter(private val context: Context) {
         }
     }
 }
-

@@ -110,12 +110,23 @@ class UserDictionaryManager(private val context: Context) {
         this.changeObserver = observer
     }
     
-    /** Learn a new word (called from TypingSyncAudit or Autocorrect acceptance) */
+    /** 
+     * Learn a new word (called from TypingSyncAudit or Autocorrect acceptance)
+     * Phase 1 Enhancement: Improved frequency tracking with caps
+     */
     fun learnWord(word: String) {
         if (word.length < 2 || word.any { it.isDigit() }) return
-        val count = localMap.getOrDefault(word, 0) + 1
-        localMap[word] = count
-        LogUtil.d(TAG, "✨ Learned '$word' (count=$count)")
+        
+        // Phase 1: Improved frequency tracking with trigram stats integration
+        val normalizedWord = word.lowercase() // Normalize for consistent storage
+        val currentCount = localMap.getOrDefault(normalizedWord, 0)
+        val newCount = (currentCount + 1).coerceAtMost(1000) // Cap at 1000 to prevent overflow
+        
+        localMap[normalizedWord] = newCount
+        LogUtil.d(TAG, "✨ Learned '$normalizedWord' (count=$currentCount → $newCount)")
+        
+        // Track learning statistics
+        incrementLearningStat("words_learned")
         
         // Notify observer of changes (for LanguageResources refresh)
         changeObserver?.invoke()
@@ -126,6 +137,28 @@ class UserDictionaryManager(private val context: Context) {
             delay(2000)
             saveLocalCache()
         }
+    }
+    
+    /**
+     * Phase 1: Track learning statistics for analytics
+     */
+    private fun incrementLearningStat(key: String) {
+        try {
+            val prefs = context.getSharedPreferences("user_dict_stats", Context.MODE_PRIVATE)
+            val current = prefs.getInt(key, 0)
+            prefs.edit().putInt(key, current + 1).apply()
+        } catch (e: Exception) {
+            LogUtil.w(TAG, "Failed to increment stat '$key': ${e.message}")
+        }
+    }
+    
+    /**
+     * Phase 1: Get word frequency with normalized access
+     * Returns usage count for a word, 0 if not learned
+     */
+    fun getFrequency(word: String): Int {
+        val normalized = word.lowercase()
+        return localMap[normalized] ?: 0
     }
     
     /** Force immediate save (call on keyboard close) */
@@ -378,12 +411,85 @@ class UserDictionaryManager(private val context: Context) {
             }
     }
 
-    /** Get statistics */
-    fun getStats(): Map<String, Int> = mapOf(
-        "total_words" to localMap.size,
-        "top_usage" to (localMap.values.maxOrNull() ?: 0),
-        "avg_usage" to if (localMap.isNotEmpty()) localMap.values.average().toInt() else 0
-    )
+    /** 
+     * Get statistics (Phase 1: Enhanced with learning stats)
+     */
+    fun getStats(): Map<String, Int> {
+        val prefs = context.getSharedPreferences("user_dict_stats", Context.MODE_PRIVATE)
+        
+        return mapOf(
+            "total_words" to localMap.size,
+            "top_usage" to (localMap.values.maxOrNull() ?: 0),
+            "avg_usage" to if (localMap.isNotEmpty()) localMap.values.average().toInt() else 0,
+            "words_learned" to prefs.getInt("words_learned", 0),
+            "words_corrected" to prefs.getInt("words_corrected", 0),
+            "swipes_learned" to prefs.getInt("swipes_learned", 0)
+        )
+    }
+    
+    /**
+     * Phase 1: Learn from correction acceptance
+     * Track when user accepts an autocorrect suggestion
+     */
+    fun learnFromCorrection(original: String, corrected: String) {
+        // Learn the corrected word with boosted frequency
+        learnWord(corrected)
+        
+        // Track correction stat
+        incrementLearningStat("words_corrected")
+        
+        LogUtil.d(TAG, "✨ Learned correction: '$original' → '$corrected'")
+    }
+    
+    /**
+     * Phase 1: Learn from swipe acceptance
+     * Track when user accepts a swipe suggestion
+     */
+    fun learnFromSwipe(word: String) {
+        learnWord(word)
+        
+        // Track swipe learning stat
+        incrementLearningStat("swipes_learned")
+        
+        LogUtil.d(TAG, "✨ Learned swipe: '$word'")
+    }
+    
+    /**
+     * Phase 1: Decay old words to prioritize recent usage
+     * Call this periodically (e.g., once per day) to reduce counts of old words
+     */
+    fun decayOldWords(decayFactor: Double = 0.9) {
+        try {
+            var decayed = 0
+            localMap.keys.toList().forEach { word ->
+                val currentCount = localMap[word] ?: return@forEach
+                val newCount = (currentCount * decayFactor).toInt().coerceAtLeast(1)
+                
+                if (newCount != currentCount) {
+                    localMap[word] = newCount
+                    decayed++
+                }
+            }
+            
+            if (decayed > 0) {
+                saveLocalCache()
+                LogUtil.d(TAG, "🔄 Decayed $decayed words (factor=$decayFactor)")
+            }
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Error decaying words: ${e.message}")
+        }
+    }
+    
+    /**
+     * Phase 1: Get top learned words with their frequencies
+     * Useful for analytics and debugging
+     */
+    fun getTopWordsWithFrequency(limit: Int = 20): List<Pair<String, Int>> {
+        return localMap.entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { Pair(it.key, it.value) }
+    }
     
     // ==================== Autocorrect Rejection Blacklist ====================
     

@@ -34,10 +34,42 @@ class MainActivity : FlutterActivity() {
 
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    private var navigationMethodChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleNavigationIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavigationIntent(intent)
+    }
+
+    private fun handleNavigationIntent(intent: Intent?) {
+        val navigateTo = intent?.getStringExtra("navigate_to")
+        if (navigateTo != null) {
+            LogUtil.d("MainActivity", "🧭 Deep link navigation: $navigateTo")
+            
+            // Send to Flutter via method channel (with delay to ensure Flutter is ready)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try {
+                    navigationMethodChannel?.invokeMethod("navigate", mapOf("route" to navigateTo))
+                    LogUtil.d("MainActivity", "✅ Navigation sent to Flutter: $navigateTo")
+                } catch (e: Exception) {
+                    LogUtil.e("MainActivity", "Error sending navigation to Flutter", e)
+                }
+            }, 500) // Delay to ensure Flutter is ready
+        }
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
+        // Initialize navigation method channel
+        navigationMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         
         // Initialize Unified AI Service
         unifiedAIService = UnifiedAIService(this)

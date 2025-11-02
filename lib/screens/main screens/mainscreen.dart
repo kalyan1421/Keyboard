@@ -12,6 +12,8 @@ import 'package:flutter_svg/svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'package:ai_keyboard/services/firebase_auth_service.dart';
+import 'package:flutter/services.dart';
+import 'package:android_intent_plus/android_intent.dart';
 
 class mainscreen extends StatefulWidget {
   
@@ -23,6 +25,7 @@ class mainscreen extends StatefulWidget {
 }
 
 class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
+  static const platform = MethodChannel('ai_keyboard/config');
   int selectedIndex = 0;
   AnimationController? _fabAnimationController;
   Animation<double>? _fabAnimation;
@@ -32,6 +35,9 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   bool hasNotification = true;
   final FirebaseAuthService _authService = FirebaseAuthService();
   String _userName = 'User';
+  bool _isKeyboardEnabled = false;
+  bool _isKeyboardActive = false;
+  Timer? _keyboardCheckTimer;
 
   final List<Widget> _pages = [
     const HomeScreen(),
@@ -46,6 +52,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _loadUserInfo();
+    _checkKeyboardStatus();
+    _startKeyboardStatusChecking();
     _fabAnimationController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
@@ -74,7 +82,77 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   void dispose() {
     _fabAnimationController?.dispose();
     _animationTimer?.cancel();
+    _keyboardCheckTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _checkKeyboardStatus() async {
+    try {
+      final enabled = await platform.invokeMethod<bool>('isKeyboardEnabled') ?? false;
+      final active = await platform.invokeMethod<bool>('isKeyboardActive') ?? false;
+      
+      if (mounted) {
+        setState(() {
+          _isKeyboardEnabled = enabled;
+          _isKeyboardActive = active;
+        });
+      }
+    } catch (e) {
+      print('Error checking keyboard status: $e');
+    }
+  }
+
+  void _startKeyboardStatusChecking() {
+    // Check keyboard status periodically
+    _keyboardCheckTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      _checkKeyboardStatus();
+    });
+  }
+
+  Future<void> _openKeyboardSettings() async {
+    try {
+      // First try to open the input method picker
+      final result = await platform.invokeMethod('openInputMethodPicker');
+      print('Input method picker result: $result');
+    } catch (e) {
+      print('Error opening input method picker: $e');
+      // Fallback: show a dialog with instructions to enable keyboard
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Enable Keyboard'),
+            content: const Text(
+              'Please enable CleverType keyboard:\n\n'
+              '1. Go to Settings\n'
+              '2. Select System > Languages & input\n'
+              '3. Tap Virtual keyboard > Manage keyboards\n'
+              '4. Enable CleverType\n'
+              '5. Come back and tap this banner again to select it',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Try to open settings as a backup
+                  if (Theme.of(context).platform == TargetPlatform.android) {
+                    const intent = AndroidIntent(
+                      action: 'android.settings.INPUT_METHOD_SETTINGS',
+                    );
+                    intent.launch();
+                  }
+                },
+                child: const Text('Open Settings'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 
   void _startAnimationTimer() {
@@ -178,7 +256,51 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-      body: _pages[selectedIndex],
+      body: Column(
+        children: [
+          // Keyboard not enabled warning banner
+          if (!_isKeyboardEnabled || !_isKeyboardActive)
+            Material(
+              color: const Color(0xFFFF4444),
+              child: InkWell(
+                onTap: _openKeyboardSettings,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Keyboard not selected. Click here to Enable',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.arrow_forward_ios,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          // Main page content
+          Expanded(
+            child: _pages[selectedIndex],
+          ),
+        ],
+      ),
       floatingActionButton: _fabAnimation != null
           ? AnimatedBuilder(
               animation: _fabAnimation!,

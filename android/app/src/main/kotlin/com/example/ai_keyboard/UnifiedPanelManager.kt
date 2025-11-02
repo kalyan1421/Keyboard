@@ -1638,6 +1638,7 @@ class UnifiedPanelManager(
      */
     private fun createPanelHeader(title: String, languageConfig: LanguageConfig? = null): View {
         val palette = themeManager.getCurrentPalette()
+        val headerTextColor = palette.keyText
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1650,7 +1651,10 @@ class UnifiedPanelManager(
 
             val backButton = ImageView(context).apply {
                 setImageResource(R.drawable.ic_back_chevron)
-                setColorFilter(Color.WHITE)
+                ImageViewCompat.setImageTintList(
+                    this,
+                    ColorStateList.valueOf(headerTextColor)
+                )
                 layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
                 setOnClickListener { onBackToKeyboard() }
             }
@@ -1658,7 +1662,7 @@ class UnifiedPanelManager(
 
             addView(TextView(context).apply {
                 text = title
-                setTextColor(Color.WHITE)
+                setTextColor(headerTextColor)
                 textSize = 14f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(
@@ -1680,12 +1684,29 @@ class UnifiedPanelManager(
             orientation = LinearLayout.VERTICAL
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
             setBackgroundColor(panelBg)  // Solid color instead of gradient
-            setPadding(dpToPx(16), dpToPx(10), dpToPx(16), dpToPx(14))
+            
+            // ✅ CRITICAL FIX: Add navigation bar padding at bottom
+            val navBarHeight = keyboardHeightManager?.getNavigationBarHeight() ?: 0
+            val basePaddingH = dpToPx(16)
+            val basePaddingTop = dpToPx(10)
+            val basePaddingBottom = dpToPx(14)
+            
+            setPadding(
+                basePaddingH,
+                basePaddingTop,
+                basePaddingH,
+                basePaddingBottom + navBarHeight  // Add nav bar height to bottom padding
+            )
+            
+            clipToPadding = false
+            clipChildren = false
             
             // ✅ Consume all touch events to prevent keyboard keys from being triggered
             isClickable = true
             isFocusable = true
             setOnTouchListener { _, _ -> true }
+            
+            LogUtil.d(TAG, "🔧 Panel created with nav bar padding: $navBarHeight px")
         }
     }
 
@@ -1745,6 +1766,7 @@ class UnifiedPanelManager(
     }
 
     private fun createHeroBlock(title: String, subtitle: String): LinearLayout {
+        val palette = themeManager.getCurrentPalette()
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1754,12 +1776,12 @@ class UnifiedPanelManager(
                 text = title
                 textSize = 22f
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                setTextColor(palette.keyText)
             })
             addView(TextView(context).apply {
                 text = subtitle
                 textSize = 12f
-                setTextColor(ColorUtils.setAlphaComponent(Color.WHITE, 200))
+                setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 200))
                 setPadding(0, dpToPx(4), 0, 0)
             })
         }
@@ -1769,7 +1791,7 @@ class UnifiedPanelManager(
         return Button(context).apply {
             text = label
             textSize = 16f
-            setTextColor(Color.WHITE)
+            setTextColor(getContrastColor(palette.specialAccent))
             isAllCaps = false
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
@@ -1823,19 +1845,20 @@ class UnifiedPanelManager(
 
     private fun createPanelCardView(placeholder: String, palette: ThemePaletteV2): TextView {
         val baseKeyColor = if (themeManager.isImageBackground()) {
-            ColorUtils.setAlphaComponent(Color.BLACK, 120)
+            ColorUtils.setAlphaComponent(Color.BLACK, 160)
         } else {
             palette.keyBg
         }
+        val blended = ColorUtils.blendARGB(baseKeyColor, palette.keyboardBg, 0.25f)
         return TextView(context).apply {
             text = placeholder
             textSize = 15f
             setLineSpacing(0f, 1.15f)
-            setTextColor(Color.WHITE)
+            setTextColor(palette.keyText)
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(16).toFloat()
-                setColor(ColorUtils.blendARGB(baseKeyColor, Color.BLACK, 0.5f))
-                setStroke(1, ColorUtils.setAlphaComponent(palette.specialAccent, 120))
+                cornerRadius = dpToPx(14).toFloat()
+                setColor(blended)
+                setStroke(1, ColorUtils.setAlphaComponent(palette.keyBorderColor, 140))
             }
             setPadding(dpToPx(18), dpToPx(14), dpToPx(18), dpToPx(14))
         }
@@ -1857,16 +1880,17 @@ class UnifiedPanelManager(
 
     private fun createGrammarResultCard(palette: ThemePaletteV2): GrammarResultViews {
         val baseKeyColor = if (themeManager.isImageBackground()) {
-            ColorUtils.setAlphaComponent(Color.BLACK, 120)
+            ColorUtils.setAlphaComponent(Color.BLACK, 160)
         } else {
             palette.keyBg
         }
+        val blended = ColorUtils.blendARGB(baseKeyColor, palette.keyboardBg, 0.25f)
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(14).toFloat()
-                setColor(ColorUtils.blendARGB(baseKeyColor, Color.BLACK, 0.45f))
-                setStroke(1, ColorUtils.setAlphaComponent(palette.specialAccent, 160))
+                setColor(blended)
+                setStroke(1, ColorUtils.setAlphaComponent(palette.keyBorderColor, 140))
             }
             setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(10))
             layoutParams = LinearLayout.LayoutParams(
@@ -1879,7 +1903,7 @@ class UnifiedPanelManager(
             text = context.getString(R.string.panel_result_pending)
             textSize = 13f
             setLineSpacing(0f, 1.2f)
-            setTextColor(Color.WHITE)
+            setTextColor(palette.keyText)
         }
         container.addView(primary)
 
@@ -1887,7 +1911,7 @@ class UnifiedPanelManager(
             visibility = View.GONE
             textSize = 11f
             setPadding(0, dpToPx(6), 0, dpToPx(6))
-            setTextColor(ColorUtils.setAlphaComponent(Color.WHITE, 210))
+            setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 200))
         }
         container.addView(translation)
 
@@ -1911,16 +1935,17 @@ class UnifiedPanelManager(
 
     private fun createToneResultCard(palette: ThemePaletteV2): ToneResultViews {
         val baseKeyColor = if (themeManager.isImageBackground()) {
-            ColorUtils.setAlphaComponent(Color.BLACK, 120)
+            ColorUtils.setAlphaComponent(Color.BLACK, 160)
         } else {
             palette.keyBg
         }
+        val blended = ColorUtils.blendARGB(baseKeyColor, palette.keyboardBg, 0.25f)
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(14).toFloat()
-                setColor(ColorUtils.blendARGB(baseKeyColor, Color.BLACK, 0.45f))
-                setStroke(1, ColorUtils.setAlphaComponent(palette.specialAccent, 120))
+                setColor(blended)
+                setStroke(1, ColorUtils.setAlphaComponent(palette.keyBorderColor, 140))
             }
             setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(10))
             layoutParams = LinearLayout.LayoutParams(
@@ -1933,7 +1958,7 @@ class UnifiedPanelManager(
             text = context.getString(R.string.panel_prompt_tone)
             textSize = 13f
             setLineSpacing(0f, 1.2f)
-            setTextColor(Color.WHITE)
+            setTextColor(palette.keyText)
         }
         container.addView(primary)
 
@@ -1941,7 +1966,7 @@ class UnifiedPanelManager(
             visibility = View.GONE
             textSize = 11f
             setPadding(0, dpToPx(6), 0, 0)
-            setTextColor(ColorUtils.setAlphaComponent(Color.WHITE, 210))
+            setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 200))
         }
         container.addView(translation)
 
@@ -1988,11 +2013,20 @@ class UnifiedPanelManager(
 
     private fun launchPromptManager(category: String) {
         try {
+            // Map category to Flutter navigation routes
+            val navigationRoute = when (category) {
+                "assistant" -> "ai_writing_custom"  // AI Writing Assistance -> Custom Assistance tab
+                "grammar" -> "custom_grammar"        // Custom Grammar screen
+                "tone" -> "custom_tones"             // Custom Tones screen
+                else -> "prompts_$category"          // Fallback to old format
+            }
+            
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra("navigate_to", "prompts_$category")
+                putExtra("navigate_to", navigationRoute)
             }
             context.startActivity(intent)
+            Log.d(TAG, "✅ Launching Flutter app: category=$category, route=$navigationRoute")
         } catch (e: Exception) {
             Log.e(TAG, "Error launching prompt manager for $category", e)
             Toast.makeText(context, "Unable to open app", Toast.LENGTH_SHORT).show()

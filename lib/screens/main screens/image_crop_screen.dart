@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'dart:io';
@@ -55,7 +56,9 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
             ratioY: 9,
           ), // Keyboard aspect ratio
           compressFormat: ImageCompressFormat.jpg,
-          compressQuality: 90,
+          compressQuality: 95, // Higher quality to preserve detail
+          maxWidth: 2400,  // Ensure high resolution output
+          maxHeight: 1350, // 16:9 ratio
           uiSettings: [
             AndroidUiSettings(
               toolbarTitle: 'Crop Image',
@@ -71,6 +74,11 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
               cropGridStrokeWidth: 1,
               hideBottomControls: false,
               statusBarColor: AppColors.primary,
+              // SafeArea settings for proper display
+              dimmedLayerColor: Colors.black.withOpacity(0.5),
+              showCropGrid: true,
+              cropGridRowCount: 3,
+              cropGridColumnCount: 3,
             ),
             IOSUiSettings(
               title: 'Crop Image',
@@ -83,6 +91,11 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
               rotateClockwiseButtonHidden: false,
               hidesNavigationBar: false,
               minimumAspectRatio: 1.0,
+              // Ensure proper safe area handling on iOS
+              rectX: 0,
+              rectY: 0,
+              rectWidth: 0,
+              rectHeight: 0,
             ),
           ],
         ),
@@ -148,39 +161,44 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
       // Show error dialog with options
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Cropping Error'),
-          content: Text(errorMessage),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close dialog
-                Navigator.of(context).pop(); // Go back to previous screen
-              },
-              child: const Text('Cancel'),
+        barrierDismissible: false,
+        builder: (context) => SafeArea(
+          child: AlertDialog(
+            title: const Text('Cropping Error'),
+            content: SingleChildScrollView(
+              child: Text(errorMessage),
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close dialog
-                // Use original image as fallback
-                setState(() {
-                  croppedImage = widget.imageFile;
-                  isProcessing = false;
-                });
-              },
-              child: const Text('Use Original'),
-            ),
-            if (!isCompatibilityIssue)
+            actions: [
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop(); // Close dialog
-                  // Reset the flag and retry
-                  hasStartedCropping = false;
-                  _cropImage(); // Retry
+                  Navigator.of(context).pop(); // Go back to previous screen
                 },
-                child: const Text('Retry'),
+                child: const Text('Cancel'),
               ),
-          ],
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop(); // Close dialog
+                  // Use original image as fallback
+                  setState(() {
+                    croppedImage = widget.imageFile;
+                    isProcessing = false;
+                  });
+                },
+                child: const Text('Use Original'),
+              ),
+              if (!isCompatibilityIssue)
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(); // Close dialog
+                    // Reset the flag and retry
+                    hasStartedCropping = false;
+                    _cropImage(); // Retry
+                  },
+                  child: const Text('Retry'),
+                ),
+            ],
+          ),
         ),
       );
     }
@@ -193,25 +211,102 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    // Request storage permissions
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.storage,
-      Permission.photos,
-      Permission.camera,
-    ].request();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Check if permissions have been previously granted and stored
+      final hasStoredPermission = prefs.getBool('image_permissions_granted') ?? false;
+      
+      // If we've already stored that permissions were granted, check if they're still valid
+      if (hasStoredPermission) {
+        // Verify current permission status without requesting
+        final storageStatus = await Permission.storage.status;
+        final photosStatus = await Permission.photos.status;
+        
+        if (storageStatus.isGranted || photosStatus.isGranted) {
+          // Permissions still valid, no need to ask again
+          return;
+        }
+      }
 
-    // Check if all permissions are granted
-    bool allGranted = statuses.values.every((status) => status.isGranted);
+      // Check if this is the first time asking
+      final hasAskedBefore = prefs.getBool('image_permissions_asked') ?? false;
+      
+      if (!hasAskedBefore) {
+        // First time - request permissions
+        Map<Permission, PermissionStatus> statuses = await [
+          Permission.storage,
+          Permission.photos,
+          Permission.camera,
+        ].request();
 
-    if (!allGranted) {
-      // Show permission dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
+        // Mark that we've asked
+        await prefs.setBool('image_permissions_asked', true);
+
+        // Check if permissions were granted
+        bool anyGranted = statuses.values.any((status) => 
+          status.isGranted || status.isLimited
+        );
+
+        if (anyGranted) {
+          // Store that permissions were granted
+          await prefs.setBool('image_permissions_granted', true);
+          return;
+        }
+      } else {
+        // We've asked before - check current status without requesting again
+        final storageStatus = await Permission.storage.status;
+        final photosStatus = await Permission.photos.status;
+        
+        if (storageStatus.isGranted || photosStatus.isGranted) {
+          // Permissions granted, store it
+          await prefs.setBool('image_permissions_granted', true);
+          return;
+        } else if (storageStatus.isDenied || photosStatus.isDenied) {
+          // User previously denied, show settings dialog
+          if (mounted) {
+            _showPermissionSettingsDialog();
+          }
+          return;
+        }
+      }
+
+      // If we get here and permissions aren't granted, show settings dialog
+      if (mounted) {
+        final storageStatus = await Permission.storage.status;
+        final photosStatus = await Permission.photos.status;
+        
+        if (!storageStatus.isGranted && !photosStatus.isGranted) {
+          _showPermissionSettingsDialog();
+        }
+      }
+    } catch (e) {
+      // If there's any error with SharedPreferences, just try to request permissions
+      Map<Permission, PermissionStatus> statuses = await [
+        Permission.storage,
+        Permission.photos,
+      ].request();
+      
+      bool anyGranted = statuses.values.any((status) => status.isGranted);
+      if (!anyGranted && mounted) {
+        _showPermissionSettingsDialog();
+      }
+    }
+  }
+
+  void _showPermissionSettingsDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SafeArea(
+        child: AlertDialog(
           title: const Text('Permissions Required'),
-          content: const Text(
-            'This app needs storage and camera permissions to crop images. '
-            'Please grant these permissions in the app settings.',
+          content: SingleChildScrollView(
+            child: const Text(
+              'Storage or photo access is needed to crop images. '
+              'Please grant permission in your device settings.\n\n'
+              'Go to: Settings → Apps → AI Keyboard → Permissions',
+            ),
           ),
           actions: [
             TextButton(
@@ -227,33 +322,20 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // appBar: AppBar(
-      //   leading: IconButton(
-      //     onPressed: () => Navigator.of(context).pop(),
-      //     icon: const Icon(Icons.arrow_back),
-      //   ),
-      //   backgroundColor: AppColors.black,
-      //   title: const Text('Crop Image'),
-      //   actions: [
-      //     IconButton(
-      //       onPressed: () => Navigator.of(context).pop(),
-      //       icon: const Icon(Icons.notifications),
-      //     ),
-      //   ],
-      // ),
-      backgroundColor: AppColors.black,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            Container(
+      backgroundColor: Colors.grey[600],
+      body: Column(
+        children: [
+          // Header with SafeArea for top only
+          SafeArea(
+            bottom: false,
+            child: Container(
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
@@ -285,46 +367,50 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                 ],
               ),
             ),
+          ),
 
-            // Instructions
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Adjust the crop area to fit your keyboard. The image will be resized to 16:9 aspect ratio.',
-                style: AppTextStyle.bodyMedium.copyWith(
-                  color: AppColors.white.withOpacity(0.8),
-                ),
-                textAlign: TextAlign.center,
+          // Instructions
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Adjust the crop area to fit your keyboard. The image will be resized to 16:9 aspect ratio.',
+              style: AppTextStyle.bodyMedium.copyWith(
+                color: AppColors.white.withOpacity(0.8),
               ),
+              textAlign: TextAlign.center,
             ),
+          ),
 
-            const SizedBox(height: 20),
+          const SizedBox(height: 20),
 
-            // Processing indicator or cropped image preview
-            Expanded(
-              child: Center(
-                child: isProcessing
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const CircularProgressIndicator(
-                            color: AppColors.secondary,
+          // Processing indicator or cropped image preview
+          Expanded(
+            child: Center(
+              child: isProcessing
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(
+                          color: AppColors.secondary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Processing image...',
+                          style: AppTextStyle.bodyLarge.copyWith(
+                            color: AppColors.white,
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Processing image...',
-                            style: AppTextStyle.bodyLarge.copyWith(
-                              color: AppColors.white,
-                            ),
-                          ),
-                        ],
-                      )
-                    : croppedImage != null
-                    ? Column(
-                        children: [
-                          // Cropped image preview
-                          Container(
-                            margin: const EdgeInsets.all(16),
+                        ),
+                      ],
+                    )
+                  : croppedImage != null
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Cropped image preview - 80% of screen width, centered
+                        FractionallySizedBox(
+                          widthFactor: 0.8, // 80% of screen width
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 16),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               boxShadow: [
@@ -346,92 +432,100 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                               ),
                             ),
                           ),
+                        ),
 
-                          // Success message
-                          Text(
-                            'Image cropped successfully!',
-                            style: AppTextStyle.bodyLarge.copyWith(
-                              color: AppColors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        // Success message
+                        Text(
+                          'Image cropped successfully!',
+                          style: AppTextStyle.bodyLarge.copyWith(
+                            color: AppColors.white,
+                            fontWeight: FontWeight.w600,
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Your keyboard background is ready',
-                            style: AppTextStyle.bodyMedium.copyWith(
-                              color: AppColors.white.withOpacity(0.8),
-                            ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Your keyboard background is ready',
+                          style: AppTextStyle.bodyMedium.copyWith(
+                            color: AppColors.white.withOpacity(0.8),
                           ),
-                        ],
-                      )
-                    : const SizedBox(),
-              ),
+                        ),
+                      ],
+                    )
+                  : const SizedBox(),
             ),
+          ),
 
-            // Action buttons
-            if (croppedImage != null)
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    // Back button
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: AppColors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: AppColors.white.withOpacity(0.3),
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Back',
-                              style: AppTextStyle.bodyMedium.copyWith(
-                                color: AppColors.white,
-                                fontWeight: FontWeight.w600,
+          // Action buttons with SafeArea for bottom only - 80% width centered
+          if (croppedImage != null)
+            SafeArea(
+              top: false,
+              child: Center(
+                child: FractionallySizedBox(
+                  widthFactor: 0.8, // 80% of screen width
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Row(
+                      children: [
+                        // Back button
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => Navigator.of(context).pop(),
+                            child: Container(
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: AppColors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: AppColors.white.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'Back',
+                                  style: AppTextStyle.bodyMedium.copyWith(
+                                    color: AppColors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
 
-                    const SizedBox(width: 12),
+                        const SizedBox(width: 12),
 
-                    // Done button
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          // Return the cropped image to the previous screen
-                          Navigator.of(context).pop(croppedImage);
-                        },
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: AppColors.secondary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Done',
-                              style: AppTextStyle.bodyMedium.copyWith(
-                                color: AppColors.white,
-                                fontWeight: FontWeight.w600,
+                        // Done button
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              // Return the cropped image to the previous screen
+                              Navigator.of(context).pop(croppedImage);
+                            },
+                            child: Container(
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: AppColors.secondary,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'Done',
+                                  style: AppTextStyle.bodyMedium.copyWith(
+                                    color: AppColors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

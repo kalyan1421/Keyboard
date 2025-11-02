@@ -9,6 +9,7 @@ import android.inputmethodservice.KeyboardView
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -16,6 +17,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.Dispatchers
@@ -163,7 +165,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val height: Int,
         val label: String,
         val code: Int,
-        val longPressOptions: List<String>? = null
+        val longPressOptions: List<String>? = null,
+        val hintLabel: String? = null
     )
     
     init {
@@ -211,11 +214,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
     
     private var labelScaleMultiplier = 1.0f
     private var borderlessMode = false
+    private var hintedNumberRow = false
+    private var hintedSymbols = true
     private var showLanguageOnSpace = true
     private var currentLanguageLabel = "English"
     private var previewEnabled = true
-    private var keySpacingVerticalDp = 0  // Zero spacing to eliminate gaps
-    private var keySpacingHorizontalDp = 0  // Zero spacing to eliminate gaps
+    // Match Gboard-esque density with comfortable row separation
+    private var keySpacingVerticalDp = 3   // Vertical gap between rows in dp
+    private var keySpacingHorizontalDp = 3 // Horizontal gap between keys in dp
+    private var edgePaddingDp = 8          // Left/right edge margin in dp
     private var soundEnabled = true
     private var soundIntensityLevel = 1
     private var hapticIntensityLevel = 2
@@ -249,6 +256,18 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Borderless mode now removes padding in drawThemedKey
         invalidate()
         requestLayout()
+    }
+
+    fun setHintedNumberRow(enabled: Boolean) {
+        hintedNumberRow = enabled
+        invalidateAllKeys()
+        invalidate()
+    }
+
+    fun setHintedSymbols(enabled: Boolean) {
+        hintedSymbols = enabled
+        invalidateAllKeys()
+        invalidate()
     }
     
     /**
@@ -341,12 +360,61 @@ class SwipeKeyboardView @JvmOverloads constructor(
      * Set key spacing (vertical and horizontal)
      */
     fun setKeySpacing(verticalDp: Int, horizontalDp: Int) {
-        keySpacingVerticalDp = verticalDp
-        keySpacingHorizontalDp = horizontalDp
-        android.util.Log.d("SwipeKeyboardView", "Key spacing set to: V=${verticalDp}dp, H=${horizontalDp}dp")
-        // Key spacing now applied in drawThemedKey
-        invalidate()
-        requestLayout()
+        val clampedVertical = max(0, verticalDp)
+        val clampedHorizontal = max(0, horizontalDp)
+        if (clampedVertical == keySpacingVerticalDp && clampedHorizontal == keySpacingHorizontalDp) return
+
+        keySpacingVerticalDp = clampedVertical
+        keySpacingHorizontalDp = clampedHorizontal
+        android.util.Log.d("SwipeKeyboardView", "Key spacing set to: V=${clampedVertical}dp, H=${clampedHorizontal}dp")
+        currentLayoutModel?.let { layout ->
+            setDynamicLayout(layout, currentNumberRowEnabled)
+        } ?: run {
+            invalidate()
+            requestLayout()
+        }
+    }
+
+    private fun shouldShowHint(key: DynamicKey): Boolean {
+        val hint = key.hintLabel?.trim() ?: return false
+        if (hint.isEmpty()) return false
+        if (isSpecialKey(key.code)) return false
+        val isDigitHint = hint.all { it.isDigit() }
+        return (isDigitHint && hintedNumberRow) || (!isDigitHint && hintedSymbols)
+    }
+
+    private fun drawHintLabel(canvas: Canvas, key: DynamicKey, keyRect: RectF, basePaint: Paint) {
+        if (!shouldShowHint(key)) return
+        val hint = key.hintLabel?.trim().orEmpty()
+        if (hint.isEmpty()) return
+
+        val hintPaint = Paint(basePaint).apply {
+            textSize = (basePaint.textSize * 0.45f).coerceAtLeast(dpToPx(6f))
+            typeface = Typeface.create(basePaint.typeface, Typeface.NORMAL)
+            textAlign = Paint.Align.RIGHT
+            color = ColorUtils.setAlphaComponent(basePaint.color, (basePaint.alpha * 0.75f).toInt().coerceIn(0, 255))
+        }
+
+        val hintX = keyRect.right - dpToPx(4f)
+        val hintY = keyRect.top + hintPaint.textSize + dpToPx(1f)
+        canvas.drawText(hint.take(2), hintX, hintY, hintPaint)
+    }
+
+    /**
+     * Adjust left/right gutters to avoid edge-to-edge keys
+     */
+    fun setEdgePadding(dp: Int) {
+        val clamped = max(0, dp)
+        if (clamped == edgePaddingDp) return
+
+        edgePaddingDp = clamped
+        android.util.Log.d("SwipeKeyboardView", "Edge padding set to ${clamped}dp")
+        currentLayoutModel?.let { layout ->
+            setDynamicLayout(layout, currentNumberRowEnabled)
+        } ?: run {
+            invalidate()
+            requestLayout()
+        }
     }
     
     /**
@@ -526,16 +594,15 @@ class SwipeKeyboardView @JvmOverloads constructor(
         manager: ThemeManager,
         palette: com.example.ai_keyboard.themes.ThemePaletteV2
     ) {
-        val density = context.resources.displayMetrics.density
-        val basePadding = if (borderlessMode) 0f else (1f * density)
-        val verticalSpacing = keySpacingVerticalDp * density / 2f
-        val horizontalSpacing = keySpacingHorizontalDp * density / 2f
+        val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
+        val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+        val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
         
         val keyRect = RectF(
-            key.x.toFloat() + basePadding + horizontalSpacing,
-            key.y.toFloat() + basePadding + verticalSpacing,
-            (key.x + key.width).toFloat() - basePadding - horizontalSpacing,
-            (key.y + key.height).toFloat() - basePadding - verticalSpacing
+            key.x.toFloat() + basePadding + horizontalInset,
+            key.y.toFloat() + basePadding + verticalInset,
+            (key.x + key.width).toFloat() - basePadding - horizontalInset,
+            (key.y + key.height).toFloat() - basePadding - verticalInset
         )
         
         // Determine key type
@@ -552,16 +619,20 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
         
         // Get appropriate drawable
-        val keyDrawable = when {
-            keyType == "enter" && manager.shouldUseAccentForEnter() -> manager.createSpecialKeyDrawable()
-            keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
-            manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
-            else -> manager.createKeyDrawable()
-        }
+        val useNeutralBackground = keyType == "enter" || keyType == "shift"
+        val shouldDrawBackground = !borderlessMode
+        val keyDrawable = if (shouldDrawBackground) {
+            when {
+                keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
+                !useNeutralBackground && manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
+                else -> manager.createKeyDrawable()
+            }
+        } else null
         
-        // Draw key background
-        keyDrawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
-        keyDrawable.draw(canvas)
+        keyDrawable?.let { drawable ->
+            drawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
+            drawable.draw(canvas)
+        }
         
         // Check if this key should use an icon
         val iconResId = getIconForKeyType(keyType, key.label)
@@ -575,16 +646,18 @@ class SwipeKeyboardView @JvmOverloads constructor(
             }
             
             if (iconDrawable != null) {
-                val iconSize = minOf(key.width, key.height) * 0.4f
+                val desiredSizePx = dpToPx(if (isSpecialKey(key.code)) 32 else 28).toFloat()
+                val maxDrawableExtent = (min(key.width, key.height) - dpToPx(6)).coerceAtLeast(dpToPx(20))
+                val iconSize = min(desiredSizePx, maxDrawableExtent.toFloat())
                 val centerX = keyRect.centerX()
                 val centerY = keyRect.centerY()
                 
                 // Apply tint based on key type and state
                 val tintColor = when {
                     keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
-                    manager.shouldUseAccentForKey(keyType) || 
-                    (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
-                    isKeyActive(keyType) -> Color.WHITE
+                    keyType == "enter" || keyType == "shift" -> palette.specialAccent
+                    manager.shouldUseAccentForKey(keyType) ||
+                    isKeyActive(keyType) -> if (borderlessMode) palette.specialAccent else Color.WHITE
                     else -> palette.keyText
                 }
                 
@@ -601,10 +674,11 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 if (keyType == "space" && showLanguageOnSpace && currentLanguageLabel.isNotEmpty()) {
                     val textPaint = spaceLabelPaint ?: manager.createSpaceLabelPaint()
                     val basePaint = Paint(textPaint)
+                    basePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                     basePaint.textSize = textPaint.textSize * labelScaleMultiplier * 0.7f
                     basePaint.color = palette.spaceLabelColor
                     basePaint.textAlign = Paint.Align.CENTER
-                    val textY = centerY + iconSize/2 + basePaint.textSize
+                    val textY = centerY + iconSize/2 + basePaint.textSize + dpToPx(1f)
                     canvas.drawText(currentLanguageLabel, centerX, textY, basePaint)
                 }
             }
@@ -616,15 +690,19 @@ class SwipeKeyboardView @JvmOverloads constructor(
             }
             
             val basePaint = Paint(textPaint)
-            basePaint.textSize = textPaint.textSize * labelScaleMultiplier
-            
-            // Override text color for special keys
-            if (manager.shouldUseAccentForKey(keyType) || 
-                (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
-                isKeyActive(keyType)) {
-                basePaint.color = Color.WHITE
+            basePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            if (keyType == "space") {
+                basePaint.textSize = basePaint.textSize * labelScaleMultiplier
             } else {
-                basePaint.color = palette.keyText
+                basePaint.textSize = spToPx(18f) * labelScaleMultiplier
+            }
+            
+            basePaint.color = when {
+                keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
+                keyType == "enter" || keyType == "shift" -> palette.specialAccent
+                manager.shouldUseAccentForKey(keyType) ||
+                isKeyActive(keyType) -> if (borderlessMode) palette.specialAccent else Color.WHITE
+                else -> palette.keyText
             }
             
             val text = if (keyType == "space" && showLanguageOnSpace) {
@@ -639,21 +717,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
             val textHeight = basePaint.descent() - basePaint.ascent()
             val textOffset = (textHeight / 2) - basePaint.descent()
             basePaint.textAlign = Paint.Align.CENTER
-            canvas.drawText(text, centerX, centerY + textOffset, basePaint)
-        }
-        
-        // Draw long-press hint if available
-        if (key.longPressOptions != null && key.longPressOptions.isNotEmpty()) {
-            val textPaint = keyTextPaint ?: manager.createKeyTextPaint()
-            val hintPaint = Paint(textPaint).apply {
-                textSize = textPaint.textSize * labelScaleMultiplier * 0.4f
-                alpha = (255 * 0.6f).toInt()
-                color = palette.keyText
-                textAlign = Paint.Align.CENTER
-            }
-            val hintX = keyRect.right - (key.width * 0.15f)
-            val hintY = keyRect.top + (key.height * 0.25f)
-            canvas.drawText(key.longPressOptions.first(), hintX, hintY, hintPaint)
+            canvas.drawText(text, centerX, centerY + textOffset + dpToPx(1f), basePaint)
+            drawHintLabel(canvas, key, keyRect, basePaint)
         }
     }
     
@@ -662,19 +727,16 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         val palette = manager.getCurrentPalette()
         
-        // Calculate density
-        val density = context.resources.displayMetrics.density
-        
         // Key rectangle with padding - apply custom spacing if set
-        val basePadding = if (borderlessMode) 0f else (1f * density)
-        val verticalSpacing = keySpacingVerticalDp * density / 2f
-        val horizontalSpacing = keySpacingHorizontalDp * density / 2f
+        val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
+        val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+        val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
         
         val keyRect = RectF(
-            key.x.toFloat() + basePadding + horizontalSpacing,
-            key.y.toFloat() + basePadding + verticalSpacing,
-            (key.x + key.width).toFloat() - basePadding - horizontalSpacing,
-            (key.y + key.height).toFloat() - basePadding - verticalSpacing
+            key.x.toFloat() + basePadding + horizontalInset,
+            key.y.toFloat() + basePadding + verticalInset,
+            (key.x + key.width).toFloat() - basePadding - horizontalInset,
+            (key.y + key.height).toFloat() - basePadding - verticalInset
         )
         
         // Identify key type using centralized logic
@@ -682,16 +744,20 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val keyType = getKeyType(keyCode)
         
         // Get appropriate drawable from factory
-        val keyDrawable = when {
-            keyType == "enter" && manager.shouldUseAccentForEnter() -> manager.createSpecialKeyDrawable()
-            keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
-            manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
-            else -> manager.createKeyDrawable()
+        val useNeutralBackground = keyType == "enter" || keyType == "shift"
+        val shouldDrawBackground = !borderlessMode
+        val keyDrawable = if (shouldDrawBackground) {
+            when {
+                keyType in listOf("voice", "emoji") && isKeyActive(keyType) -> manager.createSpecialKeyDrawable()
+                !useNeutralBackground && manager.shouldUseAccentForKey(keyType) -> manager.createSpecialKeyDrawable()
+                else -> manager.createKeyDrawable()
+            }
+        } else null
+
+        keyDrawable?.let { drawable ->
+            drawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
+            drawable.draw(canvas)
         }
-        
-        // Draw key background using cached drawable
-        keyDrawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
-        keyDrawable.draw(canvas)
         
         // Draw key content (icon or text)
         val centerX = keyRect.centerX()
@@ -738,12 +804,13 @@ class SwipeKeyboardView @JvmOverloads constructor(
         val palette = manager.getCurrentPalette()
         
         val iconDrawable = key.icon.mutate()
-        val iconSize = minOf(key.width, key.height) * 0.4f // 40% of key size
+        val iconSize = minOf(key.width, key.height) * 0.28f
         
         // Apply tint based on key type and state
-            val tintColor = when {
+        val tintColor = when {
             keyType == "space" -> palette.spaceLabelColor
-            manager.shouldUseAccentForKey(keyType) -> Color.WHITE // Intentional: White text for contrast on accent background
+            keyType == "enter" || keyType == "shift" -> palette.specialAccent
+            manager.shouldUseAccentForKey(keyType) || isKeyActive(keyType) -> Color.WHITE
             else -> palette.keyText
         }
         
@@ -754,8 +821,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
             (centerX + iconSize/2).toInt(),
             (centerY + iconSize/2).toInt()
         )
-            iconDrawable.draw(canvas)
-        }
+        iconDrawable.draw(canvas)
+    }
         
     /**
      * Draw key text with proper theming
@@ -769,17 +836,19 @@ class SwipeKeyboardView @JvmOverloads constructor(
             else -> keyTextPaint ?: manager.createKeyTextPaint()
         }
         
-        // Apply font scale multiplier
         val basePaint = Paint(textPaint)
-        basePaint.textSize = textPaint.textSize * labelScaleMultiplier
-        
-        // Override text color for special keys with accent background
-        if (manager.shouldUseAccentForKey(keyType) || 
-            (keyType == "enter" && manager.shouldUseAccentForEnter()) ||
-            isKeyActive(keyType)) {
-            basePaint.color = Color.WHITE // Intentional: Ensures readability on accent background
+        basePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        if (keyType == "space") {
+            basePaint.textSize = basePaint.textSize * labelScaleMultiplier
         } else {
-            basePaint.color = palette.keyText
+            basePaint.textSize = spToPx(18f) * labelScaleMultiplier
+        }
+        
+        basePaint.color = when {
+            keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
+            keyType == "enter" || keyType == "shift" -> palette.specialAccent
+            manager.shouldUseAccentForKey(keyType) || isKeyActive(keyType) -> Color.WHITE
+            else -> palette.keyText
         }
         
         val text = if (keyType == "space") {
@@ -796,19 +865,21 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Center the text
         val textHeight = basePaint.descent() - basePaint.ascent()
         val textOffset = (textHeight / 2) - basePaint.descent()
-        canvas.drawText(text, centerX, centerY + textOffset, basePaint)
+        basePaint.textAlign = Paint.Align.CENTER
+        canvas.drawText(text, centerX, centerY + textOffset + dpToPx(1f), basePaint)
         
         // Draw popup hint for number keys
-                if (key.popupCharacters != null && key.popupCharacters.isNotEmpty()) {
+        if (key.popupCharacters != null && key.popupCharacters.isNotEmpty()) {
             val hintPaint = Paint(basePaint).apply {
                 textSize = basePaint.textSize * 0.5f
-                alpha = (255 * 0.7f).toInt() // 70% opacity
+                alpha = (255 * 0.7f).toInt()
+                textAlign = Paint.Align.LEFT
             }
             val hintX = centerX - (key.width * 0.3f)
             val hintY = centerY - (key.height * 0.2f)
-                    canvas.drawText(key.popupCharacters[0].toString(), hintX, hintY, hintPaint)
-                }
-            }
+            canvas.drawText(key.popupCharacters[0].toString(), hintX, hintY, hintPaint)
+        }
+    }
     
     override fun onTouchEvent(me: MotionEvent): Boolean {
         // Handle clipboard mode first
@@ -1059,6 +1130,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         return when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                if (isSwipeBlockedArea(x, y)) {
+                    resetSwipe()
+                    return false
+                }
                 startSwipe(x, y)
                 false // Let normal key press handling occur
             }
@@ -1103,6 +1178,27 @@ class SwipeKeyboardView @JvmOverloads constructor(
             }
             
             else -> false
+        }
+    }
+    
+    private fun isSwipeBlockedArea(x: Float, y: Float): Boolean {
+        if (isDynamicLayoutMode && dynamicKeys.isNotEmpty()) {
+            val key = findDynamicKeyAtPoint(x, y) ?: return true
+            return !isLetterKeyCode(key.code)
+        }
+        val keys = keyboard?.keys ?: return true
+        val key = getKeyAtPosition(x, y, keys) ?: return true
+        val code = key.codes.firstOrNull() ?: return true
+        return !isLetterKeyCode(code)
+    }
+    
+    private fun isLetterKeyCode(code: Int): Boolean {
+        if (code < 0) return false
+        return try {
+            val ch = code.toChar()
+            ch.isLetter()
+        } catch (e: IllegalArgumentException) {
+            false
         }
     }
     
@@ -1485,86 +1581,141 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         val screenWidth = width
         val screenHeight = height
-        val padding = 0f  // Zero padding to eliminate all space
-        // Zero spacing to completely eliminate gaps
-        val keyVerticalSpacing = 0f  // No vertical spacing between rows
-        val keyHorizontalSpacing = 0f  // No horizontal spacing between keys
-        
-        // Build rows list - number row is already included in layout.rows if enabled
-        val allRows = mutableListOf<List<LanguageLayoutAdapter.KeyModel>>()
-        allRows.addAll(layout.rows)
-        
-        // Log if number row is present
-        if (showNumberRow) {
-            android.util.Log.d("SwipeKeyboardView", "✅ Number row included in layout (${layout.numberRow.size} keys)")
+        if (screenWidth <= 0 || screenHeight <= 0) {
+            android.util.Log.w("SwipeKeyboardView", "⚠️ Cannot build layout with zero dimensions")
+            return
         }
         
-        // Calculate key dimensions - FILL AVAILABLE HEIGHT
+        val horizontalSpacingPx = dpToPx(keySpacingHorizontalDp)
+        val verticalSpacingPx = dpToPx(keySpacingVerticalDp)
+        val edgePaddingPx = dpToPx(edgePaddingDp)
+        val allRows = layout.rows
         val numRows = allRows.size
-        // Calculate key height to fill the entire available screen height
-        val availableHeight = screenHeight - (padding * 2)
-        val totalVerticalSpacing = keyVerticalSpacing * (numRows - 1)
-        val keyHeight = ((availableHeight - totalVerticalSpacing) / numRows).toInt()
+        if (numRows == 0) {
+            return
+        }
         
-        android.util.Log.d("SwipeKeyboardView", "📐 Layout calc: screenH=$screenHeight, rows=$numRows, keyH=$keyHeight, spacing=$keyVerticalSpacing")
+        val totalSpacingY = max(0, numRows - 1) * verticalSpacingPx
+        val usableHeight = (screenHeight.toFloat() - totalSpacingY).coerceAtLeast(0f)
         
-        var currentY = padding.toInt()
+        val explicitHeights = if (layout.rowHeightsDp.isNotEmpty()) {
+            val heights = layout.rowHeightsDp.map { dpToPx(it).roundToInt() }.toMutableList()
+            while (heights.size < numRows) {
+                heights.add(heights.lastOrNull() ?: dpToPx(60).roundToInt())
+            }
+            if (heights.size > numRows) {
+                heights.subList(numRows, heights.size).clear()
+            }
+            val usableHeightInt = usableHeight.roundToInt()
+            val heightSum = heights.sum()
+            val diff = usableHeightInt - heightSum
+            if (diff != 0 && heights.isNotEmpty()) {
+                heights[heights.lastIndex] = (heights.last() + diff).coerceAtLeast(1)
+            }
+            heights
+        } else null
         
-        allRows.forEach { row ->
-            val availableWidth = screenWidth - (padding * 2)
+        val rowHeights: List<Int> = explicitHeights ?: run {
+            val totalHeightInt = usableHeight.roundToInt().coerceAtLeast(numRows)
+            val baseHeight = (totalHeightInt / numRows).coerceAtLeast(1)
+            val remainder = totalHeightInt - (baseHeight * numRows)
+            MutableList(numRows) { index ->
+                val extra = if (index < remainder) 1 else 0
+                baseHeight + extra
+            }
+        }
+        
+        var currentY = 0f
+        
+        allRows.forEachIndexed { rowIndex, row ->
+            val rowHeight = max(rowHeights.getOrElse(rowIndex) { 0 }, 1)
             
-            // Calculate total width units for this row based on key types
             val totalWidthUnits = row.sumOf { keyModel ->
                 getKeyWidthFactor(keyModel.label).toDouble()
-            }.toFloat()
+            }.toFloat().coerceAtLeast(1f)
             
-            // Base unit width
-            val unitWidth = (availableWidth - (keyHorizontalSpacing * (row.size - 1))) / totalWidthUnits
+            val spacingTotal = if (row.size > 1) horizontalSpacingPx * (row.size - 1) else 0f
+            val usableWidth = (screenWidth.toFloat() - (edgePaddingPx * 2f)).coerceAtLeast(0f)
+            val contentWidth = (usableWidth - spacingTotal).coerceAtLeast(0f)
+            val indentRatio = resolveIndentRatio(rowIndex, row, allRows)
+            val indentUnits = (indentRatio * 2f).coerceAtLeast(0f)
+            val denominator = (totalWidthUnits + indentUnits).coerceAtLeast(1f)
+            val unitWidth = if (denominator > 0f) contentWidth / denominator else 0f
+            val indentPx = indentRatio * unitWidth
+            val rowWidth = totalWidthUnits * unitWidth + spacingTotal
+            val extraSpace = (usableWidth - (indentPx * 2f) - rowWidth).coerceAtLeast(0f)
+            val startX = edgePaddingPx + indentPx + (extraSpace / 2f)
             
-            // For RTL, start from the right side
-            var currentX = if (isRTL) {
-                (screenWidth - padding).toInt()
-            } else {
-                padding.toInt()
-            }
+            var currentX = startX
             
-            row.forEach { keyModel ->
-                val widthFactor = getKeyWidthFactor(keyModel.label)
-                val keyWidth = (unitWidth * widthFactor).toInt()
+            row.forEachIndexed { keyIndex, keyModel ->
+                var keyWidth = unitWidth * getKeyWidthFactor(keyModel.label)
+                if (keyIndex == row.lastIndex) {
+                    val expectedEnd = startX + rowWidth
+                    val actualEnd = currentX + keyWidth
+                    keyWidth += (expectedEnd - actualEnd)
+                }
                 
-                // For RTL, position keys from right to left
-                val keyX = if (isRTL) {
-                    currentX - keyWidth
+                val keyX = currentX
+                currentX += keyWidth
+                if (keyIndex < row.lastIndex) {
+                    currentX += horizontalSpacingPx
+                }
+                
+                val resolvedX = if (isRTL) {
+                    (screenWidth.toFloat() - keyX - keyWidth)
                 } else {
-                    currentX
+                    keyX
                 }
                 
                 val dynamicKey = DynamicKey(
-                    x = keyX,
-                    y = currentY,
-                    width = keyWidth,
-                    height = keyHeight,
+                    x = resolvedX.roundToInt(),
+                    y = currentY.roundToInt(),
+                    width = keyWidth.roundToInt().coerceAtLeast(1),
+                    height = rowHeight,
                     label = keyModel.label,
                     code = keyModel.code,
-                    longPressOptions = keyModel.longPress
+                    longPressOptions = keyModel.longPress,
+                    hintLabel = keyModel.altLabel
                 )
                 dynamicKeys.add(dynamicKey)
-                
-                // Update position for next key
-                if (isRTL) {
-                    currentX -= keyWidth + keyHorizontalSpacing.toInt()
-                } else {
-                    currentX += keyWidth + keyHorizontalSpacing.toInt()
-                }
             }
             
-            currentY += keyHeight + keyVerticalSpacing.toInt()
+            currentY += rowHeight
+            if (rowIndex < numRows - 1) {
+                currentY += verticalSpacingPx
+            }
         }
         
         android.util.Log.d("SwipeKeyboardView", "✅ Dynamic layout set: ${dynamicKeys.size} keys (${layout.direction}, numberRow: $showNumberRow)")
         publishSwipeGeometry()
         invalidate()
         requestLayout()
+    }
+    
+    private fun resolveIndentRatio(
+        rowIndex: Int,
+        row: List<LanguageLayoutAdapter.KeyModel>,
+        totalRows: List<List<LanguageLayoutAdapter.KeyModel>>
+    ): Float {
+        if (rowIndex <= 0 || rowIndex >= totalRows.lastIndex) return 0f
+        if (row.isEmpty()) return 0f
+        
+        val referenceRowSize = totalRows.firstOrNull { it.isNotEmpty() }?.size ?: return 0f
+        if (referenceRowSize - row.size < 1) return 0f
+        
+        val containsAnchors = row.any { key ->
+            when (key.code) {
+                Keyboard.KEYCODE_SHIFT,
+                Keyboard.KEYCODE_ALT,
+                Keyboard.KEYCODE_DELETE,
+                -1, -5 -> true
+                else -> false
+            }
+        }
+        if (containsAnchors) return 0f
+        
+        return 0.5f
     }
     
     /**
@@ -1759,13 +1910,13 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private fun getKeyWidthFactor(label: String): Float {
         return when {
             // Space bar - extra wide (BIGGER) - check for actual space character
-            label == " " || label == "SPACE" || label.startsWith("space") -> 5.5f
+            label == " " || label == "SPACE" || label.startsWith("space") -> 2.5f
             
             // Return/Enter key - wider (BIGGER) - check for return symbol
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 2f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
             
             // Mode switches - smaller
-            label == "?123" || label == "ABC" || label == "=<" || label == "1234" -> 1.0f
+            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
             
             // Globe key - smaller - check for globe emoji
             label == "🌐" || label == "GLOBE" -> 1f
@@ -1774,8 +1925,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
             label == "," || label == "." -> 1f
             
             // Special function keys - moderately wider
-            label == "⇧" || label == "SHIFT" -> 2f
-            label == "⌫" || label == "DELETE" -> 2f
+            label == "⇧" || label == "SHIFT" -> 1.5f
+            label == "⌫" || label == "DELETE" -> 1.5f
             
             // Standard keys
             else -> 1.0f
@@ -1794,9 +1945,21 @@ class SwipeKeyboardView @JvmOverloads constructor(
             "GLOBE", "🌐" -> R.drawable.sym_keyboard_globe
             "SPACE" -> R.drawable.sym_keyboard_space
             // CRITICAL FIX: Add missing mode switch key icons (using return icon as placeholder)
-            "?123", "ABC", "=<", "1234" -> R.drawable.sym_keyboard_return
+            "?123", "ABC", "=<", "123" -> R.drawable.sym_keyboard_return
             else -> null
         }
+    }
+
+    private fun dpToPx(dp: Int): Float {
+        return dp * context.resources.displayMetrics.density
+    }
+
+    private fun dpToPx(dp: Float): Float {
+        return dp * context.resources.displayMetrics.density
+    }
+
+    private fun spToPx(sp: Float): Float {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, context.resources.displayMetrics)
     }
     
     /**

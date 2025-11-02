@@ -8,7 +8,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AIWritingAssistanceScreen extends StatefulWidget {
-  const AIWritingAssistanceScreen({Key? key}) : super(key: key);
+  final int initialTabIndex;  // ✅ Add parameter for deep linking
+  
+  const AIWritingAssistanceScreen({
+    Key? key,
+    this.initialTabIndex = 0,  // Default to Popular tab
+  }) : super(key: key);
 
   @override
   State<AIWritingAssistanceScreen> createState() =>
@@ -36,7 +41,11 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 2, 
+      vsync: this,
+      initialIndex: widget.initialTabIndex,  // ✅ Use initial tab from parameter
+    );
     _currentUser = FirebaseAuth.instance.currentUser;
     _loadAIStatus();
     _loadActiveFeatures();

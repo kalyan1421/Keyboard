@@ -57,7 +57,8 @@ data class KeyboardThemeV2(
         val border: Border,
         val radius: Float,
         val shadow: Shadow,
-        val font: Font
+        val font: Font,
+        val perKeyCustomization: Map<String, KeyCustomization> = emptyMap() // Per-key customization by key identifier
     ) {
         data class Border(
             val enabled: Boolean,
@@ -76,6 +77,20 @@ data class KeyboardThemeV2(
             val sizeSp: Float,
             val bold: Boolean,
             val italic: Boolean
+        )
+        
+        /**
+         * Per-key customization for individual keys
+         * Allows setting custom fonts and button styles for specific keys
+         */
+        data class KeyCustomization(
+            val font: Font? = null,          // Custom font for this key
+            val bg: Int? = null,             // Custom background color
+            val text: Int? = null,           // Custom text color
+            val pressed: Int? = null,        // Custom pressed color
+            val border: Border? = null,      // Custom border
+            val radius: Float? = null,       // Custom radius
+            val shadow: Shadow? = null       // Custom shadow
         )
     }
 
@@ -194,8 +209,30 @@ data class KeyboardThemeV2(
                 border = parseBorder(obj.optJSONObject("border")),
                 radius = obj.optDouble("radius", 8.0).toFloat(),
                 shadow = parseShadow(obj.optJSONObject("shadow")),
-                font = parseFont(obj.optJSONObject("font"))
+                font = parseFont(obj.optJSONObject("font")),
+                perKeyCustomization = parsePerKeyCustomization(obj.optJSONObject("perKeyCustomization"))
             )
+        }
+        
+        private fun parsePerKeyCustomization(obj: JSONObject?): Map<String, Keys.KeyCustomization> {
+            if (obj == null) return emptyMap()
+            
+            val customizations = mutableMapOf<String, Keys.KeyCustomization>()
+            obj.keys().forEach { key ->
+                val customObj = obj.optJSONObject(key)
+                if (customObj != null) {
+                    customizations[key] = Keys.KeyCustomization(
+                        font = customObj.optJSONObject("font")?.let { parseFont(it) },
+                        bg = customObj.optString("bg", null)?.let { parseColor(it) },
+                        text = customObj.optString("text", null)?.let { parseColor(it) },
+                        pressed = customObj.optString("pressed", null)?.let { parseColor(it) },
+                        border = customObj.optJSONObject("border")?.let { parseBorder(it) },
+                        radius = if (customObj.has("radius")) customObj.optDouble("radius").toFloat() else null,
+                        shadow = customObj.optJSONObject("shadow")?.let { parseShadow(it) }
+                    )
+                }
+            }
+            return customizations
         }
 
         private fun parseBorder(obj: JSONObject?): Keys.Border {
@@ -357,11 +394,11 @@ data class KeyboardThemeV2(
         fun createDefault(): KeyboardThemeV2 {
             return KeyboardThemeV2(
                 id = "default_theme",
-                name = "Default Dark",
+                name = "Default Light",
                 mode = "unified",
                 background = Background(
                     type = "solid",
-                    color = Color.parseColor("#1B1B1F"),
+                    color = Color.parseColor("#FFFFFFFF"),
                     imagePath = null,
                     imageOpacity = 0.85f,
                     gradient = null,
@@ -370,10 +407,10 @@ data class KeyboardThemeV2(
                 ),
                 keys = createDefaultKeys(),
                 specialKeys = SpecialKeys(
-                    accent = Color.parseColor("#FF9F1A"),
+                    accent = Color.parseColor("#1A73E8"),
                     useAccentForEnter = true,
                     applyTo = listOf("enter", "globe", "emoji", "mic"),
-                    spaceLabelColor = Color.parseColor("#FFFFFF")
+                    spaceLabelColor = Color.parseColor("#5F6368")
                 ),
                 effects = Effects(
                     pressAnimation = "ripple",
@@ -405,19 +442,19 @@ data class KeyboardThemeV2(
         private fun createDefaultKeys(): Keys {
             return Keys(
                 preset = "bordered",
-                bg = Color.parseColor("#3A3A3F"),
-                text = Color.parseColor("#FFFFFF"),
-                pressed = Color.parseColor("#505056"),
+                bg = Color.parseColor("#FFFFFFFF"),
+                text = Color.parseColor("#3C4043"),
+                pressed = Color.parseColor("#E8EAED"),
                 rippleAlpha = 0.12f,
                 border = Keys.Border(
                     enabled = true,
-                    color = Color.parseColor("#636366"),
+                    color = Color.parseColor("#DADCE0"),
                     widthDp = 1.0f
                 ),
-                radius = 12.0f,
+                radius = 8.0f,
                 shadow = Keys.Shadow(
                     enabled = true,
-                    elevationDp = 2.0f,
+                    elevationDp = 1.0f,
                     glow = false
                 ),
                 font = Keys.Font(
@@ -499,6 +536,42 @@ data class KeyboardThemeV2(
         fontObj.put("bold", keys.font.bold)
         fontObj.put("italic", keys.font.italic)
         keysObj.put("font", fontObj)
+        
+        // Per-key customization
+        if (keys.perKeyCustomization.isNotEmpty()) {
+            val perKeyObj = JSONObject()
+            keys.perKeyCustomization.forEach { (keyId, customization) ->
+                val customObj = JSONObject()
+                customization.font?.let { font ->
+                    val customFontObj = JSONObject()
+                    customFontObj.put("family", font.family)
+                    customFontObj.put("sizeSp", font.sizeSp)
+                    customFontObj.put("bold", font.bold)
+                    customFontObj.put("italic", font.italic)
+                    customObj.put("font", customFontObj)
+                }
+                customization.bg?.let { customObj.put("bg", formatColor(it)) }
+                customization.text?.let { customObj.put("text", formatColor(it)) }
+                customization.pressed?.let { customObj.put("pressed", formatColor(it)) }
+                customization.border?.let { border ->
+                    val customBorderObj = JSONObject()
+                    customBorderObj.put("enabled", border.enabled)
+                    customBorderObj.put("color", formatColor(border.color))
+                    customBorderObj.put("widthDp", border.widthDp)
+                    customObj.put("border", customBorderObj)
+                }
+                customization.radius?.let { customObj.put("radius", it) }
+                customization.shadow?.let { shadow ->
+                    val customShadowObj = JSONObject()
+                    customShadowObj.put("enabled", shadow.enabled)
+                    customShadowObj.put("elevationDp", shadow.elevationDp)
+                    customShadowObj.put("glow", shadow.glow)
+                    customObj.put("shadow", customShadowObj)
+                }
+                perKeyObj.put(keyId, customObj)
+            }
+            keysObj.put("perKeyCustomization", perKeyObj)
+        }
         
         obj.put("keys", keysObj)
         
@@ -607,7 +680,7 @@ data class ThemePaletteV2(
     
     // Toolbar icons: Use PNGs directly (no tint applied in code)
     val toolbarIcon: Int? = null  // null = no tint
-    val toolbarHeight: Float = 56f // dp baseline
+    val toolbarHeight: Float = 64f // dp baseline
     val toolbarActiveAccent: Int = theme.specialKeys.accent
 
     // Suggestion text: Auto-contrast from background (SIMPLIFIED: no chips)
@@ -619,7 +692,7 @@ data class ThemePaletteV2(
     val keyFontBold: Boolean = theme.keys.font.bold
     val keyFontItalic: Boolean = theme.keys.font.italic
     
-    val suggestionFontSize: Float = 15.0f // Fixed size for suggestions
+    val suggestionFontSize: Float = 14.0f // Fixed size for suggestions
     val suggestionFontFamily: String = theme.keys.font.family // Inherit from keys
     val suggestionFontBold: Boolean = false
     

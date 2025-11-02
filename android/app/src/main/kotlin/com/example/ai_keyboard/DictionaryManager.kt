@@ -224,37 +224,15 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      */
     private fun addDefaultShortcuts() {
         val defaults = mapOf(
-            "brb" to "be right back",
+            
             "omw" to "on my way",
             "btw" to "by the way",
             "ty" to "thank you",
-            "tysm" to "thank you so much",
-            "np" to "no problem",
-            "imo" to "in my opinion",
-            "imho" to "in my humble opinion",
-            "tbh" to "to be honest",
-            "lol" to "laugh out loud",
-            "lmao" to "laughing my ass off",
-            "fyi" to "for your information",
-            "asap" to "as soon as possible",
-            "eta" to "estimated time of arrival",
-            "fwiw" to "for what it's worth",
-            "iirc" to "if I remember correctly",
-            "tl;dr" to "too long; didn't read",
-            "afaik" to "as far as I know",
-            "gtg" to "got to go",
-            "g2g" to "got to go",
-            "ttyl" to "talk to you later",
-            "bbl" to "be back later",
-            "idk" to "I don't know",
-            "idc" to "I don't care",
-            "irl" to "in real life",
-            "smh" to "shaking my head",
-            "tfw" to "that feeling when"
+        
         )
         
         defaults.forEach { (shortcut, expansion) ->
-            addEntry(shortcut, expansion)
+            addEntry(shortcut, expansion, shouldLog = false)
         }
         
         logW("✅ Added ${defaults.size} default shortcuts")
@@ -262,14 +240,15 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     
     /**
      * Add a new dictionary entry
+     * @param shouldLog Whether to log the operation (false when adding bulk defaults)
      */
-    fun addEntry(shortcut: String, expansion: String): Boolean {
+    fun addEntry(shortcut: String, expansion: String, shouldLog: Boolean = true): Boolean {
         try {
             val cleanShortcut = shortcut.trim().lowercase()
             val cleanExpansion = expansion.trim()
             
             if (cleanShortcut.isEmpty() || cleanExpansion.isEmpty()) {
-                logW("Cannot add empty shortcut or expansion")
+                if (shouldLog) logW("Cannot add empty shortcut or expansion")
                 return false
             }
             
@@ -280,7 +259,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
                 // Update existing entry
                 val existingEntry = entries[existingIndex]
                 entries[existingIndex] = existingEntry.copy(expansion = cleanExpansion)
-                logW("Updated existing entry: $cleanShortcut -> $cleanExpansion")
+                if (shouldLog) logW("Updated existing entry: $cleanShortcut -> $cleanExpansion")
             } else {
                 // Add new entry
                 val newEntry = DictionaryEntry(
@@ -288,7 +267,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
                     expansion = cleanExpansion
                 )
                 entries.add(newEntry)
-                logW("Added new entry: $cleanShortcut -> $cleanExpansion")
+                if (shouldLog) logW("Added new entry: $cleanShortcut -> $cleanExpansion")
             }
             
             // Save and update cache

@@ -217,26 +217,18 @@ class UnifiedLayoutController(
     /**
      * Apply optimal height based on current state
      */
-    private fun applyOptimalHeight(hasNumberRow: Boolean) {
-        val newHeight = heightManager.calculateKeyboardHeight(
+    private fun applyOptimalHeight(_hasNumberRow: Boolean) {
+        val adjustedHeight = heightManager.calculateKeyboardHeight(
             includeToolbar = true,
             includeSuggestions = true
         )
-        
-        // Add extra height for number row if enabled (72dp converted to px)
-        val adjustedHeight = if (hasNumberRow) {
-            val numberRowHeightPx = (72 * context.resources.displayMetrics.density).toInt()
-            newHeight + numberRowHeightPx
-        } else {
-            newHeight
-        }
         
         service.mainKeyboardLayout?.layoutParams?.let { params ->
             params.height = adjustedHeight
             service.mainKeyboardLayout?.requestLayout()
         }
         
-        Log.d(TAG, "📐 Applied height: ${adjustedHeight}px (numberRow=$hasNumberRow)")
+        Log.d(TAG, "📐 Applied height: ${adjustedHeight}px (numberRow=$_hasNumberRow)")
     }
     
     /**
@@ -342,7 +334,7 @@ class UnifiedLayoutController(
         scope.launch {
             try {
                 // Rebuild layout with current settings
-                val layoutModel = adapter.buildLayoutFor(lang, mode, numberRowEnabled = false)
+                val layoutModel = adapter.buildLayoutFor(lang, mode, numberRowEnabled = numberRowEnabled)
                 
                 // Update key labels based on shift state
                 val isUpperCase = shiftState != CapsShiftManager.STATE_NORMAL
@@ -408,4 +400,3 @@ class UnifiedLayoutController(
         Log.d(TAG, "🧹 Unified layout controller cleared")
     }
 }
-

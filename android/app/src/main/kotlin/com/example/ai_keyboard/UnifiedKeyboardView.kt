@@ -2,8 +2,10 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Resources
 import android.graphics.*
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
@@ -14,15 +16,275 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowManager
 import android.widget.*
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.ImageViewCompat
+import androidx.core.graphics.ColorUtils
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import kotlinx.coroutines.*
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
+
+/**
+ * Manages keyboard height calculations and navigation bar detection
+ * Provides consistent keyboard height across all panels (letters, symbols, emojis, grammar)
+ * Handles system UI insets for Android 11+ and fallback for older versions
+ */
+class KeyboardHeightManager(private val context: Context) {
+    
+    companion object {
+        private const val KEYBOARD_HEIGHT_RATIO = 0.265f
+        private const val MIN_KEYBOARD_GRID_HEIGHT_DP = 234
+        private const val MAX_KEYBOARD_GRID_HEIGHT_DP = 248
+        private const val STRUCTURAL_MIN_GRID_HEIGHT_DP = 234
+        private const val NUMBER_ROW_EXTRA_DP = 44
+        private const val TOOLBAR_HEIGHT_DP = 64
+        private const val SUGGESTION_BAR_HEIGHT_DP = 40
+    }
+    
+    private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private val density = context.resources.displayMetrics.density
+    private var numberRowEnabled = false
+    
+    /**
+     * Calculates the baseline keyboard height using Gboard geometry
+     * @param includeToolbar Whether to include toolbar height in calculation
+     * @param includeSuggestions Whether to include suggestion bar height
+     * @return Total keyboard height in pixels
+     */
+    fun calculateKeyboardHeight(
+        includeToolbar: Boolean = false,
+        includeSuggestions: Boolean = false,
+        includeNavigationInset: Boolean = true
+    ): Int {
+        val toolbarHeight = resolveToolbarHeight()
+        val suggestionHeight = resolveSuggestionBarHeight()
+        val navigationInset = if (includeNavigationInset) getNavigationBarHeight() else 0
+        
+        val structuralMinPx = dpToPx(STRUCTURAL_MIN_GRID_HEIGHT_DP)
+        val minGridPx = dpToPx(MIN_KEYBOARD_GRID_HEIGHT_DP)
+        val maxGridPx = dpToPx(MAX_KEYBOARD_GRID_HEIGHT_DP).coerceAtLeast(minGridPx)
+        val availableDisplayHeight = computeUsableDisplayHeightPx().coerceAtLeast(structuralMinPx)
+        val ratioTargetPx = (availableDisplayHeight * KEYBOARD_HEIGHT_RATIO).roundToInt()
+        
+        var gridHeight = ratioTargetPx.coerceIn(minGridPx, maxGridPx).coerceAtLeast(structuralMinPx)
+
+        if (numberRowEnabled) {
+            val extraPx = dpToPx(NUMBER_ROW_EXTRA_DP)
+            val maxWithNumberRow = maxGridPx + extraPx
+            gridHeight = (gridHeight + extraPx).coerceAtMost(maxWithNumberRow)
+        }
+
+        var totalHeight = gridHeight
+        
+        if (includeToolbar) {
+            totalHeight += toolbarHeight
+        }
+        if (includeSuggestions) {
+            totalHeight += suggestionHeight
+        }
+        
+        totalHeight += navigationInset
+        
+        return totalHeight
+    }
+    
+    /**
+     * Gets the navigation bar height if present
+     * @return Navigation bar height in pixels, 0 if not present
+     */
+    fun getNavigationBarHeight(): Int {
+        // First check if navigation bar is present
+        if (!hasNavigationBar()) {
+            return 0
+        }
+        
+        // Try to get from resources
+        val resourceId = context.resources.getIdentifier(
+            "navigation_bar_height", "dimen", "android"
+        )
+        
+        if (resourceId > 0) {
+            val navBarHeight = context.resources.getDimensionPixelSize(resourceId)
+            return navBarHeight
+        }
+        
+        // Fallback to default navigation bar height (48dp)
+        return dpToPx(48)
+    }
+    
+    /**
+     * Checks if the device has a navigation bar
+     * @return true if navigation bar is present
+     */
+    fun hasNavigationBar(): Boolean {
+        // Check for physical navigation keys
+        val hasMenuKey = android.view.ViewConfiguration.get(context).hasPermanentMenuKey()
+        val hasBackKey = android.view.KeyCharacterMap.deviceHasKey(android.view.KeyEvent.KEYCODE_BACK)
+        
+        if (hasMenuKey || hasBackKey) {
+            // Physical keys present, no navigation bar
+            return false
+        }
+        
+        // Use Android 11+ insets API or fallback to display metrics
+        return hasNavigationBarAndroid11()
+    }
+    
+    /**
+     * Applies system UI insets to a view (handles navigation bar and status bar)
+     * @param view The view to apply insets to
+     * @param applyBottom Whether to apply bottom insets (navigation bar)
+     * @param applyTop Whether to apply top insets (status bar)
+     */
+    fun applySystemInsets(
+        view: View,
+        applyBottom: Boolean = true,
+        applyTop: Boolean = false,
+        onInsetsApplied: ((Int, Int) -> Unit)? = null
+    ) {
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            
+            val topInset = if (applyTop) systemBars.top else 0
+            val bottomInset = if (applyBottom) navBars.bottom else 0
+            
+            v.setPadding(
+                v.paddingLeft,
+                topInset,
+                v.paddingRight,
+                bottomInset
+            )
+            
+            onInsetsApplied?.invoke(topInset, bottomInset)
+            
+            insets
+        }
+    }
+    
+    /**
+     * Adjusts a keyboard panel's height to account for navigation bar
+     * @param panel The panel view to adjust
+     * @param baseHeight The base height in pixels (without navigation bar)
+     */
+    fun adjustPanelForNavigationBar(panel: View, baseHeight: Int) {
+        val navBarHeight = getNavigationBarHeight()
+        
+        // ✅ KEEP the base height, but add bottom padding for nav bar
+        // This ensures keys aren't compressed and keyboard sits above nav bar
+        panel.layoutParams = panel.layoutParams?.apply {
+            height = baseHeight
+        } ?: ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, baseHeight)
+        
+        // Add bottom padding equal to navigation bar height to push content up
+        panel.setPadding(
+            panel.paddingLeft,
+            panel.paddingTop,
+            panel.paddingRight,
+            navBarHeight
+        )
+        
+        // Ensure content doesn't get clipped
+        if (panel is ViewGroup) {
+            panel.clipToPadding = false
+            panel.clipChildren = false
+        }
+    }
+    
+    // Private helper methods
+    
+    private fun computeUsableDisplayHeightPx(): Int {
+        return Resources.getSystem().displayMetrics.heightPixels
+    }
+    
+    private fun dpToPx(dp: Int): Int {
+        return (dp * density).toInt()
+    }
+    
+    private fun hasNavigationBarAndroid11(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.currentWindowMetrics
+            val insets = windowMetrics.windowInsets
+            val navBarInsets = insets.getInsets(WindowInsets.Type.navigationBars())
+            navBarInsets.bottom > 0
+        } else {
+            // Fallback for pre-Android 11: Check display dimensions
+            val display = windowManager.defaultDisplay
+            val realSize = Point()
+            val size = Point()
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                display.getRealSize(realSize)
+                display.getSize(size)
+                
+                // Navigation bar is present if real size differs from display size
+                realSize.y > size.y || realSize.x > size.x
+            } else {
+                false
+            }
+        }
+    }
+    
+    /**
+     * Helper method for unified layout controller
+     * Applies calculated height directly to a ViewGroup
+     * 
+     * @param view The view to apply height to
+     */
+    fun applyHeightTo(view: ViewGroup) {
+        val newHeight = calculateKeyboardHeight(
+            includeToolbar = true,
+            includeSuggestions = true
+        )
+        view.layoutParams = view.layoutParams?.apply {
+            height = newHeight
+        } ?: ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, newHeight)
+        view.requestLayout()
+    }
+    
+    /**
+     * Get panel height for dynamic panel creation
+     * Returns height suitable for panels (without toolbar and suggestions)
+     * 
+     * @return Panel height in pixels
+     */
+    fun getPanelHeight(): Int {
+        val baseHeight = calculateKeyboardHeight(
+            includeToolbar = false,
+            includeSuggestions = false,
+            includeNavigationInset = true
+        )
+        return baseHeight
+    }
+
+    fun setNumberRowEnabled(enabled: Boolean) {
+        numberRowEnabled = enabled
+    }
+    
+    private fun resolveToolbarHeight(): Int {
+        return safeDimensionPixelSize(R.dimen.toolbar_height, TOOLBAR_HEIGHT_DP)
+    }
+    
+    private fun resolveSuggestionBarHeight(): Int {
+        return safeDimensionPixelSize(R.dimen.suggestion_bar_height, SUGGESTION_BAR_HEIGHT_DP)
+    }
+    
+    private fun safeDimensionPixelSize(resId: Int, fallbackDp: Int): Int {
+        return try {
+            context.resources.getDimensionPixelSize(resId)
+        } catch (_: Resources.NotFoundException) {
+            dpToPx(fallbackDp)
+        }
+    }
+}
 
 /**
  * 🎯 UNIFIED KEYBOARD VIEW V2 - Complete Modernization
@@ -118,7 +380,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val label: String,
         val code: Int,
         val longPressOptions: List<String>? = null,
-        val keyType: String = "regular"
+        val keyType: String = "regular",
+        val hintLabel: String? = null
     )
 
     // UI containers
@@ -152,6 +415,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var suggestionDisplayCount = 3
     
     private val suggestionViews = mutableListOf<TextView>()
+    private val suggestionSeparators = mutableListOf<View>()
     private var suggestionSlotState: List<SuggestionSlotState> = emptyList()
     private val toolbarButtons = mutableListOf<ImageButton>()
     private var lastEditorText: String = ""
@@ -178,8 +442,16 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var currentLanguageLabel = "English"
     private var labelScaleMultiplier = 1.0f
     private var borderlessMode = false
-    private var keySpacingVerticalDp = 1  
-    private var keySpacingHorizontalDp = 1  
+    private var hintedNumberRow = false
+    private var hintedSymbols = true
+    private var oneHandedModeEnabled = false
+    private var oneHandedSide: String = "right"
+    private var oneHandedWidthPct: Float = 0.75f
+    // Tuned to mirror CleverType row density and gutters
+    private var keySpacingVerticalDp = 1
+    private var keySpacingHorizontalDp = 1
+    private var edgePaddingDp = 4
+    private var verticalPaddingDp = 2
 
     // Touch handling
     private var longPressHandler = Handler(Looper.getMainLooper())
@@ -226,8 +498,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             )
             gravity = Gravity.CENTER_VERTICAL
             background = themeManager.createToolbarBackground()
-            //setPadding(0, dpToPx(6), 0, dpToPx(0))
-            setPadding(0, 0, 0, 0)
+            setPadding(dpToPx(12), 0, dpToPx(12), 0)
         }
         addView(toolbarContainer)
         
@@ -243,14 +514,15 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 LayoutParams.MATCH_PARENT,
                 suggestionHeight
             )
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL
             visibility = VISIBLE
             if (themeManager.isImageBackground()) {
                 setBackgroundColor(Color.TRANSPARENT)
             } else {
                 background = themeManager.createSuggestionBarBackground()
             }
-            setPadding(suggestionPadding, dpToPx(6), suggestionPadding, dpToPx(6))
+            val verticalPadding = dpToPx(2)
+            setPadding(suggestionPadding, verticalPadding, suggestionPadding, verticalPadding)
         }
         addView(suggestionContainer)
         
@@ -322,6 +594,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         suggestionContainer.visibility = GONE
         panelManager?.setInputText(lastEditorText)
 
+        // ✅ FIX: Hide keyboard grid view when showing panel (prevents overlay/touch issues)
+        keyboardGridView?.visibility = GONE
+
         // Remove old panel if any
         currentPanelView?.let { bodyContainer.removeView(it) }
 
@@ -337,7 +612,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         // Recalculate height
         recalcHeight()
 
-        Log.d(TAG, "✅ Showing panel")
+        Log.d(TAG, "✅ Showing panel (keyboard grid hidden)")
     }
 
     /**
@@ -429,17 +704,103 @@ class UnifiedKeyboardView @JvmOverloads constructor(
      * Enable/disable borderless key mode
      */
     fun setBorderless(enabled: Boolean) {
+        if (borderlessMode == enabled) return
         borderlessMode = enabled
-        invalidate()
+        rebuildKeyboardGrid()
+    }
+
+    /**
+     * Toggle hinted number row (numeric hints on top row)
+     */
+    fun setHintedNumberRow(enabled: Boolean) {
+        if (hintedNumberRow == enabled) return
+        hintedNumberRow = enabled
+        rebuildKeyboardGrid()
+    }
+
+    /**
+     * Toggle hinted symbols (alternate character hints)
+     */
+    fun setHintedSymbols(enabled: Boolean) {
+        if (hintedSymbols == enabled) return
+        hintedSymbols = enabled
+        rebuildKeyboardGrid()
     }
 
     /**
      * Set key spacing
      */
     fun setKeySpacing(verticalDp: Int, horizontalDp: Int) {
-        keySpacingVerticalDp = verticalDp
-        keySpacingHorizontalDp = horizontalDp
-        invalidate()
+        val clampedVertical = verticalDp.coerceAtLeast(0)
+        val clampedHorizontal = horizontalDp.coerceAtLeast(0)
+        if (clampedVertical == keySpacingVerticalDp && clampedHorizontal == keySpacingHorizontalDp) return
+
+        keySpacingVerticalDp = clampedVertical
+        keySpacingHorizontalDp = clampedHorizontal
+        rebuildKeyboardGrid()
+    }
+
+    fun setOneHandedMode(enabled: Boolean, side: String = "right", widthPct: Float = 0.75f) {
+        val clampedPct = widthPct.coerceIn(0.6f, 0.9f)
+        val normalizedSide = if (side.equals("left", ignoreCase = true)) "left" else "right"
+
+        if (!enabled) {
+            if (!oneHandedModeEnabled) return
+            layoutParams = layoutParams?.apply {
+                width = LayoutParams.MATCH_PARENT
+                height = LayoutParams.WRAP_CONTENT
+            } ?: LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+            translationX = 0f
+            translationY = 0f
+            elevation = 0f
+            oneHandedModeEnabled = false
+            oneHandedSide = "right"
+            oneHandedWidthPct = 0.75f
+            currentLayoutMode = LayoutMode.NORMAL
+            requestLayout()
+            recalcHeight()
+            return
+        }
+
+        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+        val targetWidth = (screenWidth * clampedPct).roundToInt()
+        val offset = (screenWidth - targetWidth) / 2f
+
+        layoutParams = layoutParams?.apply {
+            width = targetWidth
+            height = LayoutParams.WRAP_CONTENT
+        } ?: LayoutParams(targetWidth, LayoutParams.WRAP_CONTENT)
+
+        translationX = if (normalizedSide == "left") -offset else offset
+        translationY = 0f
+        elevation = 0f
+        oneHandedModeEnabled = true
+        oneHandedSide = normalizedSide
+        oneHandedWidthPct = clampedPct
+        currentLayoutMode = if (normalizedSide == "left") LayoutMode.ONE_HANDED_LEFT else LayoutMode.ONE_HANDED_RIGHT
+        requestLayout()
+        recalcHeight()
+    }
+
+    /**
+     * Adjust horizontal gutters at the screen edges (left/right)
+     */
+    fun setEdgePadding(dp: Int) {
+        val clamped = dp.coerceAtLeast(0)
+        if (clamped == edgePaddingDp) return
+
+        edgePaddingDp = clamped
+        rebuildKeyboardGrid()
+    }
+
+    /**
+     * Rebuild the grid so spacing/padding changes are reflected immediately
+     */
+    private fun rebuildKeyboardGrid() {
+        currentLayout?.let { buildKeyboardGrid(it) } ?: run {
+            keyboardGridView?.invalidate()
+        }
+        requestLayout()
     }
 
     // ========================================
@@ -547,7 +908,6 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         } else {
             suggestionContainer.background = themeManager.createSuggestionBarBackground()
         }
-
         // Update toolbar buttons
         toolbarButtons.forEach { styleToolbarButton(it) }
         
@@ -555,6 +915,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val refreshedSlots = buildSuggestionSlotState(lastProvidedSuggestions)
         suggestionSlotState = refreshedSlots
         renderSuggestionSlots(refreshedSlots)
+        updateSuggestionSeparatorsColor(palette)
 
         // Rebuild current view
         when (currentMode) {
@@ -710,11 +1071,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val palette = themeManager.getCurrentPalette()
         return TextView(context).apply {
             this.text = text
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.suggestion_text_size))
             gravity = Gravity.CENTER
             setTextColor(palette.suggestionText)
             val horizontalPadding = resources.getDimensionPixelSize(R.dimen.suggestion_padding) / 2
-            val verticalPadding = dpToPx(6)
+            val verticalPadding = dpToPx(2)
             setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
             
             // ✅ No background - transparent
@@ -729,7 +1091,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 1f
             ).apply {
                 val margin = resources.getDimensionPixelSize(R.dimen.suggestion_margin)
-                setMargins(margin, dpToPx(2), margin, dpToPx(2))
+                setMargins(margin, 0, margin, 0)
             }
             
             isClickable = true
@@ -740,18 +1102,31 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     }
 
     private fun ensureSuggestionSlots(forceRebuild: Boolean = false) {
-        if (!forceRebuild && suggestionViews.size == suggestionDisplayCount) return
+        if (!forceRebuild && suggestionViews.size == suggestionDisplayCount) {
+            updateSuggestionSeparatorsColor()
+            return
+        }
         
+        val palette = themeManager.getCurrentPalette()
         suggestionContainer.removeAllViews()
         suggestionViews.clear()
+        suggestionSeparators.clear()
         
-        repeat(suggestionDisplayCount) {
+        repeat(suggestionDisplayCount) { index ->
             val slotView = createSuggestionItem("", false) {}
             slotView.isEnabled = false
             slotView.alpha = 1f
             suggestionContainer.addView(slotView)
             suggestionViews.add(slotView)
+            
+            if (index < suggestionDisplayCount - 1) {
+                val separator = createSuggestionSeparator(palette)
+                suggestionContainer.addView(separator)
+                suggestionSeparators.add(separator)
+            }
         }
+        
+        updateSuggestionSeparatorsColor(palette)
     }
 
     private fun extractSentenceStarterWords(maxWords: Int): List<String> {
@@ -842,6 +1217,26 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         Log.d(TAG, "✅ Updated suggestions: ${slots.count { it.fromResults }} active out of $suggestionDisplayCount slots")
     }
 
+    private fun createSuggestionSeparator(palette: ThemePaletteV2): View {
+        val separatorColor = ColorUtils.setAlphaComponent(palette.suggestionText, 48)
+        return View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                max(1, dpToPx(1)),
+                LinearLayout.LayoutParams.MATCH_PARENT
+            ).apply {
+                setMargins(0, dpToPx(4), 0, dpToPx(4))
+            }
+            setBackgroundColor(separatorColor)
+        }
+    }
+
+    private fun updateSuggestionSeparatorsColor(palette: ThemePaletteV2 = themeManager.getCurrentPalette()) {
+        val separatorColor = ColorUtils.setAlphaComponent(palette.suggestionText, 48)
+        suggestionSeparators.forEach { separator ->
+            separator.setBackgroundColor(separatorColor)
+        }
+    }
+
     private fun generateFallbackSuggestions(prefix: String, maxSlots: Int): List<String> {
         if (prefix.isBlank()) return extractSentenceStarterWords(maxSlots)
         val normalized = prefix.trim().lowercase()
@@ -893,13 +1288,21 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     }
 
     private fun commitSuggestionText(suggestion: String) {
-        // Clear clipboard suggestion if this was a clipboard item
-        suggestionController?.clearClipboardSuggestion()
-        
-        suggestion.forEach { char ->
-            onKeyCallback?.invoke(char.code, intArrayOf(char.code))
+        // ✅ FIX: Call service's applySuggestion() to properly replace current word
+        // Instead of adding characters one by one
+        val service = AIKeyboardService.getInstance()
+        if (service != null) {
+            service.applySuggestion(suggestion)
+            Log.d(TAG, "✅ Applied suggestion via service: '$suggestion'")
+        } else {
+            // Fallback: simulate typing (old behavior)
+            suggestion.forEach { char ->
+                onKeyCallback?.invoke(char.code, intArrayOf(char.code))
+            }
+            onKeyCallback?.invoke(32, intArrayOf(32))
+            Log.d(TAG, "⚠️ Applied suggestion via fallback (service unavailable)")
         }
-        onKeyCallback?.invoke(32, intArrayOf(32))
+        
         currentWord.clear()
     }
 
@@ -911,6 +1314,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         // Remove old grid view if any
         keyboardGridView?.let { bodyContainer.removeView(it) }
 
+        // Update height manager with number row state
+        heightManager.setNumberRowEnabled(model.numberRow.isNotEmpty())
+
         // Create new keyboard grid view with swipe support
         keyboardGridView = KeyboardGridView(
             context = context,
@@ -921,8 +1327,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             currentLanguageLabel = currentLanguageLabel,
             labelScaleMultiplier = labelScaleMultiplier,
             borderlessMode = borderlessMode,
+            hintedNumberRow = hintedNumberRow,
+            hintedSymbols = hintedSymbols,
             keySpacingVerticalDp = keySpacingVerticalDp,
             keySpacingHorizontalDp = keySpacingHorizontalDp,
+            edgePaddingDp = edgePaddingDp,
+            verticalEdgePaddingDp = verticalPaddingDp,
             onKeyCallback = onKeyCallback,
             parentView = this
         )
@@ -941,6 +1351,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         layoutDirection = if (isRTL) LAYOUT_DIRECTION_RTL else LAYOUT_DIRECTION_LTR
 
         Log.d(TAG, "✅ Keyboard grid view created with swipe support")
+
+        // Adjust overall height to reflect current layout (number row, etc.)
+        recalcHeight()
+
+        if (oneHandedModeEnabled) {
+            setOneHandedMode(true, oneHandedSide, oneHandedWidthPct)
+        }
     }
 
     // ========================================
@@ -1169,13 +1586,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
     private fun getKeyWidthFactor(label: String): Float {
         return when {
-            label == " " || label == "SPACE" || label.startsWith("space") -> 4f  // ✅ Decreased from 5.5f
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 2f
-            label == "?123" || label == "ABC" || label == "=<" || label == "1234" -> 1.0f
+            label == " " || label == "SPACE" || label.startsWith("space") -> 2.5f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
+            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
             label == "🌐" || label == "GLOBE" -> 1f
             label == "," || label == "." -> 1f
-            label == "⇧" || label == "SHIFT" -> 2f
-            label == "⌫" || label == "DELETE" -> 2f
+            label == "⇧" || label == "SHIFT" -> 1.5f
+            label == "⌫" || label == "DELETE" -> 1.5f
             else -> 1.0f
         }
     }
@@ -1198,13 +1615,11 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             "backspace" -> R.drawable.sym_keyboard_delete
             "enter" -> R.drawable.button_return  // ✅ Use Button_return.xml with smart behavior
             "globe" -> R.drawable.sym_keyboard_globe
-            "space" -> R.drawable.sym_keyboard_space
             else -> when (label.uppercase()) {
                 "SHIFT", "⇧" -> R.drawable.sym_keyboard_shift
                 "DELETE", "⌫" -> R.drawable.sym_keyboard_delete
                 "RETURN", "SYM_KEYBOARD_RETURN", "⏎" -> R.drawable.button_return  // ✅ Use Button_return.xml
                 "GLOBE", "🌐" -> R.drawable.sym_keyboard_globe
-                "SPACE" -> R.drawable.sym_keyboard_space
                 else -> null
             }
         }
@@ -1255,14 +1670,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private val currentLanguageLabel: String,
         private val labelScaleMultiplier: Float,
         private val borderlessMode: Boolean,
+        private val hintedNumberRow: Boolean,
+        private val hintedSymbols: Boolean,
         private val keySpacingVerticalDp: Int,
         private val keySpacingHorizontalDp: Int,
+        private val edgePaddingDp: Int,
+        private val verticalEdgePaddingDp: Int,
         private val onKeyCallback: ((Int, IntArray) -> Unit)?,
         private val parentView: UnifiedKeyboardView
     ) : View(context) {
 
         private val TAG = "KeyboardGridView"
         private val dynamicKeys = mutableListOf<DynamicKey>()
+        private val largeIconKeyTypes = setOf("emoji", "mic", "symbols")
         
         // Swipe trail for visual feedback
         private val swipeTrailPaint = Paint().apply {
@@ -1311,65 +1731,164 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
             val screenWidth = width
             val screenHeight = height
-            val padding = dpToPx(2).toFloat()  // tighter padding to use full height
-            val keyVerticalSpacing = dpToPx(keySpacingVerticalDp).toFloat()
-            val keyHorizontalSpacing = dpToPx(keySpacingHorizontalDp).toFloat()
+            if (screenWidth <= 0 || screenHeight <= 0) {
+                Log.w(TAG, "⚠️ Unable to build keys without valid dimensions")
+                return
+            }
 
-            val numRows = model.rows.size
-            val availableHeight = screenHeight - (padding * 2)
-            val totalVerticalSpacing = keyVerticalSpacing * (numRows - 1)
-            val keyHeight = ((availableHeight - totalVerticalSpacing) / numRows).toInt()
+            val horizontalSpacingPx = dpToPx(keySpacingHorizontalDp).toFloat()
+            val verticalSpacingPx = dpToPx(keySpacingVerticalDp).toFloat()
+            val edgePaddingPx = dpToPx(edgePaddingDp).toFloat()
+            val verticalPaddingPx = dpToPx(verticalEdgePaddingDp).toFloat()
 
-            var currentY = padding.toInt()
+            val rows = model.rows
+            val numRows = rows.size
+            if (numRows == 0) {
+                return
+            }
 
-            val isRTL = model.direction.equals("RTL", ignoreCase = true)
-
-            model.rows.forEach { row ->
-                val availableWidth = screenWidth - (padding * 2)
-                val totalWidthUnits = row.sumOf { key ->
-                    getKeyWidthFactor(key.label).toDouble()
-                }.toFloat()
-
-                val unitWidth = (availableWidth - (keyHorizontalSpacing * (row.size - 1))) / totalWidthUnits
-
-                var currentX = if (isRTL) {
-                    (screenWidth - padding).toInt()
-                } else {
-                    padding.toInt()
+            val totalSpacingY = max(0, numRows - 1) * verticalSpacingPx
+            val totalVerticalPadding = verticalPaddingPx * 2f
+            val usableHeight = (screenHeight.toFloat() - totalSpacingY - totalVerticalPadding).coerceAtLeast(0f)
+            val explicitHeights = if (model.rowHeightsDp.isNotEmpty()) {
+                val heights = model.rowHeightsDp.map { dpToPx(it) }.toMutableList()
+                while (heights.size < numRows) {
+                    heights.add(heights.lastOrNull() ?: dpToPx(60))
                 }
-
-                row.forEach { keyModel ->
-                    val widthFactor = getKeyWidthFactor(keyModel.label)
-                    val keyWidth = (unitWidth * widthFactor).toInt()
-
-                    val keyX = if (isRTL) currentX - keyWidth else currentX
-                    val keyType = getKeyTypeFromCode(keyModel.code)
-
-                    dynamicKeys.add(
-                        DynamicKey(
-                            x = keyX,
-                            y = currentY,
-                            width = keyWidth,
-                            height = keyHeight,
-                            label = keyModel.label,
-                            code = keyModel.code,
-                            longPressOptions = keyModel.longPress,
-                            keyType = keyType
-                        )
-                    )
-
-                    currentX += if (isRTL) {
-                        -(keyWidth + keyHorizontalSpacing.toInt())
-                    } else {
-                        keyWidth + keyHorizontalSpacing.toInt()
+                if (heights.size > numRows) {
+                    heights.subList(numRows, heights.size).clear()
+                }
+                val usableHeightInt = usableHeight.roundToInt()
+                val heightSum = heights.sum()
+                val diff = usableHeightInt - heightSum
+                if (diff != 0 && heights.isNotEmpty()) {
+                    val perRow = diff / heights.size
+                    val remainder = diff % heights.size
+                    heights.indices.forEach { index ->
+                        var adjustment = perRow
+                        if (remainder != 0) {
+                            if (diff > 0 && index < remainder) {
+                                adjustment += 1
+                            } else if (diff < 0 && index < -remainder) {
+                                adjustment -= 1
+                            }
+                        }
+                        heights[index] = (heights[index] + adjustment).coerceAtLeast(1)
                     }
                 }
+                heights
+            } else null
 
-                currentY += keyHeight + keyVerticalSpacing.toInt()
+            val rowHeights: List<Int> = explicitHeights ?: run {
+                val ratioSequence = MutableList(numRows) { 1f }
+                val ratioSum = ratioSequence.sum().takeIf { it > 0f } ?: numRows.toFloat()
+
+                val heights = MutableList(numRows) { 0 }
+                var accumulatedHeight = 0
+                for (index in 0 until numRows) {
+                    val computedHeight = ((ratioSequence[index] / ratioSum) * usableHeight).roundToInt()
+                    heights[index] = computedHeight
+                    accumulatedHeight += computedHeight
+                }
+                val heightAdjustment = usableHeight.roundToInt() - accumulatedHeight
+                if (heightAdjustment != 0 && heights.isNotEmpty()) {
+                    val lastIndex = heights.lastIndex
+                    heights[lastIndex] = (heights[lastIndex] + heightAdjustment).coerceAtLeast(0)
+                }
+                heights
+            }
+
+            var currentY = verticalPaddingPx
+            val isRTL = model.direction.equals("RTL", ignoreCase = true)
+
+            rows.forEachIndexed { rowIndex, row ->
+                val rowHeight = max(rowHeights.getOrElse(rowIndex) { 0 }, 1)
+
+                val totalWidthUnits = row.sumOf { key ->
+                    getKeyWidthFactor(key.label).toDouble()
+                }.toFloat().coerceAtLeast(1f)
+
+                val spacingTotal = if (row.size > 1) horizontalSpacingPx * (row.size - 1) else 0f
+                val usableWidth = (screenWidth.toFloat() - (edgePaddingPx * 2f)).coerceAtLeast(0f)
+                val contentWidth = (usableWidth - spacingTotal).coerceAtLeast(0f)
+                val indentRatio = resolveIndentRatio(rowIndex, row, rows)
+                val indentUnits = (indentRatio * 2f).coerceAtLeast(0f)
+                val denominator = (totalWidthUnits + indentUnits).coerceAtLeast(1f)
+                val unitWidth = if (denominator > 0f) contentWidth / denominator else 0f
+                val indentPx = indentRatio * unitWidth
+                val rowWidth = totalWidthUnits * unitWidth + spacingTotal
+                val extraSpace = (usableWidth - (indentPx * 2f) - rowWidth).coerceAtLeast(0f)
+                val startX = edgePaddingPx + indentPx + (extraSpace / 2f)
+
+                var currentX = startX
+
+                row.forEachIndexed { keyIndex, keyModel ->
+                    var keyWidth = unitWidth * getKeyWidthFactor(keyModel.label)
+                    if (keyIndex == row.lastIndex) {
+                        val expectedEnd = startX + rowWidth
+                        val actualEnd = currentX + keyWidth
+                        keyWidth += (expectedEnd - actualEnd)
+                    }
+
+                    val keyX = currentX
+                    currentX += keyWidth
+                    if (keyIndex < row.lastIndex) {
+                        currentX += horizontalSpacingPx
+                    }
+
+                    val resolvedX = if (isRTL) {
+                        (screenWidth.toFloat() - keyX - keyWidth)
+                    } else {
+                        keyX
+                    }
+
+                    val dynamicKey = DynamicKey(
+                        x = resolvedX.roundToInt(),
+                        y = currentY.roundToInt(),
+                        width = keyWidth.roundToInt().coerceAtLeast(1),
+                        height = rowHeight,
+                        label = keyModel.label,
+                        code = keyModel.code,
+                        longPressOptions = keyModel.longPress,
+                        keyType = getKeyTypeFromCode(keyModel.code),
+                        hintLabel = keyModel.altLabel
+                    )
+                    dynamicKeys.add(dynamicKey)
+                }
+
+                currentY += rowHeight
+                if (rowIndex < numRows - 1) {
+                    currentY += verticalSpacingPx
+                }
             }
 
             invalidate()
             Log.d(TAG, "✅ Built ${dynamicKeys.size} keys with swipe support")
+        }
+        
+        private fun resolveIndentRatio(
+            rowIndex: Int,
+            row: List<LanguageLayoutAdapter.KeyModel>,
+            totalRows: List<List<LanguageLayoutAdapter.KeyModel>>
+        ): Float {
+            if (rowIndex <= 0 || rowIndex >= totalRows.lastIndex) return 0f
+            if (row.isEmpty()) return 0f
+            
+            val referenceRowSize = totalRows.firstOrNull { it.isNotEmpty() }?.size ?: return 0f
+            if (referenceRowSize - row.size < 1) return 0f
+            
+            val containsAnchorKey = row.any { key ->
+                when (key.code) {
+                    -1,
+                    android.inputmethodservice.Keyboard.KEYCODE_SHIFT,
+                    -5,
+                    android.inputmethodservice.Keyboard.KEYCODE_DELETE -> true
+                    else -> false
+                }
+            }
+            if (containsAnchorKey) return 0f
+            
+            return 0.5f
         }
 
         override fun onDraw(canvas: Canvas) {
@@ -1406,26 +1925,33 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun drawKey(canvas: Canvas, key: DynamicKey, palette: ThemePaletteV2) {
-            val density = context.resources.displayMetrics.density
-            val basePadding = 0f  // ✅ No padding around keys
-            val verticalSpacing = dpToPx(keySpacingVerticalDp) * density / 2f
-            val horizontalSpacing = dpToPx(keySpacingHorizontalDp) * density / 2f
+            val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
+            val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+            val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
 
             val keyRect = RectF(
-                key.x.toFloat() + basePadding + horizontalSpacing,
-                key.y.toFloat() + basePadding + verticalSpacing,
-                (key.x + key.width).toFloat() - basePadding - horizontalSpacing,
-                (key.y + key.height).toFloat() - basePadding - verticalSpacing
+                key.x.toFloat() + basePadding + horizontalInset,
+                key.y.toFloat() + basePadding + verticalInset,
+                (key.x + key.width).toFloat() - basePadding - horizontalInset,
+                (key.y + key.height).toFloat() - basePadding - verticalInset
             )
 
-            // Draw background
-            val keyDrawable = when {
-                key.keyType == "enter" && themeManager.shouldUseAccentForEnter() -> themeManager.createSpecialKeyDrawable()
-                themeManager.shouldUseAccentForKey(key.keyType) -> themeManager.createSpecialKeyDrawable()
-                else -> themeManager.createKeyDrawable()
+            // ✅ Draw background with per-key customization support
+            // Use key label as identifier for per-key customization
+            val keyIdentifier = getKeyIdentifier(key)
+            val useNeutralBackground = key.keyType == "enter" || key.keyType == "shift"
+            val shouldDrawBackground = !borderlessMode
+            val keyDrawable = if (shouldDrawBackground) {
+                when {
+                    !useNeutralBackground && themeManager.shouldUseAccentForKey(key.keyType) -> themeManager.createSpecialKeyDrawable()
+                    else -> themeManager.createKeyDrawable(keyIdentifier)
+                }
+            } else null
+
+            keyDrawable?.let { drawable ->
+                drawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
+                drawable.draw(canvas)
             }
-            keyDrawable.setBounds(keyRect.left.toInt(), keyRect.top.toInt(), keyRect.right.toInt(), keyRect.bottom.toInt())
-            keyDrawable.draw(canvas)
 
             // Draw icon or text
             val iconResId = getIconForKeyType(key.keyType, key.label)
@@ -1435,46 +1961,90 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 drawKeyText(canvas, key, keyRect, palette)
             }
         }
+        
+        /**
+         * Get key identifier for per-key customization lookup
+         * Converts key label to a standardized identifier
+         */
+        private fun getKeyIdentifier(key: DynamicKey): String {
+            // For special keys, use their key type
+            return when (key.keyType) {
+                "space" -> "space"
+                "enter" -> "enter"
+                "shift" -> "shift"
+                "backspace" -> "backspace"
+                "globe" -> "globe"
+                "emoji" -> "emoji"
+                "mic" -> "mic"
+                "symbols" -> "symbols"
+                else -> {
+                    // For letter/number keys, use the lowercase label
+                    key.label.lowercase().take(1) // Take first character
+                }
+            }
+        }
 
         private fun drawKeyIcon(canvas: Canvas, key: DynamicKey, keyRect: RectF, iconResId: Int, palette: ThemePaletteV2) {
             val iconDrawable = ContextCompat.getDrawable(context, iconResId)?.mutate() ?: return
-            val iconSize = min(key.width, key.height) * 0.4f
             val centerX = keyRect.centerX()
             val centerY = keyRect.centerY()
+            val targetSizeDp = if (largeIconKeyTypes.contains(key.keyType)) 36 else 28
+            val desiredSizePx = dpToPx(targetSizeDp)
+            val maxDrawableExtent = (min(key.width, key.height) - dpToPx(6)).coerceAtLeast(dpToPx(20))
+            val iconSize = min(desiredSizePx.toFloat(), maxDrawableExtent.toFloat())
 
             val tintColor = when {
                 key.keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
-                themeManager.shouldUseAccentForKey(key.keyType) || (key.keyType == "enter" && themeManager.shouldUseAccentForEnter()) -> Color.WHITE
+                key.keyType == "enter" || key.keyType == "shift" -> palette.specialAccent
+                themeManager.shouldUseAccentForKey(key.keyType) -> if (borderlessMode) palette.specialAccent else Color.WHITE
                 else -> palette.keyText
             }
 
             iconDrawable.setColorFilter(tintColor, PorterDuff.Mode.SRC_IN)
             iconDrawable.setBounds(
-                (centerX - iconSize/2).toInt(),
-                (centerY - iconSize/2).toInt(),
-                (centerX + iconSize/2).toInt(),
-                (centerY + iconSize/2).toInt()
+                (centerX - iconSize / 2f).roundToInt(),
+                (centerY - iconSize / 2f).roundToInt(),
+                (centerX + iconSize / 2f).roundToInt(),
+                (centerY + iconSize / 2f).roundToInt()
             )
             iconDrawable.draw(canvas)
 
             // Language label on space
             if (key.keyType == "space" && showLanguageOnSpace && currentLanguageLabel.isNotEmpty()) {
                 val textPaint = Paint(parentView.spaceLabelPaint).apply {
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                     textSize = parentView.spaceLabelPaint.textSize * labelScaleMultiplier * 0.7f
                     color = palette.spaceLabelColor
                     textAlign = Paint.Align.CENTER
                 }
-                canvas.drawText(currentLanguageLabel, centerX, centerY + iconSize/2 + textPaint.textSize, textPaint)
+                val baselineShift = dpToPx(1).toFloat()
+                canvas.drawText(currentLanguageLabel, centerX, centerY + iconSize/2 + textPaint.textSize + baselineShift, textPaint)
             }
         }
 
         private fun drawKeyText(canvas: Canvas, key: DynamicKey, keyRect: RectF, palette: ThemePaletteV2) {
-            val textPaint = if (key.keyType == "space") Paint(parentView.spaceLabelPaint) else Paint(parentView.keyTextPaint)
-            textPaint.textSize = parentView.keyTextPaint.textSize * labelScaleMultiplier
+            // ✅ Get key identifier for per-key customization
+            val keyIdentifier = getKeyIdentifier(key)
+            
+            // ✅ Use per-key customized text paint
+            val textPaint = if (key.keyType == "space") {
+                Paint(parentView.spaceLabelPaint)
+            } else {
+                themeManager.createKeyTextPaint(keyIdentifier) // ✅ Use per-key font customization
+            }
+            
+            textPaint.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            if (key.keyType == "space" && showLanguageOnSpace) {
+                textPaint.textSize = textPaint.textSize * labelScaleMultiplier
+            } else {
+                textPaint.textSize = spToPx(20f) * labelScaleMultiplier
+            }
 
             textPaint.color = when {
-                themeManager.shouldUseAccentForKey(key.keyType) || (key.keyType == "enter" && themeManager.shouldUseAccentForEnter()) -> Color.WHITE
-                else -> palette.keyText
+                key.keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
+                key.keyType == "enter" || key.keyType == "shift" -> palette.specialAccent
+                themeManager.shouldUseAccentForKey(key.keyType) -> if (borderlessMode) palette.specialAccent else Color.WHITE
+                else -> themeManager.getTextColor(keyIdentifier)
             }
 
             val text = if (key.keyType == "space" && showLanguageOnSpace) currentLanguageLabel else key.label
@@ -1484,7 +2054,34 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             val textHeight = textPaint.descent() - textPaint.ascent()
             val textOffset = (textHeight / 2) - textPaint.descent()
             textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText(text, centerX, centerY + textOffset, textPaint)
+            canvas.drawText(text, centerX, centerY + textOffset + dpToPx(1).toFloat(), textPaint)
+
+            drawHintLabel(canvas, key, keyRect, textPaint)
+        }
+
+        private fun shouldShowHint(key: DynamicKey): Boolean {
+            val hint = key.hintLabel?.trim() ?: return false
+            if (hint.isEmpty()) return false
+            if (key.keyType != "regular") return false
+            val isDigitHint = hint.all { it.isDigit() }
+            return (isDigitHint && hintedNumberRow) || (!isDigitHint && hintedSymbols)
+        }
+
+        private fun drawHintLabel(canvas: Canvas, key: DynamicKey, keyRect: RectF, basePaint: Paint) {
+            if (!shouldShowHint(key)) return
+            val hint = key.hintLabel?.trim().orEmpty()
+            if (hint.isEmpty()) return
+
+            val hintPaint = Paint(basePaint).apply {
+                textSize = (basePaint.textSize * 0.45f).coerceAtLeast(dpToPx(6f))
+                typeface = Typeface.create(basePaint.typeface, Typeface.NORMAL)
+                textAlign = Paint.Align.RIGHT
+                color = ColorUtils.setAlphaComponent(basePaint.color, (basePaint.alpha * 0.75f).toInt().coerceIn(0, 255))
+            }
+
+            val hintX = keyRect.right - dpToPx(4f)
+            val hintY = keyRect.top + hintPaint.textSize + dpToPx(1f)
+            canvas.drawText(hint.take(2), hintX, hintY, hintPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1841,13 +2438,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun getKeyWidthFactor(label: String): Float = when {
-            label == " " || label == "SPACE" || label.startsWith("space") -> 4f  // ✅ Decreased from 5.5f
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 2f
+            label == " " || label == "SPACE" || label.startsWith("space") -> 2.5f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
             label == "⇧" || label == "SHIFT" -> 1.5f
             label == "⌫" || label == "DELETE" -> 1.5f
-            label == "?123" || label == "ABC" || label == "=<" || label == "1234" -> 1.25f  // ✅ Decreased from 1f
-            label == "🌐" || label == "GLOBE" -> 1.25f  // ✅ Decreased from 1f
-            label == "," || label == "." -> 1.25f  // ✅ Decreased from 1f
+            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
+            label == "🌐" || label == "GLOBE" -> 1f
+            label == "," || label == "." -> 1f
             else -> 1.0f
         }
 
@@ -1868,17 +2465,27 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             "backspace" -> R.drawable.sym_keyboard_delete
             "enter" -> R.drawable.sym_keyboard_return
             "globe" -> R.drawable.sym_keyboard_globe
-            "space" -> R.drawable.sym_keyboard_space
             else -> when (label.uppercase()) {
                 "SHIFT", "⇧" -> R.drawable.sym_keyboard_shift
                 "DELETE", "⌫" -> R.drawable.sym_keyboard_delete
                 "RETURN", "SYM_KEYBOARD_RETURN" -> R.drawable.sym_keyboard_return
                 "GLOBE", "🌐" -> R.drawable.sym_keyboard_globe
-                "SPACE" -> R.drawable.sym_keyboard_space
                 else -> null
             }
         }
         
         private fun dpToPx(dp: Int): Int = (dp * context.resources.displayMetrics.density).toInt()
+
+        private fun dpToPx(dp: Float): Float = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp,
+            context.resources.displayMetrics
+        )
+
+        private fun spToPx(sp: Float): Float = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            sp,
+            context.resources.displayMetrics
+        )
     }
 }

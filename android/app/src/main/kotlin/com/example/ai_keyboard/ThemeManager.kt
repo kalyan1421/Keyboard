@@ -17,8 +17,10 @@ import androidx.core.graphics.ColorUtils
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FileNotFoundException
 import kotlin.math.*
 import android.view.Gravity
+import android.util.Log
 
 /**
  * CleverType Theme Engine V2 - Single Source of Truth
@@ -28,6 +30,8 @@ import android.view.Gravity
 class ThemeManager(context: Context) : BaseManager(context) {
     
     companion object {
+        private const val TAG = "ThemeManager"
+        
         // CRITICAL: Flutter plugin adds "flutter." prefix automatically!
         // So we access "flutter.theme.v2.json" which matches Flutter's 'theme.v2.json' key
         private const val THEME_V2_KEY = "flutter.theme.v2.json"
@@ -46,6 +50,12 @@ class ThemeManager(context: Context) : BaseManager(context) {
     // LRU Caches for performance
     private val drawableCache = LruCache<String, Drawable>(DRAWABLE_CACHE_SIZE)
     private val imageCache = LruCache<String, Drawable>(IMAGE_CACHE_SIZE)
+    
+    private val keyShadowOffsetPx: Int
+        get() = context.resources.getDimensionPixelSize(R.dimen.key_shadow_offset)
+
+    private val pressedKeyShadowOffsetPx: Int
+        get() = context.resources.getDimensionPixelSize(R.dimen.key_pressed_shadow_offset)
     
     // Theme change listeners
     private val listeners = mutableListOf<ThemeChangeListener>()
@@ -251,6 +261,27 @@ class ThemeManager(context: Context) : BaseManager(context) {
     }
     
     /**
+     * Create key background drawable with per-key customization
+     * @param keyIdentifier The key identifier (e.g., "a", "enter", "space", etc.)
+     */
+    fun createKeyDrawable(keyIdentifier: String): Drawable {
+        val theme = getCurrentTheme()
+        val customization = theme.keys.perKeyCustomization[keyIdentifier]
+        
+        // If no customization for this key, return default
+        if (customization == null) {
+            return createKeyDrawable()
+        }
+        
+        val cacheKey = "key_${keyIdentifier}_${themeHash}"
+        return drawableCache.get(cacheKey) ?: run {
+            val drawable = buildKeyDrawable(customization)
+            drawableCache.put(cacheKey, drawable)
+            drawable
+        }
+    }
+    
+    /**
      * Create cached key pressed drawable
      */
     fun createKeyPressedDrawable(): Drawable {
@@ -359,15 +390,25 @@ class ThemeManager(context: Context) : BaseManager(context) {
     // ===== PRIVATE DRAWABLE BUILDERS =====
     
     private fun buildKeyDrawable(): Drawable {
+        val theme = getCurrentTheme()
         val palette = getCurrentPalette()
+        val preset = theme.keys.preset
+        
+        // If custom shape preset, use custom drawable
+        if (preset in listOf("star", "heart", "hexagon", "cone", "gem")) {
+            return createCustomShapeDrawable(preset, palette)
+        }
+        
+        // Otherwise use standard GradientDrawable with shadow
         val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
         val density = context.resources.displayMetrics.density
         val radiusPx = palette.keyRadius * density
         
         val drawable = GradientDrawable()
         drawable.shape = GradientDrawable.RECTANGLE
-        drawable.setColor(if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg)
-        drawable.cornerRadius = radiusPx
+        val fillColor = if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg
+        drawable.setColor(fillColor)
+        drawable.cornerRadius = if (preset == "square") 0f else radiusPx
         
         val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
         if (isTransparentStyle) {
@@ -381,28 +422,128 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
-        // Add shadow/elevation if enabled
-        if (palette.keyShadowEnabled) {
-            // Note: GradientDrawable doesn't support shadows directly
-            // For full shadow support, would need LayerDrawable with shadow layer
+        // Add shadow/elevation using LayerDrawable
+        if (palette.keyShadowEnabled && !isTransparentStyle) {
+            return createKeyDrawableWithShadow(
+                drawable,
+                radiusPx,
+                fillColor
+            )
+        }
+        
+        return drawable
+    }
+    
+    /**
+     * Create key drawable with shadow effect using LayerDrawable
+     */
+    private fun createKeyDrawableWithShadow(
+        keyDrawable: GradientDrawable,
+        radiusPx: Float,
+        baseColor: Int
+    ): LayerDrawable {
+        val shadowColorBasis = if (Color.alpha(baseColor) == 0) Color.WHITE else baseColor
+        return createShadowLayerDrawable(
+            keyDrawable,
+            radiusPx,
+            shadowColorBasis,
+            keyShadowOffsetPx,
+            blendFactor = 0.35f,
+            shadowAlpha = 90
+        )
+    }
+    
+    /**
+     * Build key drawable with per-key customization
+     */
+    private fun buildKeyDrawable(customization: com.example.ai_keyboard.themes.KeyboardThemeV2.Keys.KeyCustomization): Drawable {
+        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+        val density = context.resources.displayMetrics.density
+        
+        // Use custom radius if specified, otherwise use global
+        val radius = customization.radius ?: palette.keyRadius
+        val radiusPx = radius * density
+        
+        val drawable = GradientDrawable()
+        drawable.shape = GradientDrawable.RECTANGLE
+        
+        // Use custom background color if specified, otherwise use global
+        val bgColor = customization.bg ?: (if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg)
+        drawable.setColor(bgColor)
+        drawable.cornerRadius = radiusPx
+        
+        // Use custom border if specified, otherwise use global
+        val borderEnabled = customization.border?.enabled ?: palette.keyBorderEnabled
+        val borderColor = customization.border?.color ?: palette.keyBorderColor
+        val borderWidth = customization.border?.widthDp ?: palette.keyBorderWidth
+        
+        val strokeWidth = (max(1f, borderWidth) * density).toInt().coerceAtLeast(1)
+        if (isTransparentStyle) {
+            val strokeColor = if (borderEnabled) {
+                borderColor
+            } else {
+                ColorUtils.setAlphaComponent(palette.keyText, 170)
+            }
+            drawable.setStroke(strokeWidth, strokeColor)
+        } else if (borderEnabled) {
+            drawable.setStroke(strokeWidth, borderColor)
+        }
+        
+        // Custom shadow support
+        val shadowEnabled = customization.shadow?.enabled ?: palette.keyShadowEnabled
+        if (shadowEnabled && !isTransparentStyle) {
+            val shadowBaseColor = if (Color.alpha(bgColor) == 0) palette.keyBg else bgColor
+            return createKeyDrawableWithShadow(drawable, radiusPx, shadowBaseColor)
         }
         
         return drawable
     }
     
     private fun buildKeyPressedDrawable(): Drawable {
+        val theme = getCurrentTheme()
         val palette = getCurrentPalette()
+        val preset = theme.keys.preset
+        
+        // If custom shape preset, use custom drawable
+        if (preset in listOf("star", "heart", "hexagon", "cone", "gem")) {
+            val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+            val bgColor = if (isTransparentStyle) {
+                ColorUtils.setAlphaComponent(palette.specialAccent, 200)
+            } else {
+                palette.keyPressed
+            }
+            val borderColor = if (palette.keyBorderEnabled) {
+                palette.keyBorderColor
+            } else if (isTransparentStyle) {
+                ColorUtils.setAlphaComponent(palette.keyText, 190)
+            } else {
+                Color.TRANSPARENT
+            }
+            val density = context.resources.displayMetrics.density
+            val borderWidth = if (isTransparentStyle || palette.keyBorderEnabled) {
+                (max(1f, palette.keyBorderWidth) * density)
+            } else {
+                0f
+            }
+            return CustomShapeDrawable(preset, bgColor, borderColor, borderWidth)
+        }
+        
+        // Standard rounded rectangle
         val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
         val density = context.resources.displayMetrics.density
         val radiusPx = palette.keyRadius * density
         
         val drawable = GradientDrawable()
         drawable.shape = GradientDrawable.RECTANGLE
-        drawable.setColor(
-            if (isTransparentStyle) ColorUtils.setAlphaComponent(palette.specialAccent, 200)
-            else palette.keyPressed
-        )
-        drawable.cornerRadius = radiusPx
+        val pressedColor = if (isTransparentStyle) {
+            ColorUtils.setAlphaComponent(palette.specialAccent, 200)
+        } else {
+            palette.keyPressed
+        }
+        drawable.setColor(pressedColor)
+        drawable.cornerRadius = if (preset == "square") 0f else radiusPx
         
         val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
         if (isTransparentStyle) {
@@ -416,22 +557,77 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
+        // Add enhanced shadow for pressed state
+        if (palette.keyShadowEnabled && !isTransparentStyle) {
+            val shadowBaseColor = if (Color.alpha(pressedColor) == 0) palette.keyPressed else pressedColor
+            return createPressedKeyDrawableWithShadow(drawable, radiusPx, shadowBaseColor)
+        }
+        
         return drawable
     }
     
+    /**
+     * Create pressed key drawable with enhanced shadow effect
+     */
+    private fun createPressedKeyDrawableWithShadow(
+        keyDrawable: GradientDrawable,
+        radiusPx: Float,
+        baseColor: Int
+    ): LayerDrawable {
+        val shadowColorBasis = if (Color.alpha(baseColor) == 0) Color.WHITE else baseColor
+        return createShadowLayerDrawable(
+            keyDrawable,
+            radiusPx,
+            shadowColorBasis,
+            pressedKeyShadowOffsetPx,
+            blendFactor = 0.45f,
+            shadowAlpha = 140
+        )
+    }
+    
     private fun buildSpecialKeyDrawable(): Drawable {
+        val theme = getCurrentTheme()
         val palette = getCurrentPalette()
+        val preset = theme.keys.preset
+        
+        // If custom shape preset, use custom drawable
+        if (preset in listOf("star", "heart", "hexagon", "cone", "gem")) {
+            val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+            val bgColor = if (isTransparentStyle) {
+                ColorUtils.setAlphaComponent(palette.specialAccent, 220)
+            } else {
+                palette.specialAccent
+            }
+            val borderColor = if (palette.keyBorderEnabled) {
+                palette.keyBorderColor
+            } else if (isTransparentStyle) {
+                ColorUtils.setAlphaComponent(palette.keyText, 170)
+            } else {
+                Color.TRANSPARENT
+            }
+            val density = context.resources.displayMetrics.density
+            val borderWidth = if (isTransparentStyle || palette.keyBorderEnabled) {
+                (max(1f, palette.keyBorderWidth) * density)
+            } else {
+                0f
+            }
+            return CustomShapeDrawable(preset, bgColor, borderColor, borderWidth)
+        }
+        
+        // Standard rounded rectangle
         val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
         val density = context.resources.displayMetrics.density
         val radiusPx = palette.keyRadius * density
         
         val drawable = GradientDrawable()
         drawable.shape = GradientDrawable.RECTANGLE
-        drawable.setColor(
-            if (isTransparentStyle) ColorUtils.setAlphaComponent(palette.specialAccent, 220)
-            else palette.specialAccent
-        )
-        drawable.cornerRadius = radiusPx
+        val specialColor = if (isTransparentStyle) {
+            ColorUtils.setAlphaComponent(palette.specialAccent, 220)
+        } else {
+            palette.specialAccent
+        }
+        drawable.setColor(specialColor)
+        drawable.cornerRadius = if (preset == "square") 0f else radiusPx
         
         val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
         if (isTransparentStyle) {
@@ -445,7 +641,56 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
+        // Add shadow for special keys too
+        if (palette.keyShadowEnabled && !isTransparentStyle) {
+            val shadowBaseColor = if (Color.alpha(specialColor) == 0) palette.specialAccent else specialColor
+            return createSpecialKeyDrawableWithShadow(drawable, radiusPx, shadowBaseColor)
+        }
+        
         return drawable
+    }
+    
+    /**
+     * Create special key drawable with shadow effect
+     */
+    private fun createSpecialKeyDrawableWithShadow(
+        keyDrawable: GradientDrawable,
+        radiusPx: Float,
+        baseColor: Int
+    ): LayerDrawable {
+        val shadowColorBasis = if (Color.alpha(baseColor) == 0) Color.WHITE else baseColor
+        return createShadowLayerDrawable(
+            keyDrawable,
+            radiusPx,
+            shadowColorBasis,
+            keyShadowOffsetPx,
+            blendFactor = 0.35f,
+            shadowAlpha = 100
+        )
+    }
+
+    private fun createShadowLayerDrawable(
+        keyDrawable: GradientDrawable,
+        radiusPx: Float,
+        baseColor: Int,
+        shadowOffsetPx: Int,
+        blendFactor: Float,
+        shadowAlpha: Int
+    ): LayerDrawable {
+        val adjustedBlend = blendFactor.coerceIn(0f, 1f)
+        val adjustedAlpha = shadowAlpha.coerceIn(0, 255)
+
+        val shadowDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = radiusPx
+            val blendedColor = ColorUtils.blendARGB(baseColor, Color.BLACK, adjustedBlend)
+            setColor(ColorUtils.setAlphaComponent(blendedColor, adjustedAlpha))
+        }
+
+        return LayerDrawable(arrayOf<Drawable>(shadowDrawable, keyDrawable)).apply {
+            val offset = shadowOffsetPx.coerceAtLeast(0)
+            setLayerInset(1, 0, 0, offset, offset)
+        }
     }
     
     private fun buildSolidDrawable(color: Int): Drawable {
@@ -486,11 +731,29 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val cacheKey = "bg_image_layer_$imagePath"
         return imageCache.get(cacheKey) ?: run {
             try {
-                val bitmap = loadImageBitmap(imagePath)
-                val bitmapDrawable = BitmapDrawable(context.resources, bitmap).apply {
+                val originalBitmap = loadImageBitmap(imagePath)
+                Log.d(TAG, "✅ Loaded image bitmap: ${originalBitmap.width}x${originalBitmap.height}, config=${originalBitmap.config}")
+                
+                // Create a scaled bitmap that maintains aspect ratio and fills the view
+                // This prevents tiling/distortion issues with portrait images
+                val scaledBitmap = createScaledBitmapForKeyboard(originalBitmap)
+                
+                // Recycle original bitmap if we created a new scaled one
+                if (scaledBitmap !== originalBitmap) {
+                    originalBitmap.recycle()
+                }
+                
+                val bitmapDrawable = BitmapDrawable(context.resources, scaledBitmap).apply {
                     alpha = (theme.background.imageOpacity * 255).toInt().coerceIn(0, 255)
-                    isFilterBitmap = true
+                    
+                    // High quality image rendering settings
+                    isFilterBitmap = true  // Enable filtering for smoother scaling
+                    setAntiAlias(true)     // Enable anti-aliasing for better quality
+                    
+                    // Fill the entire keyboard area
                     gravity = Gravity.FILL
+                    
+                    // No tiling - image should fill completely
                     tileModeX = Shader.TileMode.CLAMP
                     tileModeY = Shader.TileMode.CLAMP
                 }
@@ -529,6 +792,14 @@ class ThemeManager(context: Context) : BaseManager(context) {
     }
     
     private fun loadImageBitmap(path: String): Bitmap {
+        // BitmapFactory options for high quality loading
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888  // High quality color
+            inScaled = false  // Don't scale during decode
+            inDither = false  // No dithering for better quality
+            inPreferQualityOverSpeed = true  // Prioritize quality
+        }
+
         return when {
             path.startsWith("http://") || path.startsWith("https://") -> {
                 // Network URL - download and cache
@@ -538,19 +809,78 @@ class ThemeManager(context: Context) : BaseManager(context) {
                 // File URI - remove file:// prefix
                 val filePath = path.substring(7)
                 val file = File(filePath)
-                BitmapFactory.decodeStream(FileInputStream(file))
+                if (!file.exists()) {
+                    Log.e(TAG, "❌ Image file not found: $filePath")
+                    throw FileNotFoundException("Image not found: $filePath")
+                }
+                Log.d(TAG, "📷 Loading image from file: $filePath (size: ${file.length()} bytes)")
+                BitmapFactory.decodeFile(filePath, options) ?: throw Exception("Failed to decode image")
             }
             path.startsWith("/") -> {
                 // Absolute path
                 val file = File(path)
-                BitmapFactory.decodeStream(FileInputStream(file))
+                if (!file.exists()) {
+                    Log.e(TAG, "❌ Image file not found: $path")
+                    throw FileNotFoundException("Image not found: $path")
+                }
+                Log.d(TAG, "📷 Loading image from absolute path: $path (size: ${file.length()} bytes)")
+                BitmapFactory.decodeFile(path, options) ?: throw Exception("Failed to decode image")
             }
             else -> {
                 // Asset path
+                Log.d(TAG, "📷 Loading image from assets: $path")
                 val inputStream = context.assets.open(path)
-                BitmapFactory.decodeStream(inputStream)
+                BitmapFactory.decodeStream(inputStream, null, options) ?: throw Exception("Failed to decode asset image")
             }
         }
+    }
+    
+    /**
+     * Scale bitmap to fill keyboard dimensions using CENTER_CROP logic
+     * This prevents tiling/distortion issues with portrait or mismatched aspect ratio images
+     */
+    private fun createScaledBitmapForKeyboard(source: Bitmap): Bitmap {
+        // Get display metrics for keyboard dimensions
+        val displayMetrics = context.resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+        
+        // Keyboard typically occupies about 40-50% of screen height in portrait
+        // and about 50-60% in landscape
+        val targetWidth = screenWidth
+        val targetHeight = (screenHeight * 0.45).toInt()
+        
+        Log.d(TAG, "🖼️ Scaling image from ${source.width}x${source.height} to fit ${targetWidth}x${targetHeight}")
+        
+        // If image already matches dimensions well, return as-is
+        val widthRatio = source.width.toFloat() / targetWidth
+        val heightRatio = source.height.toFloat() / targetHeight
+        
+        if (widthRatio in 0.9f..1.1f && heightRatio in 0.9f..1.1f) {
+            Log.d(TAG, "✅ Image dimensions already optimal, no scaling needed")
+            return source
+        }
+        
+        // Calculate scale to fill the target area (CENTER_CROP behavior)
+        val scale = maxOf(
+            targetWidth.toFloat() / source.width,
+            targetHeight.toFloat() / source.height
+        )
+        
+        val scaledWidth = (source.width * scale).toInt()
+        val scaledHeight = (source.height * scale).toInt()
+        
+        // Create scaled bitmap with high quality
+        val scaledBitmap = Bitmap.createScaledBitmap(
+            source,
+            scaledWidth,
+            scaledHeight,
+            true // Use bilinear filtering for quality
+        )
+        
+        Log.d(TAG, "✅ Scaled bitmap to ${scaledBitmap.width}x${scaledBitmap.height}, scale=$scale")
+        
+        return scaledBitmap
     }
     
     private fun loadNetworkImage(url: String): Bitmap {
@@ -635,6 +965,33 @@ class ThemeManager(context: Context) : BaseManager(context) {
     }
     
     /**
+     * Create text paint for a specific key with per-key customization
+     * @param keyIdentifier The key identifier (e.g., "a", "enter", "space", etc.)
+     */
+    fun createKeyTextPaint(keyIdentifier: String): Paint {
+        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        val customization = theme.keys.perKeyCustomization[keyIdentifier]
+        
+        return Paint().apply {
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            
+            // Use custom font if specified, otherwise use global font
+            val fontSize = customization?.font?.sizeSp ?: palette.keyFontSize
+            textSize = fontSize * context.resources.displayMetrics.scaledDensity
+            
+            // Use custom text color if specified, otherwise use global color
+            color = customization?.text ?: palette.keyText
+            
+            val fontFamily = customization?.font?.family ?: palette.keyFontFamily
+            val bold = customization?.font?.bold ?: palette.keyFontBold
+            val italic = customization?.font?.italic ?: palette.keyFontItalic
+            typeface = createTypeface(fontFamily, bold, italic)
+        }
+    }
+    
+    /**
      * Create text paint for suggestions
      */
     fun createSuggestionTextPaint(): Paint {
@@ -664,7 +1021,15 @@ class ThemeManager(context: Context) : BaseManager(context) {
         }
     }
     
+    // Font cache for performance
+    private val fontCache = mutableMapOf<String, Typeface>()
+    
     private fun createTypeface(family: String, bold: Boolean, italic: Boolean): Typeface {
+        val cacheKey = "${family}_${bold}_${italic}"
+        
+        // Return cached font if available
+        fontCache[cacheKey]?.let { return it }
+        
         val style = when {
             bold && italic -> Typeface.BOLD_ITALIC
             bold -> Typeface.BOLD
@@ -672,15 +1037,100 @@ class ThemeManager(context: Context) : BaseManager(context) {
             else -> Typeface.NORMAL
         }
         
-        return try {
-            // Try to load custom font family
-            val typeface = ResourcesCompat.getFont(context, 
-                context.resources.getIdentifier(family.lowercase(), "font", context.packageName)
-            )
-            Typeface.create(typeface ?: Typeface.DEFAULT, style)
+        val typeface = try {
+            when {
+                // Try loading from assets/fonts folder first (custom fonts)
+                family.endsWith(".ttf") || family.endsWith(".otf") -> {
+                    loadTypefaceFromAssets(family)
+                }
+                // Try system font names
+                family.equals("Roboto", ignoreCase = true) -> Typeface.create("sans-serif", style)
+                family.equals("RobotoMono", ignoreCase = true) -> Typeface.create("monospace", style)
+                family.equals("Serif", ignoreCase = true) -> Typeface.create("serif", style)
+                family.equals("SansSerif", ignoreCase = true) -> Typeface.create("sans-serif", style)
+                family.equals("Monospace", ignoreCase = true) -> Typeface.create("monospace", style)
+                family.equals("Cursive", ignoreCase = true) -> Typeface.create("cursive", style)
+                family.equals("Casual", ignoreCase = true) -> Typeface.create("casual", style)
+                // Try loading from Android resources
+                else -> {
+                    val resId = context.resources.getIdentifier(
+                        family.lowercase().replace(" ", "_"), 
+                        "font", 
+                        context.packageName
+                    )
+                    if (resId != 0) {
+                        ResourcesCompat.getFont(context, resId)
+                    } else {
+                        // Try loading from assets with common font file patterns
+                        loadTypefaceFromAssets("$family.ttf") 
+                            ?: loadTypefaceFromAssets("${family}-Regular.ttf")
+                            ?: loadTypefaceFromAssets("${family}Regular.ttf")
+                            ?: Typeface.create(Typeface.DEFAULT, style)
+                    }
+                }
+            }
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to load font: $family", e)
             Typeface.create(Typeface.DEFAULT, style)
         }
+        
+        // Apply style if needed and cache
+        val styledTypeface = if (typeface != null && style != Typeface.NORMAL) {
+            Typeface.create(typeface, style)
+        } else {
+            typeface ?: Typeface.create(Typeface.DEFAULT, style)
+        }
+        
+        fontCache[cacheKey] = styledTypeface
+        return styledTypeface
+    }
+    
+    /**
+     * Load typeface from assets/fonts folder
+     */
+    private fun loadTypefaceFromAssets(fontFileName: String): Typeface? {
+        return try {
+            val fontPath = "fonts/$fontFileName"
+            Typeface.createFromAsset(context.assets, fontPath)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    /**
+     * Get list of available custom fonts from assets
+     */
+    fun getAvailableFonts(): List<String> {
+        val fonts = mutableListOf(
+            "Roboto",
+            "RobotoMono", 
+            "Serif",
+            "SansSerif",
+            "Monospace",
+            "Cursive",
+            "Casual"
+        )
+        
+        try {
+            // Add custom fonts from assets/fonts folder
+            val fontFiles = context.assets.list("fonts") ?: emptyArray()
+            fontFiles.forEach { fileName ->
+                if (fileName.endsWith(".ttf") || fileName.endsWith(".otf")) {
+                    // Extract font name without extension
+                    val fontName = fileName.substringBeforeLast(".")
+                        .replace("-Regular", "")
+                        .replace("Regular", "")
+                        .replace("-", " ")
+                    if (!fonts.contains(fontName)) {
+                        fonts.add(fontName)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to list fonts", e)
+        }
+        
+        return fonts.sorted()
     }
     
     // ===== UTILITY METHODS =====
@@ -832,6 +1282,17 @@ class ThemeManager(context: Context) : BaseManager(context) {
      */
     fun getTextColor(): Int {
         return getCurrentPalette().keyText
+    }
+    
+    /**
+     * Get text color for a specific key with per-key customization
+     * @param keyIdentifier The key identifier (e.g., "a", "enter", "space", etc.)
+     */
+    fun getTextColor(keyIdentifier: String): Int {
+        val theme = getCurrentTheme()
+        val palette = getCurrentPalette()
+        val customization = theme.keys.perKeyCustomization[keyIdentifier]
+        return customization?.text ?: palette.keyText
     }
     
     /**
@@ -1027,6 +1488,216 @@ class ThemeManager(context: Context) : BaseManager(context) {
 
     fun isImageBackground(): Boolean {
         return getCurrentPalette().usesImageBackground
+    }
+    
+    // ===== CUSTOM SHAPE DRAWABLES =====
+    
+    /**
+     * Create custom shape drawable for non-rectangular keys
+     */
+    private fun createCustomShapeDrawable(preset: String, palette: ThemePaletteV2): Drawable {
+        val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
+        val bgColor = if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg
+        val borderColor = if (palette.keyBorderEnabled) {
+            palette.keyBorderColor
+        } else if (isTransparentStyle) {
+            ColorUtils.setAlphaComponent(palette.keyText, 170)
+        } else {
+            Color.TRANSPARENT
+        }
+        val density = context.resources.displayMetrics.density
+        val borderWidth = if (isTransparentStyle || palette.keyBorderEnabled) {
+            (max(1f, palette.keyBorderWidth) * density)
+        } else {
+            0f
+        }
+        
+        return CustomShapeDrawable(preset, bgColor, borderColor, borderWidth)
+    }
+    
+    /**
+     * Custom drawable that renders different key shapes
+     */
+    private class CustomShapeDrawable(
+        private val preset: String,
+        private val bgColor: Int,
+        private val borderColor: Int,
+        private val borderWidth: Float
+    ) : Drawable() {
+        
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = bgColor
+        }
+        
+        private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = borderColor
+            strokeWidth = borderWidth
+        }
+        
+        private val path = Path()
+        
+        override fun draw(canvas: Canvas) {
+            val bounds = bounds
+            if (bounds.isEmpty) return
+            
+            path.reset()
+            
+            when (preset) {
+                "star" -> drawStar(canvas, bounds)
+                "heart" -> drawHeart(canvas, bounds)
+                "hexagon" -> drawHexagon(canvas, bounds)
+                "cone" -> drawCone(canvas, bounds)
+                "gem" -> drawGem(canvas, bounds)
+                else -> drawRoundedRect(canvas, bounds)
+            }
+            
+            // Draw fill
+            canvas.drawPath(path, paint)
+            
+            // Draw border if enabled
+            if (borderWidth > 0) {
+                canvas.drawPath(path, borderPaint)
+            }
+        }
+        
+        private fun drawStar(canvas: Canvas, bounds: Rect) {
+            val centerX = bounds.exactCenterX()
+            val centerY = bounds.exactCenterY()
+            val outerRadius = min(bounds.width(), bounds.height()) * 0.45f
+            val innerRadius = outerRadius * 0.4f
+            
+            for (i in 0 until 10) {
+                val radius = if (i % 2 == 0) outerRadius else innerRadius
+                val angle = (i * 36 - 90) * Math.PI / 180
+                val x = centerX + (radius * cos(angle)).toFloat()
+                val y = centerY + (radius * sin(angle)).toFloat()
+                
+                if (i == 0) {
+                    path.moveTo(x, y)
+                } else {
+                    path.lineTo(x, y)
+                }
+            }
+            path.close()
+        }
+        
+        private fun drawHeart(canvas: Canvas, bounds: Rect) {
+            val width = bounds.width() * 0.9f
+            val height = bounds.height() * 0.9f
+            val offsetX = bounds.left + bounds.width() * 0.05f
+            val offsetY = bounds.top + bounds.height() * 0.15f
+            
+            path.moveTo(offsetX + width / 2, offsetY + height)
+            
+            // Left side of heart
+            path.cubicTo(
+                offsetX + width / 2, offsetY + height * 0.7f,
+                offsetX, offsetY + height * 0.4f,
+                offsetX, offsetY + height * 0.25f
+            )
+            path.cubicTo(
+                offsetX, offsetY,
+                offsetX + width * 0.25f, offsetY,
+                offsetX + width / 2, offsetY + height * 0.25f
+            )
+            
+            // Right side of heart
+            path.cubicTo(
+                offsetX + width * 0.75f, offsetY,
+                offsetX + width, offsetY,
+                offsetX + width, offsetY + height * 0.25f
+            )
+            path.cubicTo(
+                offsetX + width, offsetY + height * 0.4f,
+                offsetX + width / 2, offsetY + height * 0.7f,
+                offsetX + width / 2, offsetY + height
+            )
+            path.close()
+        }
+        
+        private fun drawHexagon(canvas: Canvas, bounds: Rect) {
+            val centerX = bounds.exactCenterX()
+            val centerY = bounds.exactCenterY()
+            val radius = min(bounds.width(), bounds.height()) * 0.45f
+            
+            for (i in 0 until 6) {
+                val angle = (i * 60 - 90) * Math.PI / 180
+                val x = centerX + (radius * cos(angle)).toFloat()
+                val y = centerY + (radius * sin(angle)).toFloat()
+                
+                if (i == 0) {
+                    path.moveTo(x, y)
+                } else {
+                    path.lineTo(x, y)
+                }
+            }
+            path.close()
+        }
+        
+        private fun drawCone(canvas: Canvas, bounds: Rect) {
+            val topX = bounds.exactCenterX()
+            val topY = bounds.top + bounds.height() * 0.15f
+            val bottomY = bounds.bottom - bounds.height() * 0.15f
+            val bottomLeft = bounds.left + bounds.width() * 0.2f
+            val bottomRight = bounds.right - bounds.width() * 0.2f
+            
+            path.moveTo(topX, topY)
+            path.lineTo(bottomRight, bottomY)
+            path.lineTo(bottomLeft, bottomY)
+            path.close()
+        }
+        
+        private fun drawGem(canvas: Canvas, bounds: Rect) {
+            val centerX = bounds.exactCenterX()
+            val topY = bounds.top + bounds.height() * 0.2f
+            val middleY = bounds.exactCenterY()
+            val bottomY = bounds.bottom - bounds.height() * 0.1f
+            val leftX = bounds.left + bounds.width() * 0.15f
+            val rightX = bounds.right - bounds.width() * 0.15f
+            val farLeftX = bounds.left + bounds.width() * 0.05f
+            val farRightX = bounds.right - bounds.width() * 0.05f
+            
+            // Top facet
+            path.moveTo(centerX, topY)
+            path.lineTo(rightX, middleY)
+            path.lineTo(centerX, bottomY)
+            path.lineTo(leftX, middleY)
+            path.close()
+            
+            // Add gem outline for more complexity
+            path.moveTo(farLeftX, middleY)
+            path.lineTo(leftX, middleY)
+            path.lineTo(centerX, topY)
+            path.lineTo(rightX, middleY)
+            path.lineTo(farRightX, middleY)
+        }
+        
+        private fun drawRoundedRect(canvas: Canvas, bounds: Rect) {
+            path.addRoundRect(
+                bounds.left.toFloat(),
+                bounds.top.toFloat(),
+                bounds.right.toFloat(),
+                bounds.bottom.toFloat(),
+                10f,
+                10f,
+                Path.Direction.CW
+            )
+        }
+        
+        override fun setAlpha(alpha: Int) {
+            paint.alpha = alpha
+            borderPaint.alpha = alpha
+        }
+        
+        override fun setColorFilter(colorFilter: ColorFilter?) {
+            paint.colorFilter = colorFilter
+            borderPaint.colorFilter = colorFilter
+        }
+        
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
     
     // ===== LEGACY COMPATIBILITY =====
