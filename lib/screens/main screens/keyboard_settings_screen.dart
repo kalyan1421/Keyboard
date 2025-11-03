@@ -27,6 +27,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
   bool numberRow = false;
   bool hintedNumberRow = false;
   bool hintedSymbols = true;
+  bool showUtilityKey = true;
   String utilityKeyAction = 'emoji';
   bool displayLanguageOnSpace = true;
   double portraitFontSize = 100.0;
@@ -55,15 +56,30 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
   bool _vibrationEnabled = true;
   bool _keyPreviewEnabled = false;
   bool _shiftFeedbackEnabled = false;
-  bool _soundEnabled = true;
+  bool _soundEnabled = false;
   bool _personalizedSuggestionsEnabled = true;
   bool _autoCorrectEnabled = true;  // ✅ NEW: Auto-Correct toggle
   
   // Advanced feedback settings
   FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
-  FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
-  FeedbackIntensity _visualIntensity = FeedbackIntensity.medium;
-  double _soundVolume = 0.3;
+  FeedbackIntensity _soundIntensity = FeedbackIntensity.off;
+  FeedbackIntensity _visualIntensity = FeedbackIntensity.off;
+  double _soundVolume = 0.0;
+  static const List<Map<String, String>> _soundOptions = [
+    {'value': 'silent', 'label': 'Silent'},
+    {'value': 'classic', 'label': 'Classic Click'},
+    {'value': 'pop', 'label': 'Soft Pop'},
+    {'value': 'mech', 'label': 'Mechanical'},
+    {'value': 'bubble', 'label': 'Bubble'},
+  ];
+  static const List<Map<String, String>> _effectOptions = [
+    {'value': 'none', 'label': 'None'},
+    {'value': 'ripple', 'label': 'Ripple'},
+    {'value': 'glow', 'label': 'Glow'},
+    {'value': 'bounce', 'label': 'Bounce'},
+  ];
+  String _soundType = 'silent';
+  String _effectType = 'none';
   
   @override
   void initState() {
@@ -87,6 +103,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       numberRow = prefs.getBool('keyboard.numberRow') ?? false;
       hintedNumberRow = prefs.getBool('keyboard.hintedNumberRow') ?? false;
       hintedSymbols = prefs.getBool('keyboard.hintedSymbols') ?? true;
+      showUtilityKey = prefs.getBool('keyboard.showUtilityKey') ?? true;
       utilityKeyAction = prefs.getString('keyboard.utilityKeyAction') ?? 'emoji';
       displayLanguageOnSpace = prefs.getBool('keyboard.showLanguageOnSpace') ?? true;
       portraitFontSize = (prefs.getDouble('keyboard.fontScalePortrait') ?? 1.0) * 100.0;
@@ -115,15 +132,17 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
       _shiftFeedbackEnabled = prefs.getBool('show_shift_feedback') ?? false;
-      _soundEnabled = prefs.getBool('sound_enabled') ?? true;
+      _soundEnabled = prefs.getBool('sound_enabled') ?? false;
       _personalizedSuggestionsEnabled = prefs.getBool('personalized_enabled') ?? true;
       _autoCorrectEnabled = prefs.getBool('auto_correct') ?? true;  // ✅ Load auto-correct setting
       
       // Advanced feedback settings
       _hapticIntensity = FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2];
-      _soundIntensity = FeedbackIntensity.values[prefs.getInt('sound_intensity') ?? 1];
-      _visualIntensity = FeedbackIntensity.values[prefs.getInt('visual_intensity') ?? 2];
-      _soundVolume = prefs.getDouble('sound_volume') ?? 0.3;
+      _soundIntensity = FeedbackIntensity.values[prefs.getInt('sound_intensity') ?? 0];
+      _visualIntensity = FeedbackIntensity.values[prefs.getInt('visual_intensity') ?? 0];
+      _soundVolume = prefs.getDouble('sound_volume') ?? 0.0;
+      _soundType = prefs.getString('flutter.sound.type') ?? 'silent';
+      _effectType = prefs.getString('flutter.effect.type') ?? 'none';
     });
     
     // Update feedback system
@@ -162,8 +181,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     // Clamp ranges
     portraitFontSize = portraitFontSize.clamp(80.0, 130.0);
     landscapeFontSize = landscapeFontSize.clamp(80.0, 130.0);
-    keyboardWidth = keyboardWidth.clamp(85.0, 115.0);
-    keyboardHeight = keyboardHeight.clamp(85.0, 115.0);
+    keyboardWidth = keyboardWidth.clamp(50.0, 150.0);
+    keyboardHeight = keyboardHeight.clamp(50.0, 150.0);
     verticalKeySpacing = verticalKeySpacing.clamp(0.0, 8.0);
     horizontalKeySpacing = horizontalKeySpacing.clamp(0.0, 8.0);
     longPressDelay = longPressDelay.clamp(150.0, 600.0);
@@ -173,20 +192,35 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     await prefs.setBool('keyboard.numberRow', numberRow);
     await prefs.setBool('keyboard.hintedNumberRow', hintedNumberRow);
     await prefs.setBool('keyboard.hintedSymbols', hintedSymbols);
+    await prefs.setBool('keyboard.showUtilityKey', showUtilityKey);
+    // Also save utility key action settings for Android to read
+    await prefs.setBool('keyboard_settings.show_utility_key', showUtilityKey);
+    await prefs.setString('flutter.keyboard.utilityKeyAction', utilityKeyAction);
+    await prefs.setBool('flutter.keyboard.showLanguageOnSpace', displayLanguageOnSpace);
     await prefs.setString('keyboard.utilityKeyAction', utilityKeyAction);
     await prefs.setBool('keyboard.showLanguageOnSpace', displayLanguageOnSpace);
+    // Save font scale with proper flutter prefix for Kotlin to read
     await prefs.setDouble('keyboard.fontScalePortrait', portraitFontSize / 100.0);
     await prefs.setDouble('keyboard.fontScaleLandscape', landscapeFontSize / 100.0);
+    await prefs.setDouble('flutter.keyboard.fontScalePortrait', portraitFontSize / 100.0);
+    await prefs.setDouble('flutter.keyboard.fontScaleLandscape', landscapeFontSize / 100.0);
     
     await prefs.setBool('keyboard.borderlessKeys', borderlessKeys);
     await prefs.setBool('keyboard.oneHanded.enabled', oneHandedMode);
     await prefs.setString('keyboard.oneHanded.side', oneHandedSide);
     await prefs.setDouble('keyboard.oneHanded.widthPct', oneHandedModeWidth / 100.0);
     await prefs.setBool('keyboard.landscapeFullscreen', landscapeFullScreenInput);
-    await prefs.setDouble('keyboard.scaleX', keyboardWidth / 100.0);
-    await prefs.setDouble('keyboard.scaleY', keyboardHeight / 100.0);
+    // ✅ FIX: Save keyboard height with orientation-specific keys
+    // Note: keyboardWidth = Portrait height, keyboardHeight = Landscape height (confusing naming in UI)
+    await prefs.setDouble('keyboard.scaleX', 1.0); // Keep width at 100%
+    await prefs.setDouble('keyboard.scaleY', keyboardWidth / 100.0); // For backward compatibility
+    await prefs.setDouble('flutter.keyboard.scaleYPortrait', keyboardWidth / 100.0);
+    await prefs.setDouble('flutter.keyboard.scaleYLandscape', keyboardHeight / 100.0);
     await prefs.setInt('keyboard.keySpacingVdp', verticalKeySpacing.round());
     await prefs.setInt('keyboard.keySpacingHdp', horizontalKeySpacing.round());
+    // Also save spacing with flutter. prefix
+    await prefs.setInt('flutter.keyboard.keySpacingVdp', verticalKeySpacing.round());
+    await prefs.setInt('flutter.keyboard.keySpacingHdp', horizontalKeySpacing.round());
     await prefs.setInt('keyboard.bottomOffsetPortraitDp', portraitBottomOffset.round());
     await prefs.setInt('keyboard.bottomOffsetLandscapeDp', landscapeBottomOffset.round());
     
@@ -206,6 +240,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     await prefs.setInt('sound_intensity', _soundIntensity.index);
     await prefs.setInt('visual_intensity', _visualIntensity.index);
     await prefs.setDouble('sound_volume', _soundVolume);
+    await prefs.setString('flutter.sound.type', _soundType);
+    await prefs.setString('flutter.effect.type', _effectType);
     
     debugPrint('✅ Keyboard settings saved');
     
@@ -246,11 +282,14 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
         'doubleSpacePeriod': true,
         'soundEnabled': _soundEnabled,
         'soundVolume': _soundVolume,
+        'soundType': _soundType,
+        'effectType': _effectType,
         'vibrationEnabled': _vibrationEnabled,
         'vibrationMs': 50,
         // Advanced settings
         'numberRow': numberRow,
         'hintedSymbols': hintedSymbols,
+        'showUtilityKey': showUtilityKey,
         'swipeTyping': _swipeTypingEnabled,
         'keyPreview': _keyPreviewEnabled,
         'personalizedSuggestions': _personalizedSuggestionsEnabled,
@@ -274,7 +313,10 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
         'keyPreview': _keyPreviewEnabled,
         'shiftFeedback': _shiftFeedbackEnabled,
         'showNumberRow': numberRow,
+        'showUtilityKey': showUtilityKey,  // ✅ Send utility key setting
         'soundEnabled': _soundEnabled,
+        'soundType': _soundType,
+        'effectType': _effectType,
       });
     } catch (e) {
       debugPrint('⚠ Error sending settings: $e');
@@ -513,6 +555,16 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
             ),
             const SizedBox(height: 8),
             _buildToggleSetting(
+              title: 'Show utility key',
+              description: 'Shows a configurable utility key next to space bar',
+              value: showUtilityKey,
+              onChanged: (value) {
+                setState(() => showUtilityKey = value);
+                _saveSettings(immediate: true);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildToggleSetting(
               title: 'Display language on spacebar',
               description: 'Show current language name on spacebar',
               value: displayLanguageOnSpace,
@@ -522,21 +574,13 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
               },
             ),
             const SizedBox(height: 8),
-            _buildSliderSetting(
-              title: 'Font Size multiplier',
+            _buildDialogSetting(
+              title: 'Key Font Size',
               portraitValue: portraitFontSize,
               landscapeValue: landscapeFontSize,
-              onPortraitChanged: (value) {
-                setState(() => portraitFontSize = value);
-                _saveSettings(); // Debounced
-              },
-              onLandscapeChanged: (value) {
-                setState(() => landscapeFontSize = value);
-                _saveSettings(); // Debounced
-              },
-              min: 80.0,
-              max: 130.0,
-              unit: '%',
+              portraitLabel: 'Portrait',
+              landscapeLabel: 'Landscape',
+              onTap: () => _showFontSizeDialog(),
             ),
             const SizedBox(height: 24),
 
@@ -564,7 +608,11 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
             ),
             const SizedBox(height: 8),
             if (oneHandedMode) ...[
-              _buildSideSelector(),
+              _buildDialogSetting(
+                title: 'One-handed mode',
+                description: oneHandedSide == 'left' ? 'Left-handed mode' : oneHandedSide == 'right' ? 'Right-handed mode' : 'Off',
+                onTap: () => _showOneHandedModeDialog(),
+              ),
               const SizedBox(height: 8),
             ],
             _buildValueDisplay(
@@ -582,42 +630,22 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
               },
             ),
             const SizedBox(height: 8),
-            _buildSliderSetting(
-              title: 'Keyboard Size',
+            _buildDialogSetting(
+              title: 'Keyboard Height',
               portraitValue: keyboardWidth,
               landscapeValue: keyboardHeight,
-              onPortraitChanged: (value) {
-                setState(() => keyboardWidth = value);
-                _saveSettings();
-              },
-              onLandscapeChanged: (value) {
-                setState(() => keyboardHeight = value);
-                _saveSettings();
-              },
-              min: 50.0,
-              max: 150.0,
-              unit: '%',
-              portraitLabel: 'Width',
-              landscapeLabel: 'Height',
+              portraitLabel: 'Portrait',
+              landscapeLabel: 'Landscape',
+              onTap: () => _showKeyboardHeightDialog(),
             ),
             const SizedBox(height: 8),
-            _buildSliderSetting(
+            _buildDialogSetting(
               title: 'Key spacing',
               portraitValue: verticalKeySpacing,
               landscapeValue: horizontalKeySpacing,
-              onPortraitChanged: (value) {
-                setState(() => verticalKeySpacing = value);
-                _saveSettings();
-              },
-              onLandscapeChanged: (value) {
-                setState(() => horizontalKeySpacing = value);
-                _saveSettings();
-              },
-              min: 0.0,
-              max: 10.0,
-              unit: ' dp',
               portraitLabel: 'Vertical',
               landscapeLabel: 'Horizontal',
+              onTap: () => _showKeySpacingDialog(),
             ),
             const SizedBox(height: 8),
             _buildSliderSetting(
@@ -711,6 +739,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                 _saveSettings(immediate: true);
               },
             ),
+           
             const SizedBox(height: 8),
             _buildToggleSetting(
               title: 'Personalized Suggestions',
@@ -987,6 +1016,71 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     );
   }
 
+  Widget _buildChipSelector({
+    required String title,
+    required String description,
+    required List<Map<String, String>> options,
+    required String selectedValue,
+    required ValueChanged<String> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.lightGrey,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTextStyle.titleSmall.copyWith(
+              color: AppColors.black,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options.map((option) {
+              final value = option['value'] ?? '';
+              final label = option['label'] ?? value;
+              final isSelected = value == selectedValue;
+              return GestureDetector(
+                onTap: () => onChanged(value),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.secondary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected ? AppColors.secondary : AppColors.grey,
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    style: AppTextStyle.bodySmall.copyWith(
+                      color: isSelected ? AppColors.white : AppColors.grey,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVolumeSlider() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1211,6 +1305,679 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDialogSetting({
+    required String title,
+    String? description,
+    double? portraitValue,
+    double? landscapeValue,
+    String? portraitLabel,
+    String? landscapeLabel,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.lightGrey,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTextStyle.titleSmall.copyWith(
+                      color: AppColors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (description != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                    ),
+                  ],
+                  if (portraitValue != null && landscapeValue != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.smartphone, size: 16, color: AppColors.grey),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${portraitLabel ?? "Portrait"} : ${portraitValue.toInt()}%',
+                          style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.tablet_android, size: 16, color: AppColors.grey),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${landscapeLabel ?? "Landscape"} : ${landscapeValue.toInt()}%',
+                          style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Dialog for Font Size
+  void _showFontSizeDialog() {
+    double tempPortrait = portraitFontSize;
+    double tempLandscape = landscapeFontSize;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Text(
+                'Key Font Size',
+                style: AppTextStyle.titleMedium.copyWith(
+                  color: AppColors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Portrait slider
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          'Portrait',
+                          style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${tempPortrait.toInt()}%',
+                              style: AppTextStyle.titleMedium.copyWith(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: tempPortrait,
+                              min: 50.0,
+                              max: 150.0,
+                              activeColor: AppColors.secondary,
+                              inactiveColor: AppColors.lightGrey,
+                              onChanged: (value) {
+                                setDialogState(() => tempPortrait = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 70),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Landscape slider
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          'Landscape',
+                          style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${tempLandscape.toInt()}%',
+                              style: AppTextStyle.titleMedium.copyWith(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: tempLandscape,
+                              min: 50.0,
+                              max: 150.0,
+                              activeColor: AppColors.secondary,
+                              inactiveColor: AppColors.lightGrey,
+                              onChanged: (value) {
+                                setDialogState(() => tempLandscape = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 70),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    tempPortrait = 100.0;
+                    tempLandscape = 100.0;
+                    setDialogState(() {});
+                  },
+                  child: Text('Reset', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      portraitFontSize = tempPortrait;
+                      landscapeFontSize = tempLandscape;
+                    });
+                    _saveSettings(immediate: true);
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text('Apply', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Dialog for Keyboard Height
+  void _showKeyboardHeightDialog() {
+    double tempPortrait = keyboardWidth;
+    double tempLandscape = keyboardHeight;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Text(
+                'Keyboard Height',
+                style: AppTextStyle.titleMedium.copyWith(
+                  color: AppColors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Portrait slider
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          'Portrait',
+                          style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${tempPortrait.toInt()}%',
+                              style: AppTextStyle.titleMedium.copyWith(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: tempPortrait,
+                              min: 50.0,
+                              max: 150.0,
+                              activeColor: AppColors.secondary,
+                              inactiveColor: AppColors.lightGrey,
+                              onChanged: (value) {
+                                setDialogState(() => tempPortrait = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 70),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Landscape slider
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          'Landscape',
+                          style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${tempLandscape.toInt()}%',
+                              style: AppTextStyle.titleMedium.copyWith(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: tempLandscape,
+                              min: 50.0,
+                              max: 150.0,
+                              activeColor: AppColors.secondary,
+                              inactiveColor: AppColors.lightGrey,
+                              onChanged: (value) {
+                                setDialogState(() => tempLandscape = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 70),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    tempPortrait = 100.0;
+                    tempLandscape = 100.0;
+                    setDialogState(() {});
+                  },
+                  child: Text('Reset', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      keyboardWidth = tempPortrait;
+                      keyboardHeight = tempLandscape;
+                    });
+                    _saveSettings(immediate: true);
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text('Apply', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Dialog for Key Spacing
+  void _showKeySpacingDialog() {
+    double tempVertical = verticalKeySpacing;
+    double tempHorizontal = horizontalKeySpacing;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Text(
+                'Key spacing',
+                style: AppTextStyle.titleMedium.copyWith(
+                  color: AppColors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Vertical slider
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          'Vertical',
+                          style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${tempVertical.toStringAsFixed(1)}',
+                              style: AppTextStyle.titleMedium.copyWith(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: tempVertical,
+                              min: 0.0,
+                              max: 10.0,
+                              activeColor: AppColors.secondary,
+                              inactiveColor: AppColors.lightGrey,
+                              onChanged: (value) {
+                                setDialogState(() => tempVertical = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 70),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('0.0', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('10.0', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Horizontal slider
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Text(
+                          'Horizontal',
+                          style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${tempHorizontal.toStringAsFixed(1)}',
+                              style: AppTextStyle.titleMedium.copyWith(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: tempHorizontal,
+                              min: 0.0,
+                              max: 10.0,
+                              activeColor: AppColors.secondary,
+                              inactiveColor: AppColors.lightGrey,
+                              onChanged: (value) {
+                                setDialogState(() => tempHorizontal = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 70),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('0.0', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('10.0', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    tempVertical = 5.0;
+                    tempHorizontal = 2.0;
+                    setDialogState(() {});
+                  },
+                  child: Text('Reset', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      verticalKeySpacing = tempVertical;
+                      horizontalKeySpacing = tempHorizontal;
+                    });
+                    _saveSettings(immediate: true);
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text('Apply', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Dialog for One-handed mode
+  void _showOneHandedModeDialog() {
+    String tempSide = oneHandedSide;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Text(
+                'One-handed mode',
+                style: AppTextStyle.titleMedium.copyWith(
+                  color: AppColors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildRadioOption(
+                    value: 'off',
+                    groupValue: tempSide,
+                    label: 'Off',
+                    onChanged: (value) {
+                      setDialogState(() => tempSide = value!);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildRadioOption(
+                    value: 'left',
+                    groupValue: tempSide,
+                    label: 'Left-handed mode',
+                    onChanged: (value) {
+                      setDialogState(() => tempSide = value!);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildRadioOption(
+                    value: 'right',
+                    groupValue: tempSide,
+                    label: 'Right-handed mode',
+                    onChanged: (value) {
+                      setDialogState(() => tempSide = value!);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      oneHandedSide = tempSide;
+                      if (tempSide == 'off') {
+                        oneHandedMode = false;
+                      }
+                    });
+                    _saveSettings(immediate: true);
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text('Apply', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildRadioOption({
+    required String value,
+    required String groupValue,
+    required String label,
+    required ValueChanged<String?> onChanged,
+  }) {
+    final isSelected = value == groupValue;
+    return InkWell(
+      onTap: () => onChanged(value),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.secondary.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? AppColors.secondary : AppColors.lightGrey,
+            width: 2,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: AppTextStyle.bodyMedium.copyWith(
+                  color: isSelected ? AppColors.secondary : AppColors.black,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle, color: AppColors.secondary, size: 20),
+          ],
+        ),
       ),
     );
   }

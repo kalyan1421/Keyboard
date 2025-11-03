@@ -21,10 +21,10 @@ class FontPicker extends StatelessWidget {
     'Monospace',
     'Cursive',
     'Casual',
-    'NotoSans VariableFont wdth,wght',
-    'NotoSansDevanagari',
-    'NotoSansTamil',
-    'NotoSansTelugu',
+    'NotoSans-VariableFont_wdth,wght.ttf',
+    'NotoSansDevanagari-Regular.ttf',
+    'NotoSansTamil-Regular.ttf',
+    'NotoSansTelugu-Regular.ttf',
   ];
 
   @override
@@ -187,4 +187,3 @@ class FontSelectorDropdown extends StatelessWidget {
     }
   }
 }
-

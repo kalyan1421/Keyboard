@@ -369,141 +369,145 @@ class _CustomTonesScreenState extends State<CustomTonesScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (BuildContext context) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-          ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Handle bar
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.grey.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: SingleChildScrollView(
+            child: Container(
+              decoration: const BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
                 ),
               ),
-              const SizedBox(height: 24),
-              
-              // Title
-              Text(
-                'Create Custom Tone',
-                style: AppTextStyle.headlineMedium.copyWith(
-                  color: AppColors.black,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 24),
-              
-              // Input field label
-              Text(
-                'Enter Tone name',
-                style: AppTextStyle.titleMedium.copyWith(
-                  color: AppColors.black,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              
-              // Input field
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.lightGrey,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: TextField(
-                  controller: toneNameController,
-                  decoration: InputDecoration(
-                    hintText: 'Eg: Angry, Sarcastic',
-                    hintStyle: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
-                    border: InputBorder.none,
-                  ),
-                  style: AppTextStyle.bodyMedium.copyWith(color: AppColors.black),
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Info text
-              Text(
-                'Custom Tones will show up in the Word Tone section',
-                style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
-              ),
-              const SizedBox(height: 24),
-              
-              // Add button
-              GestureDetector(
-                onTap: () async {
-                  if (toneNameController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Please enter a tone name'),
-                        backgroundColor: Colors.orange,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.grey.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                    );
-                    return;
-                  }
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   
-                  try {
-                    final toneName = toneNameController.text.trim();
-                    final prompt = 'Make this text $toneName in tone';
-                    
-                    await promptChannel.invokeMethod('savePrompt', {
-                      'category': 'tone',
-                      'title': toneName,
-                      'prompt': prompt,
-                    });
-                    
-                    Navigator.pop(context);
-                    _loadTonePrompts();
-                    
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('✅ Tone "$toneName" created'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('❌ Error: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.grey.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(12),
+                  // Title
+                  Text(
+                    'Create Custom Tone',
+                    style: AppTextStyle.headlineMedium.copyWith(
+                      color: AppColors.black,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  child: Text(
-                    'Add Tone',
+                  const SizedBox(height: 24),
+                  
+                  // Input field label
+                  Text(
+                    'Enter Tone name',
                     style: AppTextStyle.titleMedium.copyWith(
                       color: AppColors.black,
                       fontWeight: FontWeight.w600,
                     ),
-                    textAlign: TextAlign.center,
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  
+                  // Input field
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGrey,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: TextField(
+                      controller: toneNameController,
+                      decoration: InputDecoration(
+                        hintText: 'Eg: Angry, Sarcastic',
+                        hintStyle: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey),
+                        border: InputBorder.none,
+                      ),
+                      style: AppTextStyle.bodyMedium.copyWith(color: AppColors.black),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Info text
+                  Text(
+                    'Custom Tones will show up in the Word Tone section',
+                    style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Add button
+                  GestureDetector(
+                    onTap: () async {
+                      if (toneNameController.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please enter a tone name'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+                      
+                      try {
+                        final toneName = toneNameController.text.trim();
+                        final prompt = 'Make this text $toneName in tone';
+                        
+                        await promptChannel.invokeMethod('savePrompt', {
+                          'category': 'tone',
+                          'title': toneName,
+                          'prompt': prompt,
+                        });
+                        
+                        Navigator.pop(context);
+                        _loadTonePrompts();
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('✅ Tone "$toneName" created'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('❌ Error: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: AppColors.grey.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Add Tone',
+                        style: AppTextStyle.titleMedium.copyWith(
+                          color: AppColors.black,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              
-              // Add bottom padding for keyboard
-              SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
-            ],
+            ),
           ),
         );
       },

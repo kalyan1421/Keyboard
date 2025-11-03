@@ -164,15 +164,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
 
-        if (snapshot.hasData && snapshot.data != null) {
-          // User is signed in, go directly to main screen
-          print('🟢 [AuthWrapper] User authenticated, showing home screen');
-          return const mainscreen();
-        } else {
-          // User is not signed in, show welcome screen
-          print('🟡 [AuthWrapper] User not authenticated, showing welcome screen');
-          return const LoginIllustraionScreen();
-        }
+        // Always show main screen, regardless of authentication status
+        // Users can access the app without logging in
+        // Login will be prompted when they try to use premium features
+        print(snapshot.hasData && snapshot.data != null 
+          ? '🟢 [AuthWrapper] User authenticated, showing home screen'
+          : '🟡 [AuthWrapper] User not authenticated, showing home screen (guest mode)');
+        return const mainscreen();
       },
     );
   }

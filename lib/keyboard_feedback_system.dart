@@ -112,10 +112,10 @@ class KeyboardFeedbackSystem {
   
   // Feedback settings
   static FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
-  static FeedbackIntensity _soundIntensity = FeedbackIntensity.light;
-  static FeedbackIntensity _visualIntensity = FeedbackIntensity.medium;
-  static double _soundVolume = 0.3;
-  static bool _soundEnabled = true;
+  static FeedbackIntensity _soundIntensity = FeedbackIntensity.off;
+  static FeedbackIntensity _visualIntensity = FeedbackIntensity.off;
+  static double _soundVolume = 0.0;
+  static bool _soundEnabled = false;
   
   // Animation controllers cache
   static final Map<String, AnimationController> _animationControllers = {};

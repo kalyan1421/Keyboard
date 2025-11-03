@@ -1,6 +1,7 @@
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:flutter/material.dart';
+import 'package:ai_keyboard/services/openai_chat_service.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({Key? key}) : super(key: key);
@@ -14,6 +15,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   final List<ChatMessage> _messages = [];
+  bool _isTyping = false;
+  bool _useOpenAI = true;
 
   @override
   void initState() {
@@ -36,88 +39,101 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _initializeChat() {
-    // Add initial messages
-    _messages.addAll([
+    // Add welcome message
+    _messages.add(
       ChatMessage(
-        text: "Hello, I need help.",
-        isUser: true,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 2)),
-      ),
-      ChatMessage(
-        text: "Fine, How can Help you?",
-        isUser: false,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 1)),
-      ),
-      ChatMessage(
-        text: "Can i change themes?",
-        isUser: true,
-        timestamp: DateTime.now().subtract(const Duration(seconds: 30)),
-      ),
-      ChatMessage(
-        text: "Yes, You can change themes & Customize",
+        text: "Hello! 👋 I'm your Kvive Keyboard assistant. I'm here to help you with keyboard features, themes, settings, and more. How can I assist you today?",
         isUser: false,
         timestamp: DateTime.now(),
       ),
-    ]);
+    );
   }
 
   void _sendMessage() {
     if (_messageController.text.trim().isEmpty) return;
 
+    final messageText = _messageController.text.trim();
     final userMessage = ChatMessage(
-      text: _messageController.text.trim(),
+      text: messageText,
       isUser: true,
       timestamp: DateTime.now(),
     );
 
     setState(() {
       _messages.add(userMessage);
+      _isTyping = true;
     });
 
     _messageController.clear();
     _scrollToBottom();
 
-    // Generate AI response after a short delay
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      _generateAIResponse(userMessage.text);
-    });
+    // Generate AI response
+    _generateAIResponse(messageText);
   }
 
-  void _generateAIResponse(String userMessage) {
-    String aiResponse = _getAIResponse(userMessage);
+  Future<void> _generateAIResponse(String userMessage) async {
+    try {
+      String aiResponse;
+      
+      if (_useOpenAI) {
+        // Check if API is configured
+        final isConfigured = await OpenAIChatService.isApiKeyConfigured();
+        
+        if (isConfigured) {
+          // Build conversation history for context
+          final conversationHistory = _messages
+              .where((msg) => msg.text.isNotEmpty)
+              .map((msg) => {
+                    'role': msg.isUser ? 'user' : 'assistant',
+                    'content': msg.text,
+                  })
+              .toList();
 
-    final aiMessage = ChatMessage(
-      text: aiResponse,
-      isUser: false,
-      timestamp: DateTime.now(),
-    );
+          // Get OpenAI response
+          aiResponse = await OpenAIChatService.sendMessage(
+            userMessage: userMessage,
+            conversationHistory: conversationHistory,
+          );
+        } else {
+          // Fallback to quick responses if API not configured
+          aiResponse = OpenAIChatService.getQuickResponse(userMessage);
+        }
+      } else {
+        // Use quick responses
+        aiResponse = OpenAIChatService.getQuickResponse(userMessage);
+      }
 
-    setState(() {
-      _messages.add(aiMessage);
-    });
+      final aiMessage = ChatMessage(
+        text: aiResponse,
+        isUser: false,
+        timestamp: DateTime.now(),
+      );
 
-    _scrollToBottom();
-  }
+      if (mounted) {
+        setState(() {
+          _messages.add(aiMessage);
+          _isTyping = false;
+        });
 
-  String _getAIResponse(String userMessage) {
-    final message = userMessage.toLowerCase();
+        _scrollToBottom();
+      }
+    } catch (e) {
+      print('Error generating AI response: $e');
+      
+      if (mounted) {
+        final errorMessage = ChatMessage(
+          text: "Sorry, I encountered an error. Please try again.",
+          isUser: false,
+          timestamp: DateTime.now(),
+        );
 
-    if (message.contains('theme') || message.contains('themes')) {
-      return "You can change themes from the settings menu. We have various themes like Natural, Red Rose, Pink Rose, and many more!";
-    } else if (message.contains('keyboard') || message.contains('key')) {
-      return "Our AI keyboard offers smart predictions, autocorrect, and multiple language support. What specific feature would you like to know about?";
-    } else if (message.contains('help') || message.contains('support')) {
-      return "I'm here to help! You can ask me about themes, keyboard features, settings, or any other questions about the app.";
-    } else if (message.contains('language') || message.contains('lang')) {
-      return "You can add multiple languages from the Language settings. We support English, Hindi, Gujarati, Bengali, and many more!";
-    } else if (message.contains('premium') || message.contains('upgrade')) {
-      return "Premium features include advanced AI suggestions, unlimited themes, and priority support. You can upgrade from the settings menu.";
-    } else if (message.contains('hello') || message.contains('hi')) {
-      return "Hello! How can I assist you today?";
-    } else if (message.contains('thank') || message.contains('thanks')) {
-      return "You're welcome! Is there anything else I can help you with?";
-    } else {
-      return "I understand you're asking about \"$userMessage\". Could you please provide more details so I can help you better?";
+        setState(() {
+          _messages.add(errorMessage);
+          _isTyping = false;
+        });
+
+        _scrollToBottom();
+      }
     }
   }
 
@@ -131,6 +147,76 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     });
+  }
+
+  void _showApiKeyDialog() {
+    final apiKeyController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Configure OpenAI API Key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter your OpenAI API key to enable AI-powered responses.\n\n'
+              'Get your API key from: https://platform.openai.com/api-keys',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: apiKeyController,
+              decoration: InputDecoration(
+                labelText: 'API Key',
+                hintText: 'sk-...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                prefixIcon: const Icon(Icons.key),
+              ),
+              obscureText: true,
+              maxLines: 1,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final apiKey = apiKeyController.text.trim();
+              if (apiKey.isNotEmpty) {
+                await OpenAIChatService.saveApiKey(apiKey);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('API key saved successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid API key'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.secondary,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -150,25 +236,45 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         centerTitle: false,
         actions: [
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.notifications_outlined,
-                  color: AppColors.white,
-                ),
-                onPressed: () {},
-              ),
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: AppColors.secondary,
-                    shape: BoxShape.circle,
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: AppColors.white),
+            onSelected: (value) {
+              if (value == 'api_key') {
+                _showApiKeyDialog();
+              } else if (value == 'toggle_ai') {
+                setState(() {
+                  _useOpenAI = !_useOpenAI;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_useOpenAI
+                        ? 'Using OpenAI responses'
+                        : 'Using quick responses'),
+                    duration: const Duration(seconds: 2),
                   ),
+                );
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'api_key',
+                child: Row(
+                  children: [
+                    Icon(Icons.key, size: 20),
+                    SizedBox(width: 8),
+                    Text('Configure API Key'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'toggle_ai',
+                child: Row(
+                  children: [
+                    Icon(_useOpenAI ? Icons.toggle_on : Icons.toggle_off,
+                        size: 20),
+                    const SizedBox(width: 8),
+                    Text(_useOpenAI ? 'Disable OpenAI' : 'Enable OpenAI'),
+                  ],
                 ),
               ),
             ],
@@ -182,8 +288,11 @@ class _ChatScreenState extends State<ChatScreen> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              itemCount: _messages.length,
+              itemCount: _messages.length + (_isTyping ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == _messages.length && _isTyping) {
+                  return _buildTypingIndicator();
+                }
                 return _buildMessageBubble(_messages[index]);
               },
             ),
@@ -191,7 +300,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
           // Input Field
           _buildInputField(),
-          const SizedBox(height: 45),
         ],
       ),
     );
@@ -331,6 +439,60 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTypingIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.lightGrey,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildDot(0),
+                const SizedBox(width: 4),
+                _buildDot(1),
+                const SizedBox(width: 4),
+                _buildDot(2),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDot(int index) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 600 + (index * 200)),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: (value * 2).clamp(0.3, 1.0),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.grey,
+              shape: BoxShape.circle,
+            ),
+          ),
+        );
+      },
+      onEnd: () {
+        if (mounted && _isTyping) {
+          setState(() {});
+        }
+      },
     );
   }
 

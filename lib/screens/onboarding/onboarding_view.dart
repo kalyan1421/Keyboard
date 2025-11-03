@@ -15,6 +15,7 @@ class _OnboardingViewState extends State<OnboardingView> {
   int _currentPage = 0;
   bool _userInteracted = false;
   int _animationLoopCount = 0;
+  bool _isAdvancing = false;
 
   final List<OnboardingPageData> _pages = [
     OnboardingPageData(
@@ -46,18 +47,21 @@ class _OnboardingViewState extends State<OnboardingView> {
   void _onAnimationComplete() {
     print('_onAnimationComplete called. UserInteracted: $_userInteracted, AnimationLoopCount: $_animationLoopCount');
     
-    // Don't auto-advance if user has interacted
-    if (_userInteracted) return;
+    // Don't auto-advance if user has interacted or already advancing
+    if (_userInteracted || _isAdvancing) return;
     
     _animationLoopCount++;
     
     // Auto-advance after 2 animation loops
     if (_animationLoopCount >= 2) {
       print('Auto-advancing to next page after $_animationLoopCount loops');
+      setState(() {
+        _isAdvancing = true; // Prevent further animation repeats
+      });
       _animationLoopCount = 0; // Reset for next page
       
-      // Small delay before advancing
-      Future.delayed(const Duration(milliseconds: 300), () {
+      // Delay before advancing (longer than repeat delay to ensure clean transition)
+      Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted && !_userInteracted) {
           _nextPage();
         }
@@ -68,6 +72,7 @@ class _OnboardingViewState extends State<OnboardingView> {
   void _markUserInteraction() {
     setState(() {
       _userInteracted = true;
+      _isAdvancing = false; // Cancel auto-advance if user interacts
     });
   }
 
@@ -89,10 +94,19 @@ class _OnboardingViewState extends State<OnboardingView> {
   }
 
   void _onPageChanged(int page) {
+    print('Page changed to: $page');
     setState(() {
       _currentPage = page;
       _animationLoopCount = 0; // Reset loop count for new page
       _userInteracted = false; // Reset interaction flag for new page
+      _isAdvancing = false; // Reset advancing flag for new page
+    });
+    
+    // Small delay to ensure page is fully settled before resetting animation state
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) {
+        setState(() {});
+      }
     });
   }
 
@@ -121,6 +135,7 @@ class _OnboardingViewState extends State<OnboardingView> {
                       data: _pages[index],
                       onAnimationComplete: _onAnimationComplete,
                       isCurrentPage: index == _currentPage,
+                      isAdvancing: _isAdvancing,
                     );
                   },
                 ),
@@ -223,15 +238,46 @@ class _OnboardingViewState extends State<OnboardingView> {
             ),
             const Spacer(),
 
-            // Swipe hint text (replaces Next button)
-            Text(
-              'Swipe →',
-              style: AppTextStyle.bodyMedium.copyWith(
-                color: const Color(0xFFFF9900),
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+            // Show button on last page, swipe hint on other pages
+            if (_currentPage == _pages.length - 1)
+              // Continue button for the last page
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF9900),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 0,
+                ),
+                onPressed: _navigateToHome,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Continue',
+                      style: AppTextStyle.buttonPrimary.copyWith(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.arrow_forward, size: 20),
+                  ],
+                ),
+              )
+            else
+              // Swipe hint text for other pages
+              Text(
+                'Swipe →',
+                style: AppTextStyle.bodyMedium.copyWith(
+                  color: const Color(0xFFFF9900),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
           ],
         ),
       ],
@@ -257,11 +303,13 @@ class _OnboardingPage extends StatefulWidget {
   final OnboardingPageData data;
   final VoidCallback onAnimationComplete;
   final bool isCurrentPage;
+  final bool isAdvancing;
 
   const _OnboardingPage({
     required this.data,
     required this.onAnimationComplete,
     required this.isCurrentPage,
+    required this.isAdvancing,
   });
 
   @override
@@ -299,22 +347,32 @@ class _OnboardingPageState extends State<_OnboardingPage>
             if (!mounted) return;
             
             if (status == AnimationStatus.completed) {
-              print('Animation completed. IsCurrentPage: ${widget.isCurrentPage}');
+              print('Animation completed. IsCurrentPage: ${widget.isCurrentPage}, Page: ${widget.data.title}');
               
               // Only trigger callback if this is the current page
               if (widget.isCurrentPage) {
-                print('Calling onAnimationComplete callback');
+                print('Calling onAnimationComplete callback for: ${widget.data.title}');
                 widget.onAnimationComplete();
               }
               
-              // Repeat the animation
-              if (mounted) {
-                _lottieController!.forward(from: 0);
-              }
+              // Schedule repeat with a delay to allow state updates to propagate
+              Future.delayed(const Duration(milliseconds: 200), () {
+                // Check again after delay if we should repeat
+                if (mounted && widget.isCurrentPage && !widget.isAdvancing) {
+                  print('Repeating animation for: ${widget.data.title}');
+                  if (_lottieController != null && !_lottieController!.isAnimating) {
+                    _lottieController!.forward(from: 0);
+                  }
+                } else if (widget.isAdvancing) {
+                  print('Not repeating animation - page is advancing');
+                } else if (!widget.isCurrentPage) {
+                  print('Not repeating animation - page is no longer current');
+                }
+              });
             }
           });
 
-          // Start the animation
+          // Start the animation immediately if this is the current page
           if (mounted && widget.isCurrentPage) {
             print('Starting animation for page: ${widget.data.title}');
             _lottieController!.forward();
@@ -329,11 +387,30 @@ class _OnboardingPageState extends State<_OnboardingPage>
   void didUpdateWidget(_OnboardingPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     
+    // Stop animation if advancing flag is set
+    if (!oldWidget.isAdvancing && widget.isAdvancing && _lottieController != null) {
+      print('Page ${widget.data.title} is advancing, stopping animation');
+      _lottieController!.stop();
+    }
+    
     // Start animation if this page becomes current
     if (oldWidget.isCurrentPage != widget.isCurrentPage) {
-      if (widget.isCurrentPage && _lottieController != null) {
+      if (widget.isCurrentPage && _lottieController != null && !widget.isAdvancing) {
         print('Page ${widget.data.title} became current, restarting animation');
-        _lottieController!.forward(from: 0);
+        // Stop any ongoing animation first
+        _lottieController!.stop();
+        _lottieController!.reset();
+        // Start fresh animation with a small delay
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (mounted && widget.isCurrentPage && !widget.isAdvancing && _lottieController != null) {
+            print('Actually starting animation for: ${widget.data.title}');
+            _lottieController!.forward();
+          }
+        });
+      } else if (!widget.isCurrentPage && _lottieController != null) {
+        // Stop animation when page is no longer current
+        print('Page ${widget.data.title} is no longer current, stopping animation');
+        _lottieController!.stop();
       }
     }
   }

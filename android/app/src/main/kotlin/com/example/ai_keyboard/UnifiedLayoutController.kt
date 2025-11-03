@@ -333,30 +333,9 @@ class UnifiedLayoutController(
         
         scope.launch {
             try {
-                // Rebuild layout with current settings
                 val layoutModel = adapter.buildLayoutFor(lang, mode, numberRowEnabled = numberRowEnabled)
-                
-                // Update key labels based on shift state
+                keyboardView.showTypingLayout(layoutModel)
                 val isUpperCase = shiftState != CapsShiftManager.STATE_NORMAL
-                val updatedLayout = layoutModel.copy(
-                    rows = layoutModel.rows.map { row: List<LanguageLayoutAdapter.KeyModel> ->
-                        row.map { key: LanguageLayoutAdapter.KeyModel ->
-                            if (key.label.length == 1 && Character.isLetter(key.label[0])) {
-                                val newLabel = if (isUpperCase) {
-                                    key.label.uppercase()
-                                } else {
-                                    key.label.lowercase()
-                                }
-                                key.copy(label = newLabel)
-                            } else {
-                                key
-                            }
-                        }
-                    }
-                )
-                
-                // Update the view with modified layout
-                keyboardView.showTypingLayout(updatedLayout)
                 Log.d(TAG, "✅ Keyboard refreshed for shift state: $shiftState (uppercase=$isUpperCase)")
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to refresh keyboard for shift", e)

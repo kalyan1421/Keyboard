@@ -132,7 +132,20 @@ void main() {
       expect(theme.specialKeys.applyTo, contains('globe'));
       expect(theme.specialKeys.applyTo, contains('emoji'));
       expect(theme.specialKeys.applyTo, contains('mic'));
+      expect(theme.specialKeys.applyTo, contains('symbols'));
+      expect(theme.specialKeys.applyTo, contains('backspace'));
       expect(theme.specialKeys.useAccentForEnter, true);
+    });
+
+    test('legacy special key lists are upgraded with new defaults', () {
+      final special = ThemeSpecialKeys.fromJson({
+        'accent': '#FFFF9F1A',
+        'useAccentForEnter': true,
+        'applyTo': ['enter', 'globe', 'emoji', 'mic'],
+      });
+
+      expect(special.applyTo, contains('symbols'));
+      expect(special.applyTo, contains('backspace'));
     });
 
     test('sound and effects have valid defaults', () {

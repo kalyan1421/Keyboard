@@ -1,7 +1,98 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
+
+const Map<String, String> _gestureActionLabels = {
+  'none': 'No action',
+  'cycle_prev_mode': 'Cycle to previous keyboard mode',
+  'cycle_next_mode': 'Cycle to next keyboard mode',
+  'delete_word_before_cursor': 'Delete word before cursor',
+  'hide_keyboard': 'Hide keyboard',
+  'insert_space': 'Insert space',
+  'move_cursor_up': 'Move cursor up',
+  'move_cursor_down': 'Move cursor down',
+  'move_cursor_left': 'Move cursor left',
+  'move_cursor_right': 'Move cursor right',
+  'move_cursor_line_start': 'Move cursor to start of line',
+  'move_cursor_line_end': 'Move cursor to end of line',
+  'move_cursor_page_start': 'Move cursor to start of page',
+  'move_cursor_page_end': 'Move cursor to end of page',
+  'shift': 'Shift',
+  'redo': 'Redo',
+  'undo': 'Undo',
+  'open_clipboard': 'Open clipboard manager/history',
+  'show_input_method_picker': 'Show input method picker',
+  'switch_prev_language': 'Switch to previous Language',
+  'switch_next_language': 'Switch to next Language',
+  'toggle_smartbar': 'Toggle Smartbar visibility',
+  'delete_characters_precisely': 'Delete characters precisely',
+  'delete_character_before_cursor': 'Delete character before cursor',
+  'delete_word': 'Delete word',
+  'delete_line': 'Delete line',
+};
+
+const List<String> _generalGestureOptions = [
+  'none',
+  'cycle_prev_mode',
+  'cycle_next_mode',
+  'delete_word_before_cursor',
+  'hide_keyboard',
+  'insert_space',
+  'move_cursor_up',
+  'move_cursor_down',
+  'move_cursor_left',
+  'move_cursor_right',
+  'move_cursor_line_start',
+  'move_cursor_line_end',
+  'move_cursor_page_start',
+  'move_cursor_page_end',
+  'shift',
+  'redo',
+  'undo',
+  'open_clipboard',
+  'show_input_method_picker',
+  'switch_prev_language',
+  'switch_next_language',
+  'toggle_smartbar',
+];
+
+const List<String> _spaceGestureOptions = [
+  'none',
+  'move_cursor_up',
+  'move_cursor_down',
+  'move_cursor_left',
+  'move_cursor_right',
+  'move_cursor_line_start',
+  'move_cursor_line_end',
+  'move_cursor_page_start',
+  'move_cursor_page_end',
+  'insert_space',
+  'hide_keyboard',
+  'open_clipboard',
+  'show_input_method_picker',
+  'switch_prev_language',
+  'switch_next_language',
+  'toggle_smartbar',
+];
+
+const List<String> _deleteGestureOptions = [
+  'none',
+  'delete_characters_precisely',
+  'delete_character_before_cursor',
+  'delete_word',
+  'delete_line',
+  'delete_word_before_cursor',
+  'undo',
+  'redo',
+  'hide_keyboard',
+  'open_clipboard',
+];
 
 class GesturesGlideScreen extends StatefulWidget {
   const GesturesGlideScreen({super.key});
@@ -11,6 +102,11 @@ class GesturesGlideScreen extends StatefulWidget {
 }
 
 class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
+  static const MethodChannel _channel = MethodChannel('ai_keyboard/config');
+
+  Timer? _saveDebounceTimer;
+  Timer? _notifyDebounceTimer;
+
   // Glide Typing Settings
   bool glideTyping = true;
   bool showGlideTrail = true;
@@ -18,22 +114,147 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
   bool alwaysDeleteWord = true;
 
   // General Settings
-  String swipeUpAction = 'Shift';
-  String swipeDownAction = 'Shift';
-  String swipeLeftAction = 'Shift';
-  String swipeRightAction = 'Shift';
+  String swipeUpAction = 'shift';
+  String swipeDownAction = 'hide_keyboard';
+  String swipeLeftAction = 'delete_character_before_cursor';
+  String swipeRightAction = 'insert_space';
 
   // Space Bar Settings
-  String spaceBarLongPress = 'No action';
-  String spaceBarSwipeDown = 'Move cursor down';
-  String spaceBarSwipeLeft = 'Move cursor left';
-  String spaceBarSwipeRight = 'Move cursor right';
+  String spaceBarLongPress = 'show_input_method_picker';
+  String spaceBarSwipeDown = 'none';
+  String spaceBarSwipeLeft = 'move_cursor_left';
+  String spaceBarSwipeRight = 'move_cursor_right';
 
   // Other Gestures Settings
-  String deleteKeySwipeLeft = 'Delete characters precisely';
-  String deleteKeyLongPress = 'Delete character before cursor';
+  String deleteKeySwipeLeft = 'delete_word_before_cursor';
+  String deleteKeyLongPress = 'delete_character_before_cursor';
   double swipeVelocityThreshold = 1900.0;
   double swipeDistanceThreshold = 20.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _saveDebounceTimer?.cancel();
+    _notifyDebounceTimer?.cancel();
+    super.dispose();
+  }
+
+  String _validateAction(String? code, String fallback) {
+    if (code != null && _gestureActionLabels.containsKey(code)) {
+      return code;
+    }
+    return fallback;
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      glideTyping = prefs.getBool('gestures.glide_typing') ?? glideTyping;
+      showGlideTrail = prefs.getBool('gestures.show_glide_trail') ?? showGlideTrail;
+      glideTrailFadeTime = prefs.getDouble('gestures.glide_trail_fade_time') ?? glideTrailFadeTime;
+      alwaysDeleteWord = prefs.getBool('gestures.always_delete_word') ?? alwaysDeleteWord;
+      swipeVelocityThreshold = prefs.getDouble('gestures.swipe_velocity_threshold') ?? swipeVelocityThreshold;
+      swipeDistanceThreshold = prefs.getDouble('gestures.swipe_distance_threshold') ?? swipeDistanceThreshold;
+
+      swipeUpAction = _validateAction(prefs.getString('gestures.swipe_up_action'), swipeUpAction);
+      swipeDownAction = _validateAction(prefs.getString('gestures.swipe_down_action'), swipeDownAction);
+      swipeLeftAction = _validateAction(prefs.getString('gestures.swipe_left_action'), swipeLeftAction);
+      swipeRightAction = _validateAction(prefs.getString('gestures.swipe_right_action'), swipeRightAction);
+
+      spaceBarLongPress = _validateAction(prefs.getString('gestures.space_long_press_action'), spaceBarLongPress);
+      spaceBarSwipeDown = _validateAction(prefs.getString('gestures.space_swipe_down_action'), spaceBarSwipeDown);
+      spaceBarSwipeLeft = _validateAction(prefs.getString('gestures.space_swipe_left_action'), spaceBarSwipeLeft);
+      spaceBarSwipeRight = _validateAction(prefs.getString('gestures.space_swipe_right_action'), spaceBarSwipeRight);
+
+      deleteKeySwipeLeft = _validateAction(prefs.getString('gestures.delete_swipe_left_action'), deleteKeySwipeLeft);
+      deleteKeyLongPress = _validateAction(prefs.getString('gestures.delete_long_press_action'), deleteKeyLongPress);
+    });
+  }
+
+  void _saveSettings({bool immediate = false}) {
+    _saveDebounceTimer?.cancel();
+    if (immediate) {
+      _performSave();
+    } else {
+      _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+        _performSave();
+      });
+    }
+  }
+
+  Future<void> _performSave() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('gestures.glide_typing', glideTyping);
+    await prefs.setBool('gestures.show_glide_trail', showGlideTrail);
+    await prefs.setDouble('gestures.glide_trail_fade_time', glideTrailFadeTime);
+    await prefs.setBool('gestures.always_delete_word', alwaysDeleteWord);
+    await prefs.setDouble('gestures.swipe_velocity_threshold', swipeVelocityThreshold);
+    await prefs.setDouble('gestures.swipe_distance_threshold', swipeDistanceThreshold);
+
+    await prefs.setString('gestures.swipe_up_action', swipeUpAction);
+    await prefs.setString('gestures.swipe_down_action', swipeDownAction);
+    await prefs.setString('gestures.swipe_left_action', swipeLeftAction);
+    await prefs.setString('gestures.swipe_right_action', swipeRightAction);
+
+    await prefs.setString('gestures.space_long_press_action', spaceBarLongPress);
+    await prefs.setString('gestures.space_swipe_down_action', spaceBarSwipeDown);
+    await prefs.setString('gestures.space_swipe_left_action', spaceBarSwipeLeft);
+    await prefs.setString('gestures.space_swipe_right_action', spaceBarSwipeRight);
+
+    await prefs.setString('gestures.delete_swipe_left_action', deleteKeySwipeLeft);
+    await prefs.setString('gestures.delete_long_press_action', deleteKeyLongPress);
+
+    await _sendSettingsToKeyboard();
+    _debouncedNotifyKeyboard();
+  }
+
+  Future<void> _sendSettingsToKeyboard() async {
+    try {
+      await _channel.invokeMethod('updateGestureSettings', {
+        'glideTyping': glideTyping,
+        'showGlideTrail': showGlideTrail,
+        'glideTrailFadeTime': glideTrailFadeTime.round(),
+        'alwaysDeleteWord': alwaysDeleteWord,
+        'swipeVelocityThreshold': swipeVelocityThreshold,
+        'swipeDistanceThreshold': swipeDistanceThreshold,
+        'swipeUpAction': swipeUpAction,
+        'swipeDownAction': swipeDownAction,
+        'swipeLeftAction': swipeLeftAction,
+        'swipeRightAction': swipeRightAction,
+        'spaceLongPressAction': spaceBarLongPress,
+        'spaceSwipeDownAction': spaceBarSwipeDown,
+        'spaceSwipeLeftAction': spaceBarSwipeLeft,
+        'spaceSwipeRightAction': spaceBarSwipeRight,
+        'deleteSwipeLeftAction': deleteKeySwipeLeft,
+        'deleteLongPressAction': deleteKeyLongPress,
+      });
+    } catch (e) {
+      debugPrint('⚠️ Failed to send gesture settings: $e');
+    }
+  }
+
+  void _debouncedNotifyKeyboard() {
+    _notifyDebounceTimer?.cancel();
+    _notifyDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _notifyKeyboard();
+    });
+  }
+
+  Future<void> _notifyKeyboard() async {
+    try {
+      await _channel.invokeMethod('notifyConfigChange');
+      await _channel.invokeMethod('broadcastSettingsChanged');
+    } catch (e) {
+      debugPrint('⚠️ Failed to notify keyboard: $e');
+    }
+  }
+
+  String _actionLabel(String code) => _gestureActionLabels[code] ?? code;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +309,10 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
               title: 'Glide typing',
               description: 'Enabled',
               value: glideTyping,
-              onChanged: (value) => setState(() => glideTyping = value),
+              onChanged: (value) {
+                setState(() => glideTyping = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -98,7 +322,10 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
               title: 'Show glide trail',
               description: 'Enabled',
               value: showGlideTrail,
-              onChanged: (value) => setState(() => showGlideTrail = value),
+              onChanged: (value) {
+                setState(() => showGlideTrail = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 12),
@@ -107,8 +334,10 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             _buildSliderSetting(
               title: 'Glide trail fade time',
               portraitValue: glideTrailFadeTime,
-              onPortraitChanged: (value) =>
-                  setState(() => glideTrailFadeTime = value),
+              onPortraitChanged: (value) {
+                setState(() => glideTrailFadeTime = value);
+                _saveSettings();
+              },
               min: 100.0,
               max: 1000.0,
               unit: 'ms',
@@ -123,7 +352,10 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
               title: 'Always delete word',
               description: 'Enabled',
               value: alwaysDeleteWord,
-              onChanged: (value) => setState(() => alwaysDeleteWord = value),
+              onChanged: (value) {
+                setState(() => alwaysDeleteWord = value);
+                _saveSettings();
+              },
             ),
 
             const SizedBox(height: 32),
@@ -135,8 +367,8 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Swipe up
             _buildSwipeActionCard(
               title: 'Swipe up',
-              subtitle: swipeUpAction,
-              onTap: () => _showSwipeActionDialog('Swipe up', (action) {
+              subtitle: _actionLabel(swipeUpAction),
+              onTap: () => _showSwipeActionDialog('Swipe up', swipeUpAction, (action) {
                 setState(() => swipeUpAction = action);
               }),
             ),
@@ -146,8 +378,8 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Swipe down
             _buildSwipeActionCard(
               title: 'Swipe down',
-              subtitle: swipeDownAction,
-              onTap: () => _showSwipeActionDialog('Swipe down', (action) {
+              subtitle: _actionLabel(swipeDownAction),
+              onTap: () => _showSwipeActionDialog('Swipe down', swipeDownAction, (action) {
                 setState(() => swipeDownAction = action);
               }),
             ),
@@ -157,8 +389,8 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Swipe left
             _buildSwipeActionCard(
               title: 'Swipe left',
-              subtitle: swipeLeftAction,
-              onTap: () => _showSwipeActionDialog('Swipe left', (action) {
+              subtitle: _actionLabel(swipeLeftAction),
+              onTap: () => _showSwipeActionDialog('Swipe left', swipeLeftAction, (action) {
                 setState(() => swipeLeftAction = action);
               }),
             ),
@@ -168,8 +400,8 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Swipe right
             _buildSwipeActionCard(
               title: 'Swipe right',
-              subtitle: swipeRightAction,
-              onTap: () => _showSwipeActionDialog('Swipe right', (action) {
+              subtitle: _actionLabel(swipeRightAction),
+              onTap: () => _showSwipeActionDialog('Swipe right', swipeRightAction, (action) {
                 setState(() => swipeRightAction = action);
               }),
             ),
@@ -183,9 +415,9 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Space bar long press
             _buildSwipeActionCard(
               title: 'Space bar long press',
-              subtitle: spaceBarLongPress,
+              subtitle: _actionLabel(spaceBarLongPress),
               onTap: () =>
-                  _showSpaceBarActionDialog('Space bar long press', (action) {
+                  _showSpaceBarActionDialog('Space bar long press', spaceBarLongPress, (action) {
                     setState(() => spaceBarLongPress = action);
                   }),
             ),
@@ -195,9 +427,9 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Space bar Swipe down
             _buildSwipeActionCard(
               title: 'Space bar Swipe down',
-              subtitle: spaceBarSwipeDown,
+              subtitle: _actionLabel(spaceBarSwipeDown),
               onTap: () =>
-                  _showSpaceBarActionDialog('Space bar Swipe down', (action) {
+                  _showSpaceBarActionDialog('Space bar Swipe down', spaceBarSwipeDown, (action) {
                     setState(() => spaceBarSwipeDown = action);
                   }),
             ),
@@ -207,9 +439,9 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Space bar Swipe left
             _buildSwipeActionCard(
               title: 'Space bar Swipe left',
-              subtitle: spaceBarSwipeLeft,
+              subtitle: _actionLabel(spaceBarSwipeLeft),
               onTap: () =>
-                  _showSpaceBarActionDialog('Space bar Swipe left', (action) {
+                  _showSpaceBarActionDialog('Space bar Swipe left', spaceBarSwipeLeft, (action) {
                     setState(() => spaceBarSwipeLeft = action);
                   }),
             ),
@@ -219,9 +451,9 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Space bar Swipe right
             _buildSwipeActionCard(
               title: 'Space bar Swipe right',
-              subtitle: spaceBarSwipeRight,
+              subtitle: _actionLabel(spaceBarSwipeRight),
               onTap: () =>
-                  _showSpaceBarActionDialog('Space bar Swipe right', (action) {
+                  _showSpaceBarActionDialog('Space bar Swipe right', spaceBarSwipeRight, (action) {
                     setState(() => spaceBarSwipeRight = action);
                   }),
             ),
@@ -235,9 +467,9 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Delete key swipe left
             _buildSwipeActionCard(
               title: 'Delete key swipe left',
-              subtitle: deleteKeySwipeLeft,
+              subtitle: _actionLabel(deleteKeySwipeLeft),
               onTap: () =>
-                  _showDeleteKeyActionDialog('Delete key swipe left', (action) {
+                  _showDeleteKeyActionDialog('Delete key swipe left', deleteKeySwipeLeft, (action) {
                     setState(() => deleteKeySwipeLeft = action);
                   }),
             ),
@@ -247,9 +479,9 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Delete key long press
             _buildSwipeActionCard(
               title: 'Delete key long press',
-              subtitle: deleteKeyLongPress,
+              subtitle: _actionLabel(deleteKeyLongPress),
               onTap: () =>
-                  _showDeleteKeyActionDialog('Delete key long press', (action) {
+                  _showDeleteKeyActionDialog('Delete key long press', deleteKeyLongPress, (action) {
                     setState(() => deleteKeyLongPress = action);
                   }),
             ),
@@ -260,8 +492,10 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             _buildSliderSetting(
               title: 'Swipe velocity threshold',
               portraitValue: swipeVelocityThreshold,
-              onPortraitChanged: (value) =>
-                  setState(() => swipeVelocityThreshold = value),
+              onPortraitChanged: (value) {
+                setState(() => swipeVelocityThreshold = value);
+                _saveSettings();
+              },
               min: 1000.0,
               max: 3000.0,
               unit: ' dp/s',
@@ -275,8 +509,10 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             _buildSliderSetting(
               title: 'Swipe distance threshold',
               portraitValue: swipeDistanceThreshold,
-              onPortraitChanged: (value) =>
-                  setState(() => swipeDistanceThreshold = value),
+              onPortraitChanged: (value) {
+                setState(() => swipeDistanceThreshold = value);
+                _saveSettings();
+              },
               min: 10.0,
               max: 50.0,
               unit: ' dp/s',
@@ -501,51 +737,14 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
     );
   }
 
-  String _getCurrentAction(String gesture) {
-    switch (gesture) {
-      case 'Swipe up':
-        return swipeUpAction;
-      case 'Swipe down':
-        return swipeDownAction;
-      case 'Swipe left':
-        return swipeLeftAction;
-      case 'Swipe right':
-        return swipeRightAction;
-      default:
-        return 'No action';
-    }
-  }
-
-  String _getCurrentSpaceBarAction(String gesture) {
-    switch (gesture) {
-      case 'Space bar long press':
-        return spaceBarLongPress;
-      case 'Space bar Swipe down':
-        return spaceBarSwipeDown;
-      case 'Space bar Swipe left':
-        return spaceBarSwipeLeft;
-      case 'Space bar Swipe right':
-        return spaceBarSwipeRight;
-      default:
-        return 'No action';
-    }
-  }
-
-  String _getCurrentDeleteKeyAction(String gesture) {
-    switch (gesture) {
-      case 'Delete key swipe left':
-        return deleteKeySwipeLeft;
-      case 'Delete key long press':
-        return deleteKeyLongPress;
-      default:
-        return 'No action';
-    }
-  }
-
-  void _showSwipeActionDialog(
-    String gesture,
-    Function(String) onActionSelected,
-  ) {
+  
+  
+  
+void _showSwipeActionDialog(
+  String gesture,
+  String currentAction,
+  ValueChanged<String> onActionSelected,
+) {
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -582,159 +781,15 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
-                        _buildActionOption(
-                          'No action',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Cycle to previous keyboard mode',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Cycle to next keyboard mode',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Delete word before cursor',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Hide keyboard',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Insert space',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor up',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor down',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor left',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor right',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to start of line',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to end of line',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to start of page',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to end of page',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Shift',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Redo',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Undo',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Open clipboard manager/history',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Show input method picker',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Switch to previous Language',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Switch to next Language',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Toggle Smartbar visibility',
-                          _getCurrentAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
+                        for (final code in _generalGestureOptions) ...[
+                          _buildActionOption(
+                            code,
+                            currentAction,
+                            _actionLabel(code),
+                            onActionSelected,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ],
                     ),
                   ),
@@ -795,23 +850,23 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
     );
   }
 
-  Widget _buildActionOption(
-    String action,
-    String currentAction,
-    String gesture,
-    Function(String) onActionSelected,
-  ) {
+Widget _buildActionOption(
+  String actionCode,
+  String currentCode,
+  String label,
+  ValueChanged<String> onActionSelected,
+) {
     return GestureDetector(
       onTap: () {
-        onActionSelected(action);
+        onActionSelected(actionCode);
         Navigator.of(context).pop();
       },
       child: Row(
         children: [
           // Radio Button
           Radio<String>(
-            value: action,
-            groupValue: currentAction,
+            value: actionCode,
+            groupValue: currentCode,
             onChanged: (String? value) {
               if (value != null) {
                 onActionSelected(value);
@@ -826,7 +881,7 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
           // Content
           Expanded(
             child: Text(
-              action,
+              label,
               style: AppTextStyle.titleMedium.copyWith(
                 color: AppColors.primary,
                 fontWeight: FontWeight.w600,
@@ -838,10 +893,11 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
     );
   }
 
-  void _showSpaceBarActionDialog(
-    String gesture,
-    Function(String) onActionSelected,
-  ) {
+void _showSpaceBarActionDialog(
+  String gesture,
+  String currentAction,
+  ValueChanged<String> onActionSelected,
+) {
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -878,117 +934,15 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
-                        _buildActionOption(
-                          'No action',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor up',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor down',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor left',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor right',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to start of line',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to end of line',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to start of page',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Move cursor to end of page',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Insert space',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Hide keyboard',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Open clipboard manager/history',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Show input method picker',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Switch to previous Language',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Switch to next Language',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Toggle Smartbar visibility',
-                          _getCurrentSpaceBarAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
+                        for (final code in _spaceGestureOptions) ...[
+                          _buildActionOption(
+                            code,
+                            currentAction,
+                            _actionLabel(code),
+                            onActionSelected,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ],
                     ),
                   ),
@@ -1051,7 +1005,8 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
 
   void _showDeleteKeyActionDialog(
     String gesture,
-    Function(String) onActionSelected,
+    String currentAction,
+    ValueChanged<String> onActionSelected,
   ) {
     showDialog(
       context: context,
@@ -1089,103 +1044,15 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
-                        _buildActionOption(
-                          'No action',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Delete characters precisely',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Delete character before cursor',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Delete word',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Delete line',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Delete word before cursor',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Undo',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Redo',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Hide keyboard',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Open clipboard manager/history',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Show input method picker',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Switch to previous Language',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Switch to next Language',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildActionOption(
-                          'Toggle Smartbar visibility',
-                          _getCurrentDeleteKeyAction(gesture),
-                          gesture,
-                          onActionSelected,
-                        ),
+                        for (final code in _deleteGestureOptions) ...[
+                          _buildActionOption(
+                            code,
+                            currentAction,
+                            _actionLabel(code),
+                            onActionSelected,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ],
                     ),
                   ),

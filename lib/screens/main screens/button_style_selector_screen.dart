@@ -1,9 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:ai_keyboard/theme/theme_v2.dart';
-import 'dart:math' as math;
+import 'package:ai_keyboard/utils/appassets.dart';
+import 'package:ai_keyboard/utils/apptextstyle.dart';
 
-/// Visual Button Style Selector Screen
-/// Shows different button/key styles with visual previews
+const List<String> _letterAndSpaceTargets = [
+  'regular',
+  'space',
+];
+
+const List<String> _snowDecorTargets = [
+  'regular',
+  'space',
+  'enter',
+  'shift',
+  'backspace',
+  'symbols',
+  'emoji',
+  'mic',
+  'globe',
+  'voice',
+];
+
+const List<String> _allPrimaryKeyTargets = [
+  'regular',
+  'space',
+  'enter',
+  'shift',
+  'backspace',
+  'symbols',
+  'emoji',
+  'mic',
+  'globe',
+  'voice',
+];
+
+/// Visual button selector aligned with the new theme editor look.
+/// Presents a grid of ready-made button styles plus a custom option.
 class ButtonStyleSelectorScreen extends StatefulWidget {
   final KeyboardThemeV2 currentTheme;
   final Function(KeyboardThemeV2) onThemeUpdated;
@@ -22,104 +54,401 @@ class ButtonStyleSelectorScreen extends StatefulWidget {
 
 class _ButtonStyleSelectorScreenState extends State<ButtonStyleSelectorScreen> {
   late KeyboardThemeV2 _currentTheme;
-  String? _selectedStyleId;
+  late String _selectedStyleId;
+  bool _showCustomPalette = false;
 
-  final List<ButtonStyle> _buttonStyles = [
-    ButtonStyle(
-      id: 'rounded',
-      name: 'Rounded',
-      description: 'Classic rounded corners',
-      iconType: ButtonIconType.roundedRect,
+  final List<_ButtonStyleOption> _buttonStyles = [
+    _ButtonStyleOption(
+      id: 'custom',
+      name: 'Custom',
+      description: 'Design your own look',
       preset: 'rounded',
-      radius: 12.0,
+      radius: 14,
+      backgroundColor: Colors.white,
+      icon: Icons.add,
+      iconColor: AppColors.secondary,
+      showBorder: true,
+      borderColor: AppColors.secondary,
+      borderWidth: 2,
+      enableShadow: false,
+      textColor: AppColors.black,
+      accentColor: AppColors.secondary,
+      enableColorPalette: true,
+      isCustom: true,
     ),
-    ButtonStyle(
-      id: 'bordered',
-      name: 'Bordered',
-      description: 'Clear borders with rounded edges',
-      iconType: ButtonIconType.bordered,
+    _ButtonStyleOption(
+      id: 'download_ocean',
+      name: 'Ocean Drop',
+      description: 'Cool blue gradient with download icon',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFF6DD5FA), Color(0xFF2193B0)],
+      icon: Icons.download,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFF1F8DD6),
+    ),
+    _ButtonStyleOption(
+      id: 'download_sunrise',
+      name: 'Sunrise',
+      description: 'Warm gradient download button',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFFFFC371), Color(0xFFFF5F6D)],
+      icon: Icons.download,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFFF5F6D),
+    ),
+    _ButtonStyleOption(
+      id: 'download_mint',
+      name: 'Mint Drop',
+      description: 'Mint gradient download button',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFFB2FEFA), Color(0xFF0ED2F7)],
+      icon: Icons.download,
+      iconColor: const Color(0xFF015B7E),
+      accentColor: const Color(0xFF0AA6D4),
+      textColor: Colors.white,
+    ),
+    _ButtonStyleOption(
+      id: 'letter_navy',
+      name: 'Navy A',
+      description: 'Solid navy letter key',
       preset: 'bordered',
-      radius: 10.0,
+      radius: 16,
+      backgroundColor: const Color(0xFF002B5B),
+      label: 'A',
+      labelColor: Colors.white,
+      accentColor: const Color(0xFF002B5B),
     ),
-    ButtonStyle(
-      id: 'flat',
-      name: 'Flat',
-      description: 'Minimal flat design',
-      iconType: ButtonIconType.flat,
-      preset: 'flat',
-      radius: 8.0,
+    _ButtonStyleOption(
+      id: 'letter_crimson',
+      name: 'Crimson A',
+      description: 'Bold crimson letter',
+      preset: 'rounded',
+      radius: 16,
+      backgroundColor: const Color(0xFFFF3A5A),
+      label: 'A',
+      labelColor: Colors.white,
+      accentColor: const Color(0xFFFF3A5A),
     ),
-    ButtonStyle(
-      id: 'transparent',
-      name: 'Transparent',
-      description: 'See-through with borders',
-      iconType: ButtonIconType.transparent,
-      preset: 'transparent',
-      radius: 12.0,
+    _ButtonStyleOption(
+      id: 'letter_outline',
+      name: 'Outline',
+      description: 'Outlined letter with accent ring',
+      preset: 'bordered',
+      radius: 18,
+      backgroundColor: Colors.white,
+      label: 'A',
+      labelColor: const Color(0xFF0D47A1),
+      showBorder: true,
+      borderColor: const Color(0xFF0D47A1),
+      textColor: const Color(0xFF0D47A1),
+      accentColor: const Color(0xFF0D47A1),
     ),
-    ButtonStyle(
-      id: 'star',
-      name: 'Stars',
-      description: 'Fun star-shaped keys',
-      iconType: ButtonIconType.star,
-      preset: 'star',
-      radius: 0.0,
+    _ButtonStyleOption(
+      id: 'letter_gold',
+      name: 'Golden',
+      description: 'Gold gradient letter button',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFFFFE082), Color(0xFFFFC107)],
+      label: 'A',
+      labelColor: const Color(0xFF6F4E00),
+      accentColor: const Color(0xFFFFB300),
+      badgeColor: Colors.white,
     ),
-    ButtonStyle(
-      id: 'heart',
-      name: 'Hearts',
-      description: 'Romantic heart-shaped keys',
-      iconType: ButtonIconType.heart,
-      preset: 'heart',
-      radius: 0.0,
+    _ButtonStyleOption(
+      id: 'letter_violet',
+      name: 'Violet',
+      description: 'Violet gradient letter button',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFFB24592), Color(0xFFF15F79)],
+      label: 'A',
+      labelColor: Colors.white,
+      accentColor: const Color(0xFFE2547D),
     ),
-    ButtonStyle(
-      id: 'hexagon',
-      name: 'Hexagon',
-      description: 'Modern hexagonal keys',
-      iconType: ButtonIconType.hexagon,
-      preset: 'hexagon',
-      radius: 0.0,
+    _ButtonStyleOption(
+      id: 'letter_sky',
+      name: 'Sky',
+      description: 'Sky blue letter button',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFFD0E7FF), Color(0xFF64B5F6)],
+      label: 'A',
+      labelColor: Colors.white,
+      accentColor: const Color(0xFF64B5F6),
     ),
-    ButtonStyle(
-      id: 'circle',
-      name: 'Circles',
-      description: 'Perfectly round keys',
-      iconType: ButtonIconType.circle,
-      preset: 'circle',
-      radius: 999.0,
-    ),
-    ButtonStyle(
-      id: 'cone',
-      name: 'Traffic Cones',
-      description: 'Unique cone-shaped keys',
-      iconType: ButtonIconType.cone,
-      preset: 'cone',
-      radius: 0.0,
-    ),
-    ButtonStyle(
-      id: 'gem',
-      name: 'Gems',
-      description: 'Sparkling gem-shaped keys',
-      iconType: ButtonIconType.gem,
-      preset: 'gem',
-      radius: 0.0,
-    ),
-    ButtonStyle(
-      id: 'bubble',
-      name: 'Bubbles',
-      description: 'Soft bubble-shaped keys',
-      iconType: ButtonIconType.bubble,
+    _ButtonStyleOption(
+      id: 'bubble_mint',
+      name: 'Mint',
+      description: 'Soft mint bubble with arrow',
       preset: 'bubble',
-      radius: 20.0,
+      radius: 999,
+      gradient: const [Color(0xFFD7FFF3), Color(0xFF56E0A0)],
+      icon: Icons.file_download,
+      iconColor: const Color(0xFF0F996A),
+      accentColor: const Color(0xFF0F996A),
+      textColor: const Color(0xFF0F996A),
+      overlayIcon: 'download',
+      overlayTargets: const ['space'],
     ),
-    ButtonStyle(
-      id: 'square',
-      name: 'Square',
-      description: 'Sharp square corners',
-      iconType: ButtonIconType.square,
-      preset: 'square',
-      radius: 0.0,
+    _ButtonStyleOption(
+      id: 'bubble_peach',
+      name: 'Peach',
+      description: 'Peach bubble with heart',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFD2E5), Color(0xFFF48FB1)],
+      icon: Icons.favorite,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFF06292),
+      overlayIcon: 'heart',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_blue',
+      name: 'Azure',
+      description: 'Azure bubble with chat icon',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFE3F2FD), Color(0xFF64B5F6)],
+      icon: Icons.chat_bubble,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFF64B5F6),
+      overlayIcon: 'chat',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_green',
+      name: 'Forest',
+      description: 'Forest bubble with tree',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFE8F5E9), Color(0xFF81C784)],
+      icon: Icons.park,
+      iconColor: const Color(0xFF2E7D32),
+      accentColor: const Color(0xFF4CAF50),
+      textColor: const Color(0xFF2E7D32),
+      overlayIcon: 'leaf',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_cat',
+      name: 'Kitty',
+      description: 'Cute cat bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFF0F6), Color(0xFFFFC1E3)],
+      icon: Icons.pets,
+      iconColor: const Color(0xFFF06292),
+      accentColor: const Color(0xFFF06292),
+      overlayIcon: 'cat',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_bell',
+      name: 'Bell',
+      description: 'Notification bell bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFF9C4), Color(0xFFFFF176)],
+      icon: Icons.notifications,
+      iconColor: const Color(0xFFFBC02D),
+      accentColor: const Color(0xFFFBC02D),
+      overlayIcon: 'bell',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_chat',
+      name: 'Bubble',
+      description: 'Blue messaging bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFB3E5FC), Color(0xFF29B6F6)],
+      icon: Icons.chat,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFF29B6F6),
+      overlayIcon: 'chat',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_lollipop',
+      name: 'Lollipop',
+      description: 'Sweet treat bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFE0F7), Color(0xFFFF8AC9)],
+      icon: Icons.icecream,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFFF6BB5),
+      overlayIcon: 'candy',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_music',
+      name: 'Melody',
+      description: 'Musical note bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFE0F7FA), Color(0xFF00BCD4)],
+      icon: Icons.music_note,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFF0097A7),
+      overlayIcon: 'note',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_ghost',
+      name: 'Ghost',
+      description: 'Playful ghost bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFF7F0FF), Color(0xFFD1C4E9)],
+      icon: Icons.emoji_emotions,
+      iconColor: const Color(0xFF7E57C2),
+      accentColor: const Color(0xFF7E57C2),
+      badgeColor: Colors.white,
+      overlayIcon: 'ghost',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_candy',
+      name: 'Candy',
+      description: 'Candy swirl bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFD6E1), Color(0xFFFF8A80)],
+      icon: Icons.cake,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFFF6F61),
+      overlayIcon: 'candy',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_heart',
+      name: 'Love',
+      description: 'Love bubble with heart',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFCDD2), Color(0xFFE57373)],
+      icon: Icons.favorite,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFE53935),
+      overlayIcon: 'heart',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_star',
+      name: 'Starry',
+      description: 'Star bubble with highlight',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFF8E1), Color(0xFFFFD54F)],
+      icon: Icons.star,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFFFB300),
+      overlayIcon: 'star',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_snap',
+      name: 'Snap',
+      description: 'Snap style yellow bubble',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFF59D), Color(0xFFFFEE58)],
+      icon: Icons.bolt,
+      iconColor: const Color(0xFFF9A825),
+      accentColor: const Color(0xFFFDD835),
+      overlayIcon: 'bolt',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'bubble_ball',
+      name: 'Sports',
+      description: 'Playful sports ball',
+      preset: 'bubble',
+      radius: 999,
+      gradient: const [Color(0xFFFFE0B2), Color(0xFFF57C00)],
+      icon: Icons.sports_baseball,
+      iconColor: Colors.white,
+      accentColor: const Color(0xFFEF6C00),
+      overlayIcon: 'ball',
+      overlayTargets: const ['space'],
+    ),
+    _ButtonStyleOption(
+      id: 'watermelon_slice',
+      name: 'Watermelon',
+      description: 'Juicy slice with seeds',
+      preset: 'slice',
+      radius: 999,
+      gradient: const [Color(0xFFFF6B6B), Color(0xFFFE4A49)],
+      icon: Icons.change_history,
+      iconColor: const Color(0xFFFF6B6B),
+      textColor: Colors.white,
+      accentColor: const Color(0xFF2ECC71),
+      overlayIcon: 'watermelon',
+      overlayTargets: _allPrimaryKeyTargets,
+      showBorder: false,
+      enableShadow: true,
+    ),
+    _ButtonStyleOption(
+      id: 'violet_butterfly',
+      name: 'Butterfly',
+      description: 'Fluttering wing keys',
+      preset: 'rounded',
+      radius: 20,
+      gradient: const [Color(0xFF9C27B0), Color(0xFFE040FB)],
+      icon: Icons.flutter_dash,
+      iconColor: const Color(0xFFE3B8FF),
+      textColor: Colors.white,
+      accentColor: const Color(0xFFCE93D8),
+      overlayIcon: 'butterfly',
+      overlayTargets: const ['regular'],
+      enableShadow: true,
+    ),
+    _ButtonStyleOption(
+      id: 'star_fiesta',
+      name: 'Starburst',
+      description: 'Bright golden stars',
+      preset: 'star',
+      radius: 18,
+      gradient: const [Color(0xFFFFD740), Color(0xFFFFA000)],
+      icon: Icons.star,
+      iconColor: const Color(0xFFFFF59D),
+      textColor: const Color(0xFF4E342E),
+      accentColor: const Color(0xFFFFC107),
+      enableShadow: true,
+    ),
+    _ButtonStyleOption(
+      id: 'heart_bliss',
+      name: 'Hearts',
+      description: 'Sweet pink hearts',
+      preset: 'heart',
+      radius: 22,
+      gradient: const [Color(0xFFFF5EBE), Color(0xFFE91E63)],
+      icon: Icons.favorite,
+      iconColor: Colors.white,
+      textColor: Colors.white,
+      accentColor: const Color(0xFFF06292),
+      enableShadow: true,
+    ),
+    _ButtonStyleOption(
+      id: 'snow_caps',
+      name: 'Snowcap',
+      description: 'Frosted winter keys',
+      preset: 'rounded',
+      radius: 18,
+      gradient: const [Color(0xFFFFC0E6), Color(0xFFFF9ED1)],
+      icon: Icons.ac_unit,
+      iconColor: Colors.white,
+      textColor: Colors.white,
+      accentColor: const Color(0xFFE57373),
+      overlayIcon: 'snowcap',
+      overlayTargets: _snowDecorTargets,
+      enableShadow: true,
     ),
   ];
 
@@ -127,284 +456,396 @@ class _ButtonStyleSelectorScreenState extends State<ButtonStyleSelectorScreen> {
   void initState() {
     super.initState();
     _currentTheme = widget.currentTheme;
-    _selectedStyleId = _currentTheme.keys.preset;
+    final initial = _findMatchingStyle(widget.currentTheme);
+    _selectedStyleId = initial?.id ?? _buttonStyles.first.id;
+    _showCustomPalette = initial?.enableColorPalette ?? _buttonStyles.first.enableColorPalette;
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = CustomScrollView(
-      slivers: [
-        // Color customization section
-        SliverToBoxAdapter(
-          child: _buildColorCustomizationSection(),
-        ),
-        
-        SliverToBoxAdapter(
-          child: const Divider(height: 1),
-        ),
-        
-        // Button style grid
-        SliverPadding(
-          padding: const EdgeInsets.all(16),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 0.85,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final style = _buttonStyles[index];
-                final isSelected = _selectedStyleId == style.id;
-                return _buildButtonStyleCard(style, isSelected);
-              },
-              childCount: _buttonStyles.length,
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Choose Button Style',
+            style: AppTextStyle.titleMedium.copyWith(
+              color: AppColors.black,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          Text(
+            'Tap a style to instantly preview it on the keyboard.',
+            style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+          ),
+          const SizedBox(height: 24),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _buttonStyles.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 5,
+              mainAxisSpacing: 20,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.85,
+            ),
+            itemBuilder: (context, index) {
+              final option = _buttonStyles[index];
+              final isSelected = option.id == _selectedStyleId;
+              return _buildButtonStyleCard(option, isSelected);
+            },
+          ),
+          if (_showCustomPalette) ...[
+            const SizedBox(height: 28),
+            _buildColorCustomizationSection(),
+          ],
+        ],
+      ),
     );
 
-    // Return with or without Scaffold based on usage
     if (widget.showAppBar) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Button Style'),
-          backgroundColor: _currentTheme.background.color,
-          foregroundColor: _currentTheme.keys.text,
+          backgroundColor: AppColors.primary,
+          foregroundColor: AppColors.white,
+          elevation: 0,
         ),
-        body: body,
+        body: SingleChildScrollView(child: content),
       );
-    } else {
-      return body;
     }
+
+    return SingleChildScrollView(child: content);
   }
 
-  Widget _buildColorCustomizationSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.grey.shade100,
+  _ButtonStyleOption? _findMatchingStyle(KeyboardThemeV2 theme) {
+    for (final option in _buttonStyles) {
+      if (option.isCustom) {
+        continue;
+      }
+      if (option.preset == theme.keys.preset &&
+          option.themeKeyColor.value == theme.keys.bg.value) {
+        return option;
+      }
+    }
+    // fallback to custom option if available
+    return _buttonStyles.firstWhere((option) => option.isCustom, orElse: () => _buttonStyles.first);
+  }
+
+  Widget _buildButtonStyleCard(_ButtonStyleOption option, bool isSelected) {
+    final gradient = option.gradient;
+
+    return GestureDetector(
+      onTap: () => _selectButtonStyle(option),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Customize Colors',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildColorOption('Key BG', _currentTheme.keys.bg, (color) {
-                  _updateTheme(_currentTheme.copyWith(
-                    keys: _currentTheme.keys.copyWith(bg: color),
-                  ));
-                }),
-                const SizedBox(width: 12),
-                _buildColorOption('Key Text', _currentTheme.keys.text, (color) {
-                  _updateTheme(_currentTheme.copyWith(
-                    keys: _currentTheme.keys.copyWith(text: color),
-                  ));
-                }),
-                const SizedBox(width: 12),
-                _buildColorOption('Pressed', _currentTheme.keys.pressed, (color) {
-                  _updateTheme(_currentTheme.copyWith(
-                    keys: _currentTheme.keys.copyWith(pressed: color),
-                  ));
-                }),
-                const SizedBox(width: 12),
-                _buildColorOption('Accent', _currentTheme.specialKeys.accent, (color) {
-                  _updateTheme(_currentTheme.copyWith(
-                    specialKeys: _currentTheme.specialKeys.copyWith(accent: color),
-                  ));
-                }),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Corner radius slider (only for applicable styles)
-          if (_selectedStyleId != null && 
-              !['star', 'heart', 'hexagon', 'cone', 'gem'].contains(_selectedStyleId))
-            Row(
-              children: [
-                const Text('Corner Radius:'),
-                Expanded(
-                  child: Slider(
-                    value: _currentTheme.keys.radius,
-                    min: 0,
-                    max: 20,
-                    divisions: 20,
-                    label: '${_currentTheme.keys.radius.round()}',
-                    onChanged: (value) {
-                      _updateTheme(_currentTheme.copyWith(
-                        keys: _currentTheme.keys.copyWith(radius: value),
-                      ));
-                    },
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: gradient != null
+                      ? LinearGradient(
+                          colors: gradient,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
+                  color: gradient == null ? option.backgroundColor : null,
+                  border: Border.all(
+                    color: isSelected
+                        ? AppColors.secondary
+                        : (option.showBorder ? option.borderColor : Colors.transparent),
+                    width: isSelected ? 3 : (option.showBorder ? option.borderWidth : 0),
+                  ),
+                  boxShadow: option.enableShadow
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.18),
+                            blurRadius: option.shadowBlur,
+                            offset: Offset(0, option.shadowOffsetY),
+                          ),
+                        ]
+                      : [],
+                ),
+                child: Center(
+                  child: option.label != null
+                      ? Text(
+                          option.label!,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: option.labelColor,
+                          ),
+                        )
+                      : Icon(
+                          option.icon,
+                          color: option.iconColor,
+                          size: 28,
+                        ),
+                ),
+              ),
+              if (option.badgeColor != null)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: option.badgeColor,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: option.badgeIcon != null
+                        ? Icon(option.badgeIcon, size: 10, color: Colors.white)
+                        : null,
                   ),
                 ),
-                Text('${_currentTheme.keys.radius.round()}'),
-              ],
-            ),
+              if (isSelected)
+                Positioned(
+                  bottom: -6,
+                  right: -6,
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.secondary,
+                    ),
+                    child: const Icon(Icons.check, size: 16, color: Colors.white),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Text(
+          //   option.name,
+          //   style: AppTextStyle.bodySmall.copyWith(
+          //     color: AppColors.black,
+          //     fontWeight: FontWeight.w500,
+          //   ),
+          //   maxLines: 1,
+          //   overflow: TextOverflow.ellipsis,
+          // ),
         ],
       ),
     );
   }
 
+  void _selectButtonStyle(_ButtonStyleOption option) {
+    setState(() {
+      _selectedStyleId = option.id;
+      _showCustomPalette = option.enableColorPalette;
+    });
 
-  Widget _buildColorOption(String label, Color color, Function(Color) onColorSelected) {
+    if (option.isCustom) {
+      // Still update preset and radius so custom palettes preview correctly.
+      final updatedKeys = _currentTheme.keys.copyWith(
+        preset: option.preset,
+        radius: option.radius,
+        styleId: option.id,
+        gradient: const [],
+        overlayIcon: null,
+        overlayIconColor: null,
+        overlayIconTargets: const [],
+      );
+      _updateTheme(_currentTheme.copyWith(keys: updatedKeys));
+      return;
+    }
+
+    _applyStyleToTheme(option);
+  }
+
+  void _applyStyleToTheme(_ButtonStyleOption option) {
+    final updatedKeys = _currentTheme.keys.copyWith(
+      preset: option.preset,
+      radius: option.radius,
+      bg: option.themeKeyColor,
+      text: option.textColor,
+      pressed: _derivePressedColor(option),
+      border: _buildBorder(option),
+      shadow: _buildShadow(option),
+      styleId: option.id,
+      gradient: option.gradient ?? const [],
+      overlayIcon: option.overlayIcon,
+      overlayIconColor: option.overlayIcon != null ? option.iconColor : null,
+      overlayIconTargets: option.overlayIcon != null ? option.overlayTargets : const [],
+    );
+
+    final updatedTheme = _currentTheme.copyWith(
+      keys: updatedKeys,
+      specialKeys: _currentTheme.specialKeys.copyWith(
+        accent: option.accentColor,
+      ),
+    );
+
+    _updateTheme(updatedTheme);
+  }
+
+  Color _derivePressedColor(_ButtonStyleOption option) {
+    if (option.gradient != null && option.gradient!.isNotEmpty) {
+      final base = option.gradient!.last;
+      return _darken(base, 0.12);
+    }
+    return _darken(option.themeKeyColor, 0.08);
+  }
+
+  Color _darken(Color color, double amount) {
+    final hsl = HSLColor.fromColor(color);
+    final adjusted = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return adjusted.toColor();
+  }
+
+  ThemeKeysBorder _buildBorder(_ButtonStyleOption option) {
+    if (option.showBorder) {
+      return ThemeKeysBorder(
+        enabled: true,
+        color: option.borderColor,
+        widthDp: option.borderWidth,
+      );
+    }
+    return ThemeKeysBorder(
+      enabled: false,
+      color: _currentTheme.keys.border.color,
+      widthDp: _currentTheme.keys.border.widthDp,
+    );
+  }
+
+  ThemeKeysShadow _buildShadow(_ButtonStyleOption option) {
+    if (!option.enableShadow) {
+      return ThemeKeysShadow(
+        enabled: false,
+        elevationDp: 0,
+        glow: false,
+      );
+    }
+    return ThemeKeysShadow(
+      enabled: true,
+      elevationDp: option.shadowElevation,
+      glow: false,
+    );
+  }
+
+  Widget _buildColorCustomizationSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Fine-tune Colors',
+            style: AppTextStyle.titleSmall.copyWith(
+              color: AppColors.black,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 18,
+            runSpacing: 18,
+            children: [
+              _buildColorOption('Key BG', _currentTheme.keys.bg, (color) {
+                _updateTheme(_currentTheme.copyWith(
+                  keys: _currentTheme.keys.copyWith(bg: color),
+                ));
+              }),
+              _buildColorOption('Key Text', _currentTheme.keys.text, (color) {
+                _updateTheme(_currentTheme.copyWith(
+                  keys: _currentTheme.keys.copyWith(text: color),
+                ));
+              }),
+              _buildColorOption('Pressed', _currentTheme.keys.pressed, (color) {
+                _updateTheme(_currentTheme.copyWith(
+                  keys: _currentTheme.keys.copyWith(pressed: color),
+                ));
+              }),
+              _buildColorOption('Accent', _currentTheme.specialKeys.accent, (color) {
+                _updateTheme(_currentTheme.copyWith(
+                  specialKeys: _currentTheme.specialKeys.copyWith(accent: color),
+                ));
+              }),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Corner Radius',
+            style: AppTextStyle.bodySmall.copyWith(
+              color: AppColors.black,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Slider(
+            value: _currentTheme.keys.radius.clamp(0, 24),
+            min: 0,
+            max: 24,
+            divisions: 24,
+            label: _currentTheme.keys.radius.toStringAsFixed(0),
+            onChanged: (value) {
+              _updateTheme(_currentTheme.copyWith(
+                keys: _currentTheme.keys.copyWith(radius: value),
+              ));
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColorOption(String label, Color color, ValueChanged<Color> onColorSelected) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         GestureDetector(
           onTap: () => _showColorPicker(color, onColorSelected),
           child: Container(
-            width: 50,
-            height: 50,
+            width: 58,
+            height: 58,
             decoration: BoxDecoration(
+              shape: BoxShape.circle,
               color: color,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade400, width: 2),
+              border: Border.all(
+                color: Colors.white,
+                width: 3,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           label,
-          style: const TextStyle(fontSize: 11),
+          style: AppTextStyle.bodySmall.copyWith(
+            color: AppColors.grey,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
-  }
-
-  Widget _buildButtonStyleCard(ButtonStyle style, bool isSelected) {
-    return GestureDetector(
-      onTap: () => _selectButtonStyle(style),
-      child: Card(
-        elevation: isSelected ? 8 : 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: isSelected ? _currentTheme.specialKeys.accent : Colors.transparent,
-            width: 3,
-          ),
-        ),
-        child: Column(
-          children: [
-            // Preview section with 3 keys
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: _currentTheme.background.color ?? Colors.grey.shade900,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                ),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildKeyPreview(style, 'A', false),
-                        const SizedBox(width: 4),
-                        _buildKeyPreview(style, 'S', false),
-                        const SizedBox(width: 4),
-                        _buildKeyPreview(style, '⏎', true),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // Info section
-            Container(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      if (isSelected)
-                        Icon(
-                          Icons.check_circle,
-                          color: _currentTheme.specialKeys.accent,
-                          size: 20,
-                        ),
-                      if (isSelected) const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          style.name,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    style.description,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKeyPreview(ButtonStyle style, String label, bool isAccent) {
-    final color = isAccent ? _currentTheme.specialKeys.accent : _currentTheme.keys.bg;
-    final textColor = isAccent ? Colors.white : _currentTheme.keys.text;
-
-    return CustomPaint(
-      painter: KeyShapePainter(
-        iconType: style.iconType,
-        color: color,
-        borderColor: _currentTheme.keys.border.color,
-        radius: style.radius,
-      ),
-      child: SizedBox(
-        width: 36,
-        height: 36,
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _selectButtonStyle(ButtonStyle style) {
-    setState(() {
-      _selectedStyleId = style.id;
-    });
-    
-    _updateTheme(_currentTheme.copyWith(
-      keys: _currentTheme.keys.copyWith(
-        preset: style.preset,
-        radius: style.radius,
-      ),
-    ));
   }
 
   void _updateTheme(KeyboardThemeV2 newTheme) {
@@ -414,28 +855,49 @@ class _ButtonStyleSelectorScreenState extends State<ButtonStyleSelectorScreen> {
     widget.onThemeUpdated(newTheme);
   }
 
-  void _showColorPicker(Color currentColor, Function(Color) onColorSelected) {
+  void _showColorPicker(Color currentColor, ValueChanged<Color> onColorSelected) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Pick a Color'),
         content: SingleChildScrollView(
           child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
             children: [
-              // Basic colors
-              Colors.red, Colors.pink, Colors.purple, Colors.deepPurple,
-              Colors.indigo, Colors.blue, Colors.lightBlue, Colors.cyan,
-              Colors.teal, Colors.green, Colors.lightGreen, Colors.lime,
-              Colors.yellow, Colors.amber, Colors.orange, Colors.deepOrange,
-              Colors.brown, Colors.grey, Colors.blueGrey, Colors.black,
+              Colors.red,
+              Colors.pink,
+              Colors.purple,
+              Colors.deepPurple,
+              Colors.indigo,
+              Colors.blue,
+              Colors.lightBlue,
+              Colors.cyan,
+              Colors.teal,
+              Colors.green,
+              Colors.lightGreen,
+              Colors.lime,
+              Colors.yellow,
+              Colors.amber,
+              Colors.orange,
+              Colors.deepOrange,
+              Colors.brown,
+              Colors.grey,
+              Colors.blueGrey,
+              Colors.black,
               Colors.white,
-              // Additional vibrant colors
-              const Color(0xFFFF6B9D), const Color(0xFF4CAF50), const Color(0xFF9C27B0),
-              const Color(0xFFFF9800), const Color(0xFF00BCD4), const Color(0xFF2196F3),
-              const Color(0xFFFFC107), const Color(0xFFE91E63), const Color(0xFF3F51B5),
-              const Color(0xFF009688), const Color(0xFF8BC34A), const Color(0xFFFF5722),
+              const Color(0xFFFF6B9D),
+              const Color(0xFF4CAF50),
+              const Color(0xFF9C27B0),
+              const Color(0xFFFF9800),
+              const Color(0xFF00BCD4),
+              const Color(0xFF2196F3),
+              const Color(0xFFFFC107),
+              const Color(0xFFE91E63),
+              const Color(0xFF3F51B5),
+              const Color(0xFF009688),
+              const Color(0xFF8BC34A),
+              const Color(0xFFFF5722),
             ].map((color) {
               return GestureDetector(
                 onTap: () {
@@ -443,14 +905,14 @@ class _ButtonStyleSelectorScreenState extends State<ButtonStyleSelectorScreen> {
                   Navigator.of(context).pop();
                 },
                 child: Container(
-                  width: 50,
-                  height: 50,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: color,
-                    borderRadius: BorderRadius.circular(8),
+                    shape: BoxShape.circle,
                     border: Border.all(
-                      color: color == currentColor ? Colors.blue : Colors.grey.shade400,
-                      width: color == currentColor ? 3 : 1,
+                      color: color == currentColor ? AppColors.secondary : Colors.white,
+                      width: 3,
                     ),
                   ),
                 ),
@@ -469,233 +931,63 @@ class _ButtonStyleSelectorScreenState extends State<ButtonStyleSelectorScreen> {
   }
 }
 
-/// Button style data model
-class ButtonStyle {
+class _ButtonStyleOption {
   final String id;
   final String name;
   final String description;
-  final ButtonIconType iconType;
   final String preset;
   final double radius;
+  final IconData? icon;
+  final Color iconColor;
+  final String? label;
+  final Color labelColor;
+  final Color backgroundColor;
+  final List<Color>? gradient;
+  final bool showBorder;
+  final Color borderColor;
+  final double borderWidth;
+  final bool enableShadow;
+  final double shadowBlur;
+  final double shadowOffsetY;
+  final double shadowElevation;
+  final bool enableColorPalette;
+  final bool isCustom;
+  final Color accentColor;
+  final Color textColor;
+  final Color? badgeColor;
+  final IconData? badgeIcon;
+  final List<String> overlayTargets;
+  final String? overlayIcon;
 
-  ButtonStyle({
+  const _ButtonStyleOption({
     required this.id,
     required this.name,
     required this.description,
-    required this.iconType,
     required this.preset,
     required this.radius,
-  });
-}
-
-/// Button icon types for different shapes
-enum ButtonIconType {
-  roundedRect,
-  bordered,
-  flat,
-  transparent,
-  star,
-  heart,
-  hexagon,
-  circle,
-  cone,
-  gem,
-  bubble,
-  square,
-}
-
-/// Custom painter for drawing different key shapes
-class KeyShapePainter extends CustomPainter {
-  final ButtonIconType iconType;
-  final Color color;
-  final Color borderColor;
-  final double radius;
-
-  KeyShapePainter({
-    required this.iconType,
-    required this.color,
-    required this.borderColor,
-    required this.radius,
+    this.icon,
+    this.iconColor = Colors.white,
+    this.label,
+    this.labelColor = Colors.white,
+    this.backgroundColor = Colors.white,
+    this.gradient,
+    this.showBorder = false,
+    this.borderColor = Colors.transparent,
+    this.borderWidth = 2,
+    this.enableShadow = true,
+    this.shadowBlur = 12,
+    this.shadowOffsetY = 6,
+    this.shadowElevation = 4,
+    this.enableColorPalette = false,
+    this.isCustom = false,
+    this.accentColor = AppColors.secondary,
+    this.textColor = Colors.white,
+    this.badgeColor,
+    this.badgeIcon,
+    this.overlayTargets = const [],
+    this.overlayIcon,
   });
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final borderPaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    final rect = Rect.fromCenter(center: center, width: size.width * 0.9, height: size.height * 0.9);
-
-    switch (iconType) {
-      case ButtonIconType.star:
-        _drawStar(canvas, size, paint, borderPaint);
-        break;
-      case ButtonIconType.heart:
-        _drawHeart(canvas, size, paint, borderPaint);
-        break;
-      case ButtonIconType.hexagon:
-        _drawHexagon(canvas, size, paint, borderPaint);
-        break;
-      case ButtonIconType.circle:
-        canvas.drawCircle(center, size.width * 0.45, paint);
-        canvas.drawCircle(center, size.width * 0.45, borderPaint);
-        break;
-      case ButtonIconType.cone:
-        _drawCone(canvas, size, paint, borderPaint);
-        break;
-      case ButtonIconType.gem:
-        _drawGem(canvas, size, paint, borderPaint);
-        break;
-      case ButtonIconType.bubble:
-        final bubbleRect = RRect.fromRectAndRadius(rect, Radius.circular(radius));
-        canvas.drawRRect(bubbleRect, paint);
-        canvas.drawRRect(bubbleRect, borderPaint);
-        break;
-      case ButtonIconType.square:
-        canvas.drawRect(rect, paint);
-        canvas.drawRect(rect, borderPaint);
-        break;
-      case ButtonIconType.transparent:
-        final transparentPaint = Paint()
-          ..color = color.withOpacity(0.3)
-          ..style = PaintingStyle.fill;
-        final rrect = RRect.fromRectAndRadius(rect, Radius.circular(radius));
-        canvas.drawRRect(rrect, transparentPaint);
-        canvas.drawRRect(rrect, borderPaint);
-        break;
-      default:
-        // Rounded rect (default)
-        final rrect = RRect.fromRectAndRadius(rect, Radius.circular(radius));
-        canvas.drawRRect(rrect, paint);
-        if (iconType == ButtonIconType.bordered) {
-          canvas.drawRRect(rrect, borderPaint);
-        }
-    }
-  }
-
-  void _drawStar(Canvas canvas, Size size, Paint paint, Paint borderPaint) {
-    final path = Path();
-    final center = Offset(size.width / 2, size.height / 2);
-    final outerRadius = size.width * 0.45;
-    final innerRadius = outerRadius * 0.4;
-    
-    for (int i = 0; i < 10; i++) {
-      final radius = i.isEven ? outerRadius : innerRadius;
-      final angle = (i * 36 - 90) * math.pi / 180;
-      final x = center.dx + radius * math.cos(angle);
-      final y = center.dy + radius * math.sin(angle);
-      
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-    
-    canvas.drawPath(path, paint);
-    canvas.drawPath(path, borderPaint);
-  }
-
-  void _drawHeart(Canvas canvas, Size size, Paint paint, Paint borderPaint) {
-    final path = Path();
-    final width = size.width * 0.9;
-    final height = size.height * 0.9;
-    final startX = size.width * 0.05;
-    final startY = size.height * 0.15;
-
-    path.moveTo(size.width / 2, startY + height * 0.85);
-    
-    // Left side of heart
-    path.cubicTo(
-      startX, startY + height * 0.5,
-      startX, startY + height * 0.2,
-      size.width / 2 - width * 0.2, startY + height * 0.1,
-    );
-    path.cubicTo(
-      size.width / 2, startY,
-      size.width / 2, startY + height * 0.2,
-      size.width / 2, startY + height * 0.3,
-    );
-    
-    // Right side of heart
-    path.cubicTo(
-      size.width / 2, startY + height * 0.2,
-      size.width / 2, startY,
-      size.width / 2 + width * 0.2, startY + height * 0.1,
-    );
-    path.cubicTo(
-      startX + width, startY + height * 0.2,
-      startX + width, startY + height * 0.5,
-      size.width / 2, startY + height * 0.85,
-    );
-    
-    canvas.drawPath(path, paint);
-    canvas.drawPath(path, borderPaint);
-  }
-
-  void _drawHexagon(Canvas canvas, Size size, Paint paint, Paint borderPaint) {
-    final path = Path();
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width * 0.45;
-    
-    for (int i = 0; i < 6; i++) {
-      final angle = (i * 60 - 90) * math.pi / 180;
-      final x = center.dx + radius * math.cos(angle);
-      final y = center.dy + radius * math.sin(angle);
-      
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-    
-    canvas.drawPath(path, paint);
-    canvas.drawPath(path, borderPaint);
-  }
-
-  void _drawCone(Canvas canvas, Size size, Paint paint, Paint borderPaint) {
-    final path = Path();
-    final topCenter = Offset(size.width / 2, size.height * 0.15);
-    final bottomLeft = Offset(size.width * 0.2, size.height * 0.85);
-    final bottomRight = Offset(size.width * 0.8, size.height * 0.85);
-    
-    path.moveTo(topCenter.dx, topCenter.dy);
-    path.lineTo(bottomLeft.dx, bottomLeft.dy);
-    path.lineTo(bottomRight.dx, bottomRight.dy);
-    path.close();
-    
-    canvas.drawPath(path, paint);
-    canvas.drawPath(path, borderPaint);
-  }
-
-  void _drawGem(Canvas canvas, Size size, Paint paint, Paint borderPaint) {
-    final path = Path();
-    
-    // Top point
-    path.moveTo(size.width / 2, size.height * 0.1);
-    
-    // Top facets
-    path.lineTo(size.width * 0.75, size.height * 0.3);
-    path.lineTo(size.width * 0.85, size.height * 0.5);
-    path.lineTo(size.width / 2, size.height * 0.9);
-    path.lineTo(size.width * 0.15, size.height * 0.5);
-    path.lineTo(size.width * 0.25, size.height * 0.3);
-    path.close();
-    
-    canvas.drawPath(path, paint);
-    canvas.drawPath(path, borderPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  Color get themeKeyColor =>
+      gradient != null && gradient!.isNotEmpty ? gradient!.last : backgroundColor;
 }
-

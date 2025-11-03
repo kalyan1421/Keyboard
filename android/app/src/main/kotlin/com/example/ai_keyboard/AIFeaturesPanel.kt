@@ -18,6 +18,7 @@ import android.widget.Toast
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.ImageViewCompat
 import com.example.ai_keyboard.themes.KeyboardThemeV2
+import com.example.ai_keyboard.themes.PanelTheme
 import com.example.ai_keyboard.themes.ThemePaletteV2
 
 /**
@@ -93,7 +94,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
 
     private val themeListener = object : ThemeManager.ThemeChangeListener {
         override fun onThemeChanged(theme: KeyboardThemeV2, palette: ThemePaletteV2) {
-            applyTheme(palette)
+            applyTheme(PanelTheme.palette)
         }
     }
 
@@ -118,7 +119,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
         btnKeyboard = rootView.findViewById(R.id.btnKeyboard)
         btnAddMore = createAddMoreChip()
 
-        applyTheme(themeManager.getCurrentPalette())
+        applyTheme(PanelTheme.palette)
         wireClicks()
         setStatus(context.getString(R.string.ai_panel_status_prompt))
         updateInputState(false)
@@ -137,7 +138,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        applyTheme(themeManager.getCurrentPalette())
+        applyTheme(PanelTheme.palette)
         themeManager.addThemeChangeListener(themeListener)
     }
 
@@ -256,7 +257,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
         }
 
         setEmptyStateVisible(false)
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         sanitized.forEachIndexed { index, text ->
             val card = createResultCard(text, palette)
             val params = LayoutParams(
@@ -281,7 +282,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
     private fun buildReplyToneChips() {
         replyToneRow.removeAllViews()
         replyToneChips.clear()
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         ReplyToneFilter.values().forEach { tone ->
             val chip = TextView(context).apply {
                 text = tone.label
@@ -311,7 +312,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
     }
 
     private fun updateReplyToneVisuals() {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         replyToneChips.forEach { (tone, chip) ->
             val selected = tone == selectedReplyTone && replyToneRow.visibility == View.VISIBLE
             chip.background = if (selected) {
@@ -329,7 +330,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
         chipRow.removeAllViews()
         chipViews.clear()
 
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
 
         availableChips.forEach { option ->
             val chipView = createChipView(option, palette)
@@ -355,7 +356,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
         }
 
         guideLink.setOnClickListener {
-            Toast.makeText(context, "CleverType guide coming soon", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Kvive guide coming soon", Toast.LENGTH_SHORT).show()
         }
 
         btnAddMore.setOnClickListener {
@@ -401,8 +402,8 @@ class AIFeaturesPanel @JvmOverloads constructor(
             textSize = 11f
             minHeight = dpToPx(32f)
             gravity = android.view.Gravity.CENTER
-            background = createOutlinedChipDrawable(themeManager.getCurrentPalette())
-            setTextColor(themeManager.getCurrentPalette().keyText)
+            background = createOutlinedChipDrawable(PanelTheme.palette)
+            setTextColor(PanelTheme.palette.keyText)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -414,7 +415,7 @@ class AIFeaturesPanel @JvmOverloads constructor(
     }
 
     private fun updateChipVisuals() {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         chipViews.forEach { (option, view) ->
             val selected = option == selectedChip
             view.background = createFilledChipDrawable(palette, selected)

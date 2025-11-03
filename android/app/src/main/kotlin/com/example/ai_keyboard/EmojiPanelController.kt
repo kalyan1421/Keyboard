@@ -28,6 +28,7 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.ai_keyboard.themes.PanelTheme
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import com.example.ai_keyboard.stickers.StickerServiceAdapter
 import com.example.ai_keyboard.stickers.StickerData
@@ -85,7 +86,7 @@ class EmojiPanelController(
         
         LogUtil.d(TAG, "Building emoji panel programmatically (100% dynamic, no XML)")
         
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val keyboardHeight = getKeyboardHeight()
         
         // Create root layout programmatically
@@ -292,7 +293,7 @@ class EmojiPanelController(
         val popup = PopupWindow(context)
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val palette = themeManager.getCurrentPalette()
+            val palette = PanelTheme.palette
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(12).toFloat()
                 setColor(palette.keyBg)
@@ -305,13 +306,13 @@ class EmojiPanelController(
         val searchInput = EditText(context).apply {
             hint = "Search emojis..."
             textSize = 16f
-            setTextColor(themeManager.getCurrentPalette().keyText)
-            setHintTextColor(themeManager.getCurrentPalette().suggestionText)
+            setTextColor(PanelTheme.palette.keyText)
+            setHintTextColor(PanelTheme.palette.suggestionText)
             setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
             layoutParams = LinearLayout.LayoutParams(dpToPx(280), dpToPx(48))
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(8).toFloat()
-                setColor(themeManager.getCurrentPalette().keyboardBg)
+                setColor(PanelTheme.palette.keyboardBg)
             }
             
             addTextChangedListener(object : TextWatcher {
@@ -459,7 +460,7 @@ class EmojiPanelController(
     
     fun applyTheme() {
         try {
-            val palette = themeManager.getCurrentPalette()
+            val palette = PanelTheme.palette
 
             root?.background = buildPanelGradient(palette)
             emojiCategories?.setBackgroundColor(Color.TRANSPARENT)
@@ -497,7 +498,7 @@ class EmojiPanelController(
     }
     
     private fun applyCategoryTheme() {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         
         // Force override container backgrounds to match keyboard theme
         emojiCategories?.setBackgroundColor(Color.TRANSPARENT)
@@ -667,7 +668,7 @@ class EmojiPanelController(
         val popup = PopupWindow(context)
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            val palette = themeManager.getCurrentPalette()
+            val palette = PanelTheme.palette
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(12).toFloat()
                 setColor(palette.keyBg)
@@ -692,7 +693,7 @@ class EmojiPanelController(
                 if (isDefault) {
                     background = GradientDrawable().apply {
                         cornerRadius = dpToPx(8).toFloat()
-                        setColor(themeManager.getCurrentPalette().specialAccent)
+                        setColor(PanelTheme.palette.specialAccent)
                     }
                     setTextColor(Color.WHITE)
                 }
@@ -969,7 +970,7 @@ class EmojiPanelController(
         val popup = PopupWindow(context)
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val palette = themeManager.getCurrentPalette()
+            val palette = PanelTheme.palette
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(12).toFloat()
                 setColor(palette.keyBg)
@@ -982,7 +983,7 @@ class EmojiPanelController(
         val title = TextView(context).apply {
             text = "Select Skin Tone"
             textSize = 16f
-            setTextColor(themeManager.getCurrentPalette().keyText)
+            setTextColor(PanelTheme.palette.keyText)
             setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(16))
             gravity = Gravity.CENTER
         }
@@ -999,7 +1000,7 @@ class EmojiPanelController(
                     background = GradientDrawable().apply {
                         cornerRadius = dpToPx(8).toFloat()
                         setColor(ColorUtils.blendARGB(
-                            themeManager.getCurrentPalette().specialAccent, 
+                            PanelTheme.palette.specialAccent, 
                             Color.WHITE, 
                             0.2f
                         ))
@@ -1038,7 +1039,7 @@ class EmojiPanelController(
             val toneName = TextView(context).apply {
                 text = name
                 textSize = 14f
-                setTextColor(themeManager.getCurrentPalette().keyText)
+                setTextColor(PanelTheme.palette.keyText)
                 layoutParams = LinearLayout.LayoutParams(
                     0,
                     LinearLayout.LayoutParams.WRAP_CONTENT,

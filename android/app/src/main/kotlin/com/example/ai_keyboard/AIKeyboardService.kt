@@ -25,6 +25,7 @@ import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -40,6 +41,10 @@ import kotlinx.coroutines.*
 import kotlin.math.max
 import kotlin.math.roundToInt
 import androidx.core.graphics.ColorUtils
+
+import com.example.ai_keyboard.GestureAction
+import com.example.ai_keyboard.GestureSettings
+import com.example.ai_keyboard.GestureSource
 
 class AIKeyboardService : InputMethodService(), 
     KeyboardView.OnKeyboardActionListener, 
@@ -139,7 +144,10 @@ class AIKeyboardService : InputMethodService(),
         val autocorrectEnabled: Boolean,
         val autoCapitalization: Boolean,
         val doubleSpacePeriod: Boolean,
-        val popupEnabled: Boolean
+        val popupEnabled: Boolean,
+        val soundType: String,
+        val effectType: String,
+        val soundVolume: Float
     )
     
     /**
@@ -161,7 +169,7 @@ class AIKeyboardService : InputMethodService(),
         fun loadAll(): UnifiedSettings {
             // Read from native preferences (MainActivity writes here via MethodChannel)
             val vibration = nativePrefs.getBoolean("vibration_enabled", true)
-            val sound = nativePrefs.getBoolean("sound_enabled", true)
+            val sound = nativePrefs.getBoolean("sound_enabled", false)
             val keyPreview = nativePrefs.getBoolean("key_preview_enabled", false)
             val showNumberRow = nativePrefs.getBoolean("show_number_row", false)
             val swipeTyping = nativePrefs.getBoolean("swipe_typing", true)
@@ -170,6 +178,9 @@ class AIKeyboardService : InputMethodService(),
             val autoCap = nativePrefs.getBoolean("auto_capitalization", true)
             val doubleSpace = nativePrefs.getBoolean("double_space_period", true)
             val popup = nativePrefs.getBoolean("popup_enabled", false)
+            val soundType = flutterPrefs.getString("flutter.sound.type", "silent") ?: "silent"
+            val effectType = flutterPrefs.getString("flutter.effect.type", "none") ?: "none"
+            val soundVolume = nativePrefs.getFloat("sound_volume", 0f)
             
             // Read language settings from Flutter preferences
             val currentLang = flutterPrefs.getString("flutter.current_language", "en") ?: "en"
@@ -192,7 +203,10 @@ class AIKeyboardService : InputMethodService(),
                 autocorrectEnabled = autocorrect,
                 autoCapitalization = autoCap,
                 doubleSpacePeriod = doubleSpace,
-                popupEnabled = popup
+                popupEnabled = popup,
+                soundType = soundType,
+                effectType = effectType,
+                soundVolume = soundVolume
             )
         }
     }
@@ -336,11 +350,14 @@ class AIKeyboardService : InputMethodService(),
     private var keyPressVibration = true
     private var longPressVibration = true
     private var repeatedActionVibration = true
-    private var soundEnabled = true
-    private var soundVolume = 0.5f
+    private var soundEnabled = false
+    private var soundVolume = 0f
     private var keyPressSounds = true
     private var longPressSounds = true
     private var repeatedActionSounds = true
+    // ✅ Removed instance variable - now using KeyboardSoundManager singleton object
+    private var selectedSoundProfile: String = "silent"
+    private var selectedTapEffectStyle: String = "ripple"
     
     // Language cycling - Now managed by SharedPreferences
     private var enabledLanguages = listOf("en")
@@ -441,11 +458,13 @@ class AIKeyboardService : InputMethodService(),
     // vibrationEnabled already declared above with new settings
     private var keyPreviewEnabled = false
     private var suggestionCount = 3  // Number of suggestions to display (3 or 4)
+    private var suggestionsEnabled = true
+    private var gestureSettings: GestureSettings = GestureSettings.DEFAULT
     
     // Advanced feedback settings
     private var hapticIntensity = 2 // 0=off, 1=light, 2=medium, 3=strong
-    private var soundIntensity = 1
-    private var visualIntensity = 2
+    private var soundIntensity = 0
+    private var visualIntensity = 0
     // soundVolume removed - now declared in Unified Sound & Vibration Settings section (line 413)
     
     // Settings polling
@@ -728,6 +747,11 @@ class AIKeyboardService : InputMethodService(),
         
         // ✅ Set instance for UnifiedKeyboardView to access
         instance = this
+
+        // ✅ CRITICAL: Initialize SoundPool singleton FIRST
+        // This prevents fallback to AudioManager (MediaCodec) on key presses
+        KeyboardSoundManager.init(this)
+        Log.d(TAG, "✅ KeyboardSoundManager singleton initialized")
 
         voiceInputManager = VoiceInputManager(this)
         
@@ -1348,22 +1372,56 @@ class AIKeyboardService : InputMethodService(),
         try {
             val p = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             
+            // ✅ Determine orientation early for orientation-specific settings
+            val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            
             // Read all configuration values with CleverType keys
             val numberRow = p.getBoolean("flutter.keyboard.numberRow", false)
             val hintedNumberRow = p.getBoolean("flutter.keyboard.hintedNumberRow", false) && !numberRow
             val hintedSymbols = p.getBoolean("flutter.keyboard.hintedSymbols", true)
             val utilityAction = p.getStringCompat("flutter.keyboard.utilityKeyAction", "emoji")
-            val showUtilityKey = utilityAction != "none"
+            // ✅ FIX: Check both utility action AND show_utility_key setting
+            var showUtilityKeyFromSettings = p.getBooleanCompat("flutter.keyboard_settings.show_utility_key", true)
+            if (!p.contains("flutter.keyboard_settings.show_utility_key")) {
+                showUtilityKeyFromSettings = p.getBooleanCompat(
+                    "flutter.flutter.keyboard_settings.show_utility_key",
+                    showUtilityKeyFromSettings
+                )
+            }
+            val showUtilityKey = showUtilityKeyFromSettings && utilityAction != "none"
+            Log.d(TAG, "🔧 Utility key settings: showUtilityKeyFromSettings=$showUtilityKeyFromSettings, action=$utilityAction, final=$showUtilityKey")
             val showLangOnSpace = p.getBoolean("flutter.keyboard.showLanguageOnSpace", true)
+            // ✅ FIX: Read font scale from the correct keys
             val fontScaleP = p.getFloatCompat("flutter.keyboard.fontScalePortrait", 1.0f)
             val fontScaleL = p.getFloatCompat("flutter.keyboard.fontScaleLandscape", 1.0f)
+            Log.d(TAG, "📝 Font scale settings: portrait=$fontScaleP, landscape=$fontScaleL")
             val borderless = p.getBoolean("flutter.keyboard.borderlessKeys", false)
             val ohEnabled = p.getBoolean("flutter.keyboard.oneHanded.enabled", false)
             val ohSide = p.getString("flutter.keyboard.oneHanded.side", "right") ?: "right"
             val ohWidth = p.getFloatCompat("flutter.keyboard.oneHanded.widthPct", 0.87f)
             val landscapeFull = p.getBoolean("flutter.keyboard.landscapeFullscreen", true)
-            val scaleX = p.getFloatCompat("flutter.keyboard.scaleX", 1.0f)
-            val scaleY = p.getFloatCompat("flutter.keyboard.scaleY", 1.0f)
+            // ✅ FIX: Read orientation-specific height scaling
+            var scaleYPortrait = p.getFloatCompat("flutter.keyboard.scaleYPortrait", 1.0f)
+            var scaleYLandscape = p.getFloatCompat("flutter.keyboard.scaleYLandscape", 1.0f)
+            val hasPortraitScale = p.contains("flutter.keyboard.scaleYPortrait")
+            val hasLandscapeScale = p.contains("flutter.keyboard.scaleYLandscape")
+            if (!hasPortraitScale || !hasLandscapeScale) {
+                val legacyScalePrefixed = p.getFloatCompat("flutter.keyboard.scaleY", 1.0f)
+                val legacyScale = if (p.contains("flutter.keyboard.scaleY")) {
+                    legacyScalePrefixed
+                } else {
+                    p.getFloatCompat("keyboard.scaleY", legacyScalePrefixed)
+                }
+                if (!hasPortraitScale) {
+                    scaleYPortrait = legacyScale
+                }
+                if (!hasLandscapeScale) {
+                    scaleYLandscape = legacyScale
+                }
+            }
+            val scaleX = 1.0f // Always keep width at 100%
+            val scaleY = if (isLandscape) scaleYLandscape else scaleYPortrait
+            Log.d(TAG, "📏 Keyboard scale settings: orientation=${if (isLandscape) "LANDSCAPE" else "PORTRAIT"}, scaleY=$scaleY (portrait=$scaleYPortrait, landscape=$scaleYLandscape)")
             val spaceVdp = p.getIntCompat("flutter.keyboard.keySpacingVdp", 7)
             val spaceHdp = p.getIntCompat("flutter.keyboard.keySpacingHdp", 4)
             val edgePaddingDp = max(10, spaceHdp * 2)
@@ -1371,9 +1429,12 @@ class AIKeyboardService : InputMethodService(),
             val bottomL = p.getIntCompat("flutter.keyboard.bottomOffsetLandscapeDp", 2)
             val popupPreview = p.getBoolean("flutter.keyboard.popupPreview", true)
             val longPressDelay = p.getIntCompat("flutter.keyboard.longPressDelayMs", 200)
-            val soundEnabled = p.getBoolean("flutter.sound_enabled", true)
-            val soundIntensity = p.getIntCompat("flutter.sound_intensity", 1)
+            val soundEnabled = p.getBoolean("flutter.sound_enabled", false)
+            val soundIntensity = p.getIntCompat("flutter.sound_intensity", 0)
             val hapticIntensity = p.getIntCompat("flutter.haptic_intensity", 2)
+
+            val gesturePrefs = readGestureSettings(p)
+            applyGestureSettings(gesturePrefs)
             
             // Check if number row setting changed - need to reload keyboard layout
             val numberRowChanged = showNumberRow != numberRow
@@ -1400,9 +1461,13 @@ class AIKeyboardService : InputMethodService(),
             } else {
                 languageLayoutAdapter.setShowUtilityKey(showUtilityKey)
             }
+
+            unifiedKeyboardView?.let { view ->
+                view.setNumberRowEnabled(numberRow)
+                view.recalcHeight()
+            }
             
-            // Determine font scale and bottom offset based on orientation
-            val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            // Determine font scale and bottom offset based on orientation (isLandscape already defined above)
             val fontScale = if (isLandscape) fontScaleL else fontScaleP
             // ✅ FIX: NO bottom padding - keys now auto-fill available space
             val hasNavBar = keyboardHeightManager.hasNavigationBar()
@@ -1472,6 +1537,7 @@ class AIKeyboardService : InputMethodService(),
             view.setHintedSymbols(hintedSymbols)
             view.setShowLanguageOnSpace(showLangOnSpace)
             view.setOneHandedMode(ohEnabled, ohSide, ohWidth)
+            view.setNumberRowEnabled(showNumberRow)
             view.setKeySpacing(spaceVdp, spaceHdp)
             view.setEdgePadding(edgePaddingDp)
             view.scaleX = scaleX
@@ -1490,9 +1556,275 @@ class AIKeyboardService : InputMethodService(),
             keyboardContainer?.paddingRight ?: 0,
             bottom
         )
+        configureFeedbackModules()
         } catch (e: Exception) {
             Log.e(TAG, "⚠ Error applying config", e)
         }
+    }
+
+    private fun parseGestureAction(code: String?, default: GestureAction): GestureAction {
+        return GestureAction.fromCode(code) ?: default
+    }
+
+    private fun readGestureSettings(p: SharedPreferences): GestureSettings {
+        val glideTyping = p.getBooleanCompat("flutter.gestures.glide_typing", true)
+        val showTrailPref = p.getBooleanCompat("flutter.gestures.show_glide_trail", true)
+        val effectiveShowTrail = glideTyping && showTrailPref
+        val fadeMs = if (effectiveShowTrail) {
+            p.getFloatCompat("flutter.gestures.glide_trail_fade_time", 200f).toInt().coerceAtLeast(0)
+        } else 0
+        val alwaysDeleteWord = p.getBooleanCompat("flutter.gestures.always_delete_word", true)
+        val velocityThreshold = p.getFloatCompat("flutter.gestures.swipe_velocity_threshold", 1900f)
+        val distanceThreshold = p.getFloatCompat("flutter.gestures.swipe_distance_threshold", 20f)
+
+        val swipeUp = parseGestureAction(p.getString("flutter.gestures.swipe_up_action", GestureAction.SHIFT.code), GestureAction.SHIFT)
+        val swipeDown = parseGestureAction(p.getString("flutter.gestures.swipe_down_action", GestureAction.HIDE_KEYBOARD.code), GestureAction.HIDE_KEYBOARD)
+        val swipeLeft = parseGestureAction(p.getString("flutter.gestures.swipe_left_action", GestureAction.DELETE_CHARACTER_BEFORE_CURSOR.code), GestureAction.DELETE_CHARACTER_BEFORE_CURSOR)
+        val swipeRight = parseGestureAction(p.getString("flutter.gestures.swipe_right_action", GestureAction.INSERT_SPACE.code), GestureAction.INSERT_SPACE)
+
+        val spaceLongPress = parseGestureAction(p.getString("flutter.gestures.space_long_press_action", GestureAction.SHOW_INPUT_METHOD_PICKER.code), GestureAction.SHOW_INPUT_METHOD_PICKER)
+        val spaceSwipeDown = parseGestureAction(p.getString("flutter.gestures.space_swipe_down_action", GestureAction.NONE.code), GestureAction.NONE)
+        val spaceSwipeLeft = parseGestureAction(p.getString("flutter.gestures.space_swipe_left_action", GestureAction.MOVE_CURSOR_LEFT.code), GestureAction.MOVE_CURSOR_LEFT)
+        val spaceSwipeRight = parseGestureAction(p.getString("flutter.gestures.space_swipe_right_action", GestureAction.MOVE_CURSOR_RIGHT.code), GestureAction.MOVE_CURSOR_RIGHT)
+
+        val deleteSwipeLeft = parseGestureAction(p.getString("flutter.gestures.delete_swipe_left_action", GestureAction.DELETE_WORD_BEFORE_CURSOR.code), GestureAction.DELETE_WORD_BEFORE_CURSOR)
+        val deleteLongPress = parseGestureAction(p.getString("flutter.gestures.delete_long_press_action", GestureAction.DELETE_CHARACTER_BEFORE_CURSOR.code), GestureAction.DELETE_CHARACTER_BEFORE_CURSOR)
+
+        return GestureSettings(
+            glideTyping = glideTyping,
+            showGlideTrail = effectiveShowTrail,
+            glideTrailFadeMs = fadeMs,
+            alwaysDeleteWord = alwaysDeleteWord,
+            swipeVelocityThreshold = velocityThreshold,
+            swipeDistanceThreshold = distanceThreshold,
+            swipeUpAction = swipeUp,
+            swipeDownAction = swipeDown,
+            swipeLeftAction = swipeLeft,
+            swipeRightAction = swipeRight,
+            spaceLongPressAction = spaceLongPress,
+            spaceSwipeDownAction = spaceSwipeDown,
+            spaceSwipeLeftAction = spaceSwipeLeft,
+            spaceSwipeRightAction = spaceSwipeRight,
+            deleteSwipeLeftAction = deleteSwipeLeft,
+            deleteLongPressAction = deleteLongPress
+        )
+    }
+
+    private fun applyGestureSettings(settings: GestureSettings) {
+        if (gestureSettings == settings) {
+            return
+        }
+
+        gestureSettings = settings
+        swipeTypingEnabled = settings.glideTyping
+
+        unifiedKeyboardView?.updateGestureSettings(settings) { source ->
+            handleGestureInvocation(source)
+        }
+
+        refreshSwipeCapability("gestureSettings")
+        Log.d(TAG, "🎯 Gesture settings applied: glide=${settings.glideTyping}, trail=${settings.showGlideTrail}, swipeUp=${settings.swipeUpAction}")
+    }
+
+    private fun handleGestureInvocation(source: GestureSource) {
+        val action = when (source) {
+            GestureSource.GENERAL_SWIPE_UP -> gestureSettings.swipeUpAction
+            GestureSource.GENERAL_SWIPE_DOWN -> gestureSettings.swipeDownAction
+            GestureSource.GENERAL_SWIPE_LEFT -> gestureSettings.swipeLeftAction
+            GestureSource.GENERAL_SWIPE_RIGHT -> gestureSettings.swipeRightAction
+            GestureSource.SPACE_LONG_PRESS -> gestureSettings.spaceLongPressAction
+            GestureSource.SPACE_SWIPE_DOWN -> gestureSettings.spaceSwipeDownAction
+            GestureSource.SPACE_SWIPE_LEFT -> gestureSettings.spaceSwipeLeftAction
+            GestureSource.SPACE_SWIPE_RIGHT -> gestureSettings.spaceSwipeRightAction
+            GestureSource.DELETE_SWIPE_LEFT -> gestureSettings.deleteSwipeLeftAction
+            GestureSource.DELETE_LONG_PRESS -> gestureSettings.deleteLongPressAction
+        }
+
+        if (action == GestureAction.NONE) {
+            Log.d(TAG, "⚪ Gesture ignored for source=$source (action=NONE)")
+            return
+        }
+
+        val handled = performGestureAction(action, source)
+        Log.d(TAG, "🎬 Gesture action executed: source=$source action=$action handled=$handled")
+    }
+
+    private fun performGestureAction(action: GestureAction, source: GestureSource): Boolean {
+        val ic = currentInputConnection
+        return when (action) {
+            GestureAction.NONE -> false
+            GestureAction.CYCLE_PREV_MODE -> {
+                cycleKeyboardModeReverse()
+                true
+            }
+            GestureAction.CYCLE_NEXT_MODE -> {
+                cycleKeyboardMode()
+                true
+            }
+            GestureAction.DELETE_WORD_BEFORE_CURSOR, GestureAction.DELETE_WORD -> deleteWordBeforeCursor()
+            GestureAction.HIDE_KEYBOARD -> {
+                handleClose()
+                true
+            }
+            GestureAction.INSERT_SPACE -> {
+                ic?.commitText(" ", 1) ?: false
+            }
+            GestureAction.MOVE_CURSOR_UP -> sendDirectionalKey(KeyEvent.KEYCODE_DPAD_UP)
+            GestureAction.MOVE_CURSOR_DOWN -> sendDirectionalKey(KeyEvent.KEYCODE_DPAD_DOWN)
+            GestureAction.MOVE_CURSOR_LEFT -> sendDirectionalKey(KeyEvent.KEYCODE_DPAD_LEFT)
+            GestureAction.MOVE_CURSOR_RIGHT -> sendDirectionalKey(KeyEvent.KEYCODE_DPAD_RIGHT)
+            GestureAction.MOVE_CURSOR_LINE_START -> sendDirectionalKey(KeyEvent.KEYCODE_MOVE_HOME)
+            GestureAction.MOVE_CURSOR_LINE_END -> sendDirectionalKey(KeyEvent.KEYCODE_MOVE_END)
+            GestureAction.MOVE_CURSOR_PAGE_START -> moveCursorToPageEdge(start = true)
+            GestureAction.MOVE_CURSOR_PAGE_END -> moveCursorToPageEdge(start = false)
+            GestureAction.SHIFT -> {
+                handleShift()
+                true
+            }
+            GestureAction.REDO -> sendCtrlCombination(KeyEvent.KEYCODE_Z, withShift = true)
+            GestureAction.UNDO -> sendCtrlCombination(KeyEvent.KEYCODE_Z, withShift = false)
+            GestureAction.OPEN_CLIPBOARD -> {
+                mainHandler.post { showFeaturePanel(PanelType.CLIPBOARD) }
+                true
+            }
+           
+            GestureAction.SWITCH_PREV_LANGUAGE -> {
+                cycleLanguageReverse()
+                true
+            }
+            GestureAction.SWITCH_NEXT_LANGUAGE -> {
+                cycleLanguage()
+                true
+            }
+            GestureAction.SHOW_INPUT_METHOD_PICKER -> showInputMethodPicker()
+            GestureAction.TOGGLE_SMARTBAR -> toggleSmartbarVisibility()
+            GestureAction.DELETE_CHARACTERS_PRECISELY, GestureAction.DELETE_CHARACTER_BEFORE_CURSOR -> {
+                ic ?: return false
+                CursorAwareTextHandler.performBackspace(ic)
+                true
+            }
+            GestureAction.DELETE_LINE -> deleteLineAtCursor()
+        }
+    }
+
+    private fun sendDirectionalKey(keyCode: Int): Boolean {
+        val ic = currentInputConnection ?: return false
+        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        return true
+    }
+
+    private fun sendCtrlCombination(keyCode: Int, withShift: Boolean): Boolean {
+        val ic = currentInputConnection ?: return false
+        val meta = if (withShift) KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON else KeyEvent.META_CTRL_ON
+        ic.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, keyCode, 0, meta))
+        ic.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_UP, keyCode, 0, meta))
+        return true
+    }
+
+    private fun moveCursorToPageEdge(start: Boolean): Boolean {
+        val ic = currentInputConnection ?: return false
+        val extracted = ic.getExtractedText(ExtractedTextRequest(), 0)
+        val textLength = extracted?.text?.length ?: return false
+        val target = if (start) 0 else textLength
+        ic.setSelection(target, target)
+        return true
+    }
+
+    private fun showInputMethodPicker(): Boolean {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager ?: return false
+        mainHandler.post { imm.showInputMethodPicker() }
+        return true
+    }
+
+    private fun deleteWordBeforeCursor(): Boolean {
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(100, 0)?.toString() ?: return false
+        if (before.isEmpty()) return false
+
+        val trimmed = before.trimEnd()
+        if (trimmed.isEmpty()) return false
+
+        val lastSeparatorIndex = trimmed.lastIndexOfAny(charArrayOf(' ', '\n', '\t'))
+        val deleteCount = if (lastSeparatorIndex == -1) trimmed.length else trimmed.length - lastSeparatorIndex - 1
+        if (deleteCount <= 0) return false
+
+        ic.deleteSurroundingText(deleteCount, 0)
+        return true
+    }
+
+    private fun deleteLineAtCursor(): Boolean {
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
+        val after = ic.getTextAfterCursor(1000, 0)?.toString() ?: ""
+
+        val startIndex = before.lastIndexOf('\n') + 1
+        val deleteBefore = before.length - startIndex
+
+        val nextNewline = after.indexOf('\n')
+        val deleteAfter = if (nextNewline == -1) after.length else nextNewline
+
+        if (deleteBefore <= 0 && deleteAfter <= 0) {
+            return false
+        }
+
+        ic.deleteSurroundingText(deleteBefore, deleteAfter)
+        return true
+    }
+
+    private fun toggleSmartbarVisibility(): Boolean {
+        suggestionsEnabled = !suggestionsEnabled
+        unifiedKeyboardView?.setSuggestionsEnabled(suggestionsEnabled)
+
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("flutter.display_suggestions", suggestionsEnabled).apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to persist smartbar toggle", e)
+        }
+
+        return true
+    }
+    
+    private fun configureFeedbackModules() {
+        configureSoundManager()
+        applyTapEffectStyle()
+    }
+
+    private fun configureSoundManager() {
+        if (soundEnabled) {
+            // ✅ Update singleton with current preferences
+            // SoundPool already initialized in onCreate() - just update settings
+            val effectiveVolume = computeEffectiveSoundVolume()
+            KeyboardSoundManager.update(selectedSoundProfile, effectiveVolume)
+            Log.d(TAG, "🔊 SoundManager configured: profile=$selectedSoundProfile, volume=$effectiveVolume")
+        } else {
+            // Even when disabled, don't release - just set volume to 0
+            KeyboardSoundManager.update(null, 0f)
+            Log.d(TAG, "🔇 Sound disabled (volume set to 0)")
+        }
+    }
+
+    private fun computeEffectiveSoundVolume(): Float {
+        var effective = soundVolume.coerceIn(0f, 1f)
+        effective *= when (soundIntensity) {
+            0 -> 0f
+            1 -> 0.5f
+            2 -> 0.8f
+            3 -> 1.0f
+            else -> 0.8f
+        }
+        return effective.coerceIn(0f, 1f)
+    }
+
+    private fun applyTapEffectStyle() {
+        val enabled = visualIntensity > 0
+        keyboardView?.let { view ->
+            if (view is SwipeKeyboardView) {
+                view.setTapEffectStyle(selectedTapEffectStyle, enabled)
+            }
+        }
+        unifiedKeyboardView?.setTapEffectStyle(selectedTapEffectStyle, enabled)
     }
     
     // Helper extensions for preference reading (handles all Flutter SharedPreferences types)
@@ -1522,7 +1854,18 @@ class AIKeyboardService : InputMethodService(),
             else -> def
         }
     }
-    
+
+    private fun SharedPreferences.getBooleanCompat(k: String, def: Boolean): Boolean {
+        val value = all[k]
+        return when (value) {
+            is Boolean -> value
+            is String -> value.equals("true", ignoreCase = true) || (value.equals("1"))
+            is Int -> value != 0
+            is Long -> value != 0L
+            else -> def
+        }
+    }
+
     private fun SharedPreferences.getStringCompat(k: String, def: String): String {
         return try {
             getString(k, null) ?: all[k]?.toString() ?: def
@@ -1704,6 +2047,7 @@ class AIKeyboardService : InputMethodService(),
         
         // Set suggestion display count from settings
         unifiedKeyboardView?.setSuggestionDisplayCount(suggestionCount)
+        unifiedKeyboardView?.setSuggestionsEnabled(suggestionsEnabled)
         
         // Set suggestion controller for clipboard suggestion management
         if (::unifiedSuggestionController.isInitialized) {
@@ -2175,7 +2519,7 @@ class AIKeyboardService : InputMethodService(),
         val oldLanguage = currentLanguage
         currentLanguageIndex = (currentLanguageIndex + 1) % enabledLanguages.size
         currentLanguage = enabledLanguages[currentLanguageIndex]
-        
+
         // Save to SharedPreferences
         try {
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
@@ -2263,6 +2607,41 @@ class AIKeyboardService : InputMethodService(),
             Log.e(TAG, "Error showing language toast", e)
         }
     }
+
+    private fun cycleLanguageReverse() {
+        loadLanguagePreferences()
+        if (enabledLanguages.size <= 1) {
+            Log.d(TAG, "No alternate language available for reverse cycle")
+            return
+        }
+
+        if (!enabledLanguages.contains(currentLanguage)) {
+            currentLanguage = enabledLanguages.first()
+            currentLanguageIndex = 0
+        }
+
+        val oldLanguage = currentLanguage
+        currentLanguageIndex = if (currentLanguageIndex - 1 < 0) enabledLanguages.lastIndex else currentLanguageIndex - 1
+        currentLanguage = enabledLanguages[currentLanguageIndex]
+
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit().putString("flutter.current_language", currentLanguage).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error saving reverse language cycle", e)
+        }
+
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "🔄 Activating switched language (reverse): $oldLanguage → $currentLanguage")
+                activateLanguage(currentLanguage)
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error activating reverse language switch", e)
+            }
+        }
+
+        showLanguageToast(currentLanguage)
+    }
     
     /**
      * Apply unified settings loaded from SettingsManager
@@ -2289,10 +2668,14 @@ class AIKeyboardService : InputMethodService(),
             keyPressVibration = prefs.getBoolean("key_press_vibration", true)
             longPressVibration = prefs.getBoolean("long_press_vibration", true)
             repeatedActionVibration = prefs.getBoolean("repeated_action_vibration", true)
-            soundVolume = prefs.getFloat("sound_volume", 0.5f)
-            keyPressSounds = prefs.getBoolean("key_press_sounds", true)
-            longPressSounds = prefs.getBoolean("long_press_sounds", true)
-            repeatedActionSounds = prefs.getBoolean("repeated_action_sounds", true)
+            soundVolume = unified.soundVolume
+            soundIntensity = prefs.getInt("sound_intensity", soundIntensity)
+            visualIntensity = prefs.getInt("visual_intensity", visualIntensity)
+            keyPressSounds = prefs.getBoolean("key_press_sounds", false)
+            longPressSounds = prefs.getBoolean("long_press_sounds", false)
+            repeatedActionSounds = prefs.getBoolean("repeated_action_sounds", false)
+            selectedSoundProfile = unified.soundType
+            selectedTapEffectStyle = unified.effectType
             
             // Note: autocorrect/autoCap/doubleSpace/popup fields may not exist as direct properties
             // They are read from settings but may be handled differently in the service
@@ -2302,7 +2685,8 @@ class AIKeyboardService : InputMethodService(),
                 unified.vibrationEnabled, unified.soundEnabled, unified.keyPreviewEnabled,
                 unified.showNumberRow, unified.swipeTypingEnabled, unified.aiSuggestionsEnabled,
                 unified.currentLanguage, unified.enabledLanguages.joinToString(","),
-                unified.autocorrectEnabled, unified.autoCapitalization, unified.doubleSpacePeriod
+                unified.autocorrectEnabled, unified.autoCapitalization, unified.doubleSpacePeriod,
+                unified.soundType, unified.effectType, unified.soundVolume
             ).hashCode()
             
             val settingsChanged = newHash != lastLoadedSettingsHash
@@ -2317,6 +2701,7 @@ class AIKeyboardService : InputMethodService(),
                 Log.i(TAG, "Settings loaded")
             }
 
+            configureFeedbackModules()
             refreshSwipeCapability("applyLoadedSettings")
         } catch (e: Exception) {
             Log.e(TAG, "Error applying loaded settings", e)
@@ -3805,6 +4190,19 @@ class AIKeyboardService : InputMethodService(),
         Log.d(TAG, "⚡ Cycling keyboard: $currentKeyboardMode → $nextMode")
         switchKeyboardMode(nextMode)
     }
+
+    private fun cycleKeyboardModeReverse() {
+        val previous = when (currentKeyboardMode) {
+            KeyboardMode.LETTERS -> KeyboardMode.DIALER
+            KeyboardMode.NUMBERS -> KeyboardMode.DIALER
+            KeyboardMode.SYMBOLS -> KeyboardMode.LETTERS
+            KeyboardMode.EXTENDED_SYMBOLS -> KeyboardMode.SYMBOLS
+            KeyboardMode.DIALER -> KeyboardMode.EXTENDED_SYMBOLS
+            KeyboardMode.EMOJI -> previousKeyboardMode
+        }
+        Log.d(TAG, "⚡ Cycling keyboard (reverse): $currentKeyboardMode → $previous")
+        switchKeyboardMode(previous)
+    }
     
     /**
      * Return to letters mode (ABC button)
@@ -4158,7 +4556,11 @@ class AIKeyboardService : InputMethodService(),
             // ✅ Show default suggestions (never truly "clear")
             // UnifiedKeyboardView will automatically show defaults when given empty list
             unifiedKeyboardView?.updateSuggestions(emptyList())
-            Log.d(TAG, "🗑️ Showing default suggestions")
+            if (suggestionsEnabled) {
+                Log.d(TAG, "🗑️ Showing default suggestions")
+            } else {
+                Log.d(TAG, "🗑️ Suggestions hidden (toggle disabled)")
+            }
         }
     }
     
@@ -4274,30 +4676,10 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Play key click sound with volume control
      */
-    private fun playKeyClickSound(keyCode: Int) {
+    private fun playKeyClickSound(@Suppress("UNUSED_PARAMETER") keyCode: Int) {
         try {
-            val am = getSystemService(AUDIO_SERVICE) as? AudioManager
-            am?.let { audioManager ->
-                // Get current stream volume
-                val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                
-                // Apply our volume setting (0.0 to 1.0)
-                val targetVolume = (maxVolume * soundVolume).toInt().coerceIn(0, maxVolume)
-                
-                // Temporarily set volume (only if different)
-                if (currentVolume != targetVolume) {
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
-                }
-                
-                // Play appropriate sound effect
-                when (keyCode) {
-                    32, KEYCODE_SPACE -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_SPACEBAR)
-                    Keyboard.KEYCODE_DONE, 10, -4 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_RETURN)
-                    Keyboard.KEYCODE_DELETE -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE)
-                    else -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
-                }
-            }
+            // ✅ Use singleton - NO MORE MediaCodec!
+            KeyboardSoundManager.play()
         } catch (e: Exception) {
             Log.e(TAG, "Error playing key sound", e)
         }
@@ -4352,30 +4734,13 @@ class AIKeyboardService : InputMethodService(),
         handleKeyFeedback(keyCode)
     }
     
-    private fun playKeySound(primaryCode: Int) {
+    private fun playKeySound(@Suppress("UNUSED_PARAMETER") primaryCode: Int) {
         try {
-            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            am?.let { audioManager ->
-                var volume = soundVolume
-                
-                // Adjust volume based on sound intensity
-                volume *= when (soundIntensity) {
-                    1 -> 0.5f // Light
-                    2 -> 0.8f // Medium
-                    3 -> 1.0f // Strong
-                    else -> 0.8f
-                }
-                
-                // Different sounds for different key types
-                when (primaryCode) {
-                    32 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_SPACEBAR, volume)
-                    10, -4 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_RETURN, volume)
-                    -5 -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE, volume)
-                    else -> audioManager.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, volume)
-                }
-            }
+            // ✅ Use singleton with updated preferences - NO MORE MediaCodec!
+            KeyboardSoundManager.update(selectedSoundProfile, computeEffectiveSoundVolume())
+            KeyboardSoundManager.play()
         } catch (e: Exception) {
-            // Ignore sound errors to prevent crashes
+            Log.e(TAG, "Error in playKeySound", e)
         }
     }
     
@@ -5066,6 +5431,11 @@ class AIKeyboardService : InputMethodService(),
             } else {
                 languageLayoutAdapter.setShowUtilityKey(keyboardSettings.showUtilityKey)
             }
+
+            unifiedKeyboardView?.let { view ->
+                view.setNumberRowEnabled(keyboardSettings.numberRow)
+                view.recalcHeight()
+            }
             
             // Apply font size settings (multiplier as percentage)
             val fontMultiplier = (keyboardSettings.portraitFontSize / 100.0).toFloat()
@@ -5199,33 +5569,39 @@ class AIKeyboardService : InputMethodService(),
         // Reset current word
         currentWord = ""
         
-        // CRITICAL FIX: Ensure dictionaries are loaded before showing suggestions
+        var suggestionsDeferred = false
+
+        // Ensure dictionaries are loaded before showing suggestions
         if (::autocorrectEngine.isInitialized) {
             val currentLang = currentLanguage
             if (!autocorrectEngine.hasLanguage(currentLang)) {
-                Log.w(TAG, "⚠️ Dictionary for $currentLang not loaded yet, deferring suggestions")
+                suggestionsDeferred = true
+                Log.w(TAG, "⚠️ Dictionary for $currentLang still loading, deferring suggestions")
                 coroutineScope.launch {
-                    // Wait up to 1 second for dictionary to load
-                    var retries = 0
-                    while (!autocorrectEngine.hasLanguage(currentLang) && retries < 10) {
-                        delay(100)
-                        retries++
+                    val maxWaitMs = 3000
+                    val intervalMs = 100L
+                    var waitedMs = 0
+
+                    while (!autocorrectEngine.hasLanguage(currentLang) && waitedMs < maxWaitMs) {
+                        delay(intervalMs)
+                        waitedMs += intervalMs.toInt()
                     }
-                    withContext(Dispatchers.Main) {
-                        if (autocorrectEngine.hasLanguage(currentLang)) {
-                            updateAISuggestions()
-                        } else {
-                            Log.e(TAG, "❌ Dictionary load timeout for $currentLang after ${retries * 100}ms")
-                        }
+
+                    if (autocorrectEngine.hasLanguage(currentLang)) {
+                        Log.d(TAG, "✅ Dictionary for $currentLang became ready after ${waitedMs}ms")
+                        updateAISuggestions()
+                    } else {
+                        Log.w(TAG, "⚠️ Dictionary for $currentLang still initializing after ${maxWaitMs}ms; suggestions will refresh once activation completes")
                     }
                 }
-                return // Exit early, suggestions will appear when ready
             }
         }
         
-        // Dictionary is ready, show suggestions immediately
-        Log.d(TAG, "onStartInput - showing initial suggestions")
-        updateAISuggestions()
+        if (!suggestionsDeferred) {
+            // Dictionary is ready, show suggestions immediately
+            Log.d(TAG, "onStartInput - showing initial suggestions")
+            updateAISuggestions()
+        }
         
         // Force load fresh settings when keyboard becomes active
         checkAndUpdateSettings()
@@ -5278,9 +5654,13 @@ class AIKeyboardService : InputMethodService(),
         
         // Load advanced feedback settings from preferences
         hapticIntensity = settings.getInt("haptic_intensity", 2)
-        soundIntensity = settings.getInt("sound_intensity", 1)
-        visualIntensity = settings.getInt("visual_intensity", 2)
-        soundVolume = settings.getFloat("sound_volume", 0.5f)  // Updated to match unified default
+        soundIntensity = settings.getInt("sound_intensity", 0)
+        visualIntensity = settings.getInt("visual_intensity", 0)
+        soundVolume = settings.getFloat("sound_volume", 0f)
+
+        val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        selectedSoundProfile = flutterPrefs.getString("flutter.sound.type", selectedSoundProfile) ?: selectedSoundProfile
+        selectedTapEffectStyle = flutterPrefs.getString("flutter.effect.type", selectedTapEffectStyle) ?: selectedTapEffectStyle
         
         // Save to preferences
         settings.edit().apply {
@@ -5297,6 +5677,7 @@ class AIKeyboardService : InputMethodService(),
         keyboardView?.let { view ->
             view.isPreviewEnabled = false // Always disable key preview for stable keys
         }
+        configureFeedbackModules()
         refreshSwipeCapability("updateSettings")
     }
     
@@ -5307,6 +5688,10 @@ class AIKeyboardService : InputMethodService(),
         if (::voiceInputManager.isInitialized) {
             voiceInputManager.destroy()
         }
+
+        // ✅ Release SoundPool singleton
+        KeyboardSoundManager.release()
+        Log.d(TAG, "✅ KeyboardSoundManager released")
         
         // Clear singleton instance
         instance = null
@@ -5877,6 +6262,11 @@ class AIKeyboardService : InputMethodService(),
             }
             
             Log.d(TAG, "Enhanced Caps/Shift Manager initialized successfully (direct)")
+
+            KeyboardStateManager.updateShiftState(
+                capsShiftManager.currentState != CapsShiftManager.STATE_NORMAL,
+                capsShiftManager.isCapsLockActive()
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing Caps/Shift Manager", e)
         }
@@ -5900,6 +6290,11 @@ class AIKeyboardService : InputMethodService(),
         }
         
         // ✅ Update UnifiedKeyboardView with new shift state
+        KeyboardStateManager.updateShiftState(
+            newState != CapsShiftManager.STATE_NORMAL,
+            newState == CapsShiftManager.STATE_CAPS_LOCK
+        )
+
         if (::unifiedController.isInitialized) {
             unifiedController.refreshKeyboardForShiftState(newState)
         }
@@ -6253,6 +6648,8 @@ class AIKeyboardService : InputMethodService(),
             
             // Update UnifiedKeyboardView with the new suggestion count
             unifiedKeyboardView?.setSuggestionDisplayCount(suggestionCount)
+            suggestionsEnabled = displaySuggestions
+            unifiedKeyboardView?.setSuggestionsEnabled(displaySuggestions)
             
             Log.d(TAG, "📱 Updating suggestion controller: DisplaySuggestions=$displaySuggestions, DisplayMode=$displayMode, Count=$suggestionCount, AI=$aiSuggestions, Clipboard=$internalClipboard")
             

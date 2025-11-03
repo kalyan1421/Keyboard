@@ -51,12 +51,6 @@ class ThemeManager(context: Context) : BaseManager(context) {
     private val drawableCache = LruCache<String, Drawable>(DRAWABLE_CACHE_SIZE)
     private val imageCache = LruCache<String, Drawable>(IMAGE_CACHE_SIZE)
     
-    private val keyShadowOffsetPx: Int
-        get() = context.resources.getDimensionPixelSize(R.dimen.key_shadow_offset)
-
-    private val pressedKeyShadowOffsetPx: Int
-        get() = context.resources.getDimensionPixelSize(R.dimen.key_pressed_shadow_offset)
-    
     // Theme change listeners
     private val listeners = mutableListOf<ThemeChangeListener>()
     
@@ -193,7 +187,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
             specialKeys = KeyboardThemeV2.SpecialKeys(
                 accent = parseOldColor(oldTheme.optString("accentColor", "#FF9F1A")),
                 useAccentForEnter = true,
-                applyTo = listOf("enter", "globe", "emoji", "mic"),
+                applyTo = listOf("enter", "globe", "emoji", "mic", "symbols", "backspace"),
                 spaceLabelColor = parseOldColor(oldTheme.optString("keyTextColor", "#FFFFFF"))
             )
         )
@@ -395,20 +389,27 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val preset = theme.keys.preset
         
         // If custom shape preset, use custom drawable
-        if (preset in listOf("star", "heart", "hexagon", "cone", "gem")) {
+        if (preset in listOf("star", "heart", "hexagon", "cone", "gem", "slice")) {
             return createCustomShapeDrawable(preset, palette)
         }
         
-        // Otherwise use standard GradientDrawable with shadow
+        // Otherwise use standard GradientDrawable
         val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
         val density = context.resources.displayMetrics.density
         val radiusPx = palette.keyRadius * density
         
-        val drawable = GradientDrawable()
-        drawable.shape = GradientDrawable.RECTANGLE
-        val fillColor = if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg
-        drawable.setColor(fillColor)
-        drawable.cornerRadius = if (preset == "square") 0f else radiusPx
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            val gradientColors = palette.keyGradientColors.takeIf { it.isNotEmpty() }?.toIntArray()
+            if (gradientColors != null) {
+                colors = gradientColors
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            } else {
+                val fillColor = if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg
+                setColor(fillColor)
+            }
+            cornerRadius = if (preset == "square") 0f else radiusPx
+        }
         
         val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
         if (isTransparentStyle) {
@@ -422,35 +423,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
-        // Add shadow/elevation using LayerDrawable
-        if (palette.keyShadowEnabled && !isTransparentStyle) {
-            return createKeyDrawableWithShadow(
-                drawable,
-                radiusPx,
-                fillColor
-            )
-        }
-        
         return drawable
-    }
-    
-    /**
-     * Create key drawable with shadow effect using LayerDrawable
-     */
-    private fun createKeyDrawableWithShadow(
-        keyDrawable: GradientDrawable,
-        radiusPx: Float,
-        baseColor: Int
-    ): LayerDrawable {
-        val shadowColorBasis = if (Color.alpha(baseColor) == 0) Color.WHITE else baseColor
-        return createShadowLayerDrawable(
-            keyDrawable,
-            radiusPx,
-            shadowColorBasis,
-            keyShadowOffsetPx,
-            blendFactor = 0.35f,
-            shadowAlpha = 90
-        )
     }
     
     /**
@@ -466,13 +439,20 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val radius = customization.radius ?: palette.keyRadius
         val radiusPx = radius * density
         
-        val drawable = GradientDrawable()
-        drawable.shape = GradientDrawable.RECTANGLE
-        
-        // Use custom background color if specified, otherwise use global
-        val bgColor = customization.bg ?: (if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg)
-        drawable.setColor(bgColor)
-        drawable.cornerRadius = radiusPx
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            val gradientColors = if (customization.bg == null) {
+                palette.keyGradientColors.takeIf { it.isNotEmpty() }?.toIntArray()
+            } else null
+            if (gradientColors != null) {
+                colors = gradientColors
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            } else {
+                val bgColor = customization.bg ?: (if (isTransparentStyle) Color.TRANSPARENT else palette.keyBg)
+                setColor(bgColor)
+            }
+            cornerRadius = radiusPx
+        }
         
         // Use custom border if specified, otherwise use global
         val borderEnabled = customization.border?.enabled ?: palette.keyBorderEnabled
@@ -491,13 +471,6 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, borderColor)
         }
         
-        // Custom shadow support
-        val shadowEnabled = customization.shadow?.enabled ?: palette.keyShadowEnabled
-        if (shadowEnabled && !isTransparentStyle) {
-            val shadowBaseColor = if (Color.alpha(bgColor) == 0) palette.keyBg else bgColor
-            return createKeyDrawableWithShadow(drawable, radiusPx, shadowBaseColor)
-        }
-        
         return drawable
     }
     
@@ -507,7 +480,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val preset = theme.keys.preset
         
         // If custom shape preset, use custom drawable
-        if (preset in listOf("star", "heart", "hexagon", "cone", "gem")) {
+        if (preset in listOf("star", "heart", "hexagon", "cone", "gem", "slice")) {
             val isTransparentStyle = palette.usesImageBackground || palette.isTransparentPreset
             val bgColor = if (isTransparentStyle) {
                 ColorUtils.setAlphaComponent(palette.specialAccent, 200)
@@ -535,15 +508,23 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val density = context.resources.displayMetrics.density
         val radiusPx = palette.keyRadius * density
         
-        val drawable = GradientDrawable()
-        drawable.shape = GradientDrawable.RECTANGLE
-        val pressedColor = if (isTransparentStyle) {
-            ColorUtils.setAlphaComponent(palette.specialAccent, 200)
-        } else {
-            palette.keyPressed
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            val baseGradient = palette.keyGradientColors.takeIf { it.isNotEmpty() }
+            if (baseGradient != null) {
+                val pressedGradient = baseGradient.map { adjustColorBrightness(it, -0.12f) }.toIntArray()
+                colors = pressedGradient
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            } else {
+                val pressedColor = if (isTransparentStyle) {
+                    ColorUtils.setAlphaComponent(palette.specialAccent, 200)
+                } else {
+                    palette.keyPressed
+                }
+                setColor(pressedColor)
+            }
+            cornerRadius = if (preset == "square") 0f else radiusPx
         }
-        drawable.setColor(pressedColor)
-        drawable.cornerRadius = if (preset == "square") 0f else radiusPx
         
         val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
         if (isTransparentStyle) {
@@ -557,32 +538,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
-        // Add enhanced shadow for pressed state
-        if (palette.keyShadowEnabled && !isTransparentStyle) {
-            val shadowBaseColor = if (Color.alpha(pressedColor) == 0) palette.keyPressed else pressedColor
-            return createPressedKeyDrawableWithShadow(drawable, radiusPx, shadowBaseColor)
-        }
-        
         return drawable
-    }
-    
-    /**
-     * Create pressed key drawable with enhanced shadow effect
-     */
-    private fun createPressedKeyDrawableWithShadow(
-        keyDrawable: GradientDrawable,
-        radiusPx: Float,
-        baseColor: Int
-    ): LayerDrawable {
-        val shadowColorBasis = if (Color.alpha(baseColor) == 0) Color.WHITE else baseColor
-        return createShadowLayerDrawable(
-            keyDrawable,
-            radiusPx,
-            shadowColorBasis,
-            pressedKeyShadowOffsetPx,
-            blendFactor = 0.45f,
-            shadowAlpha = 140
-        )
     }
     
     private fun buildSpecialKeyDrawable(): Drawable {
@@ -619,15 +575,31 @@ class ThemeManager(context: Context) : BaseManager(context) {
         val density = context.resources.displayMetrics.density
         val radiusPx = palette.keyRadius * density
         
-        val drawable = GradientDrawable()
-        drawable.shape = GradientDrawable.RECTANGLE
-        val specialColor = if (isTransparentStyle) {
-            ColorUtils.setAlphaComponent(palette.specialAccent, 220)
-        } else {
-            palette.specialAccent
+        val styleId = theme.keys.styleId
+        val matchKeyPalette = styleId == "watermelon_slice"
+
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            val gradientColors = palette.keyGradientColors.takeIf { it.isNotEmpty() }?.toIntArray()
+            val baseColor = when {
+                matchKeyPalette -> palette.keyBg
+                isTransparentStyle -> ColorUtils.setAlphaComponent(palette.specialAccent, 220)
+                else -> palette.specialAccent
+            }
+
+            if (gradientColors != null) {
+                if (matchKeyPalette) {
+                    colors = gradientColors
+                    orientation = GradientDrawable.Orientation.TOP_BOTTOM
+                } else {
+                    colors = gradientColors
+                    orientation = GradientDrawable.Orientation.TOP_BOTTOM
+                }
+            } else {
+                setColor(baseColor)
+            }
+            cornerRadius = if (preset == "square") 0f else radiusPx
         }
-        drawable.setColor(specialColor)
-        drawable.cornerRadius = if (preset == "square") 0f else radiusPx
         
         val strokeWidth = (max(1f, palette.keyBorderWidth) * density).toInt().coerceAtLeast(1)
         if (isTransparentStyle) {
@@ -641,56 +613,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
             drawable.setStroke(strokeWidth, palette.keyBorderColor)
         }
         
-        // Add shadow for special keys too
-        if (palette.keyShadowEnabled && !isTransparentStyle) {
-            val shadowBaseColor = if (Color.alpha(specialColor) == 0) palette.specialAccent else specialColor
-            return createSpecialKeyDrawableWithShadow(drawable, radiusPx, shadowBaseColor)
-        }
-        
         return drawable
-    }
-    
-    /**
-     * Create special key drawable with shadow effect
-     */
-    private fun createSpecialKeyDrawableWithShadow(
-        keyDrawable: GradientDrawable,
-        radiusPx: Float,
-        baseColor: Int
-    ): LayerDrawable {
-        val shadowColorBasis = if (Color.alpha(baseColor) == 0) Color.WHITE else baseColor
-        return createShadowLayerDrawable(
-            keyDrawable,
-            radiusPx,
-            shadowColorBasis,
-            keyShadowOffsetPx,
-            blendFactor = 0.35f,
-            shadowAlpha = 100
-        )
-    }
-
-    private fun createShadowLayerDrawable(
-        keyDrawable: GradientDrawable,
-        radiusPx: Float,
-        baseColor: Int,
-        shadowOffsetPx: Int,
-        blendFactor: Float,
-        shadowAlpha: Int
-    ): LayerDrawable {
-        val adjustedBlend = blendFactor.coerceIn(0f, 1f)
-        val adjustedAlpha = shadowAlpha.coerceIn(0, 255)
-
-        val shadowDrawable = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = radiusPx
-            val blendedColor = ColorUtils.blendARGB(baseColor, Color.BLACK, adjustedBlend)
-            setColor(ColorUtils.setAlphaComponent(blendedColor, adjustedAlpha))
-        }
-
-        return LayerDrawable(arrayOf<Drawable>(shadowDrawable, keyDrawable)).apply {
-            val offset = shadowOffsetPx.coerceAtLeast(0)
-            setLayerInset(1, 0, 0, offset, offset)
-        }
     }
     
     private fun buildSolidDrawable(color: Int): Drawable {
@@ -718,6 +641,13 @@ class ThemeManager(context: Context) : BaseManager(context) {
         drawable.shape = GradientDrawable.RECTANGLE
         
         return drawable
+    }
+
+    private fun adjustColorBrightness(color: Int, delta: Float): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[2] = (hsl[2] + delta).coerceIn(0f, 1f)
+        return ColorUtils.HSLToColor(hsl)
     }
     
     private fun buildImageBackground(): Drawable {
@@ -1550,6 +1480,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
                 "hexagon" -> drawHexagon(canvas, bounds)
                 "cone" -> drawCone(canvas, bounds)
                 "gem" -> drawGem(canvas, bounds)
+                "slice" -> drawSlice(canvas, bounds)
                 else -> drawRoundedRect(canvas, bounds)
             }
             
@@ -1674,6 +1605,19 @@ class ThemeManager(context: Context) : BaseManager(context) {
             path.lineTo(farRightX, middleY)
         }
         
+        private fun drawSlice(canvas: Canvas, bounds: Rect) {
+            val centerX = bounds.exactCenterX()
+            val topY = bounds.top + bounds.height() * 0.08f
+            val bottomY = bounds.bottom - bounds.height() * 0.12f
+            val halfWidth = bounds.width() * 0.45f
+            val curveDepth = bounds.height() * 0.08f
+            
+            path.moveTo(centerX, topY)
+            path.lineTo(centerX + halfWidth, bottomY - curveDepth)
+            path.quadTo(centerX, bottomY + curveDepth, centerX - halfWidth, bottomY - curveDepth)
+            path.close()
+        }
+
         private fun drawRoundedRect(canvas: Canvas, bounds: Rect) {
             path.addRoundRect(
                 bounds.left.toFloat(),

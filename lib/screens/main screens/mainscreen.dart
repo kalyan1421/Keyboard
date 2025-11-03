@@ -75,6 +75,10 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
       setState(() {
         _userName = user.displayName ?? user.email?.split('@').first ?? 'User';
       });
+    } else {
+      setState(() {
+        _userName = 'Hi';
+      });
     }
   }
 
@@ -123,11 +127,11 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
           builder: (context) => AlertDialog(
             title: const Text('Enable Keyboard'),
             content: const Text(
-              'Please enable CleverType keyboard:\n\n'
+              'Please enable Kvive keyboard:\n\n'
               '1. Go to Settings\n'
               '2. Select System > Languages & input\n'
               '3. Tap Virtual keyboard > Manage keyboards\n'
-              '4. Enable CleverType\n'
+              '4. Enable Kvive\n'
               '5. Come back and tap this banner again to select it',
             ),
             actions: [

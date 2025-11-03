@@ -86,6 +86,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var isSplitMode = false
     private var isSmallScreenOptimized = false
     private var spacebarGestureEnabled = true
+    private var tapEffectStyle: String = "ripple"
+    private var tapEffectsEnabled: Boolean = true
     
     // Adaptive sizing
     private var adaptiveKeyWidth = 0f
@@ -433,6 +435,11 @@ class SwipeKeyboardView @JvmOverloads constructor(
         soundIntensityLevel = intensityLevel
         // Intensity: 0=off, 1=light, 2=medium, 3=strong
         // This would be used when playing click sounds
+    }
+
+    fun setTapEffectStyle(style: String, enabled: Boolean) {
+        tapEffectStyle = style
+        tapEffectsEnabled = enabled && !style.equals("none", ignoreCase = true)
     }
     
     /**

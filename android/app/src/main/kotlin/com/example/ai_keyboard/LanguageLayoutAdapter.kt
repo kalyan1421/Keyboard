@@ -132,6 +132,10 @@ class LanguageLayoutAdapter(private val context: Context) {
         showUtilityKey = enabled
     }
     
+    fun isUtilityKeyVisible(): Boolean {
+        return showUtilityKey
+    }
+    
     /**
      * Build complete keyboard layout for a language with mode support
      * 
@@ -167,7 +171,16 @@ class LanguageLayoutAdapter(private val context: Context) {
         // Step 3: Apply language-specific mappings (for letters mode) or use template as-is
         val rows = if (mode == KeyboardMode.LETTERS) {
             val keymap = loadKeymap(languageCode)
-            val layoutRows = applyKeymapToTemplate(baseLayout, keymap)
+
+            val shiftActive = KeyboardStateManager.isShiftActive() || KeyboardStateManager.isCapsLockEnabled()
+            val primaryLayer = when {
+                shiftActive && keymap.has("uppercase") -> keymap.optJSONObject("uppercase")
+                keymap.has("lowercase") -> keymap.optJSONObject("lowercase")
+                keymap.has("base") -> keymap.optJSONObject("base")
+                else -> null
+            } ?: JSONObject()
+
+            val layoutRows = applyKeymapToTemplate(baseLayout, keymap, primaryLayer, shiftActive)
             
             // Inject number row if enabled (with language-specific numerals from alt mapping)
             if (numberRowEnabled) {
@@ -215,12 +228,18 @@ class LanguageLayoutAdapter(private val context: Context) {
             KeyboardMode.LETTERS -> {
                 val heights = MutableList(4) { 56 }
                 if (numberRowEnabled) {
-                    heights.add(0, 52)
+                    heights.add(0, 56)
                 }
                 heights
             }
             KeyboardMode.SYMBOLS, KeyboardMode.EXTENDED_SYMBOLS,
-            KeyboardMode.DIALER -> MutableList(4) { 56 }
+            KeyboardMode.DIALER -> {
+                val heights = MutableList(4) { 56 }
+                if (numberRowEnabled) {
+                    heights.add(0, 56)
+                }
+                heights
+            }
         }
         val adjustedRowHeights = if (baseRowHeights.isNotEmpty()) {
             val mutableHeights = baseRowHeights.toMutableList()
@@ -378,10 +397,16 @@ class LanguageLayoutAdapter(private val context: Context) {
     /**
      * Apply keymap mappings to template structure
      */
-    private fun applyKeymapToTemplate(baseLayout: JSONObject, keymap: JSONObject): List<List<KeyModel>> {
+    private fun applyKeymapToTemplate(
+        baseLayout: JSONObject,
+        keymap: JSONObject,
+        primaryLayer: JSONObject,
+        shiftActive: Boolean
+    ): List<List<KeyModel>> {
         val rows = mutableListOf<List<KeyModel>>()
         val rowsArray = baseLayout.getJSONArray("rows")
-        val baseMap = keymap.optJSONObject("base") ?: JSONObject()
+        val fallbackLower = keymap.optJSONObject("lowercase") ?: JSONObject()
+        val fallbackBase = keymap.optJSONObject("base") ?: JSONObject()
         val altMap = keymap.optJSONObject("alt") ?: JSONObject()
         val longPressMap = keymap.optJSONObject("long_press") ?: JSONObject()
 
@@ -398,7 +423,11 @@ class LanguageLayoutAdapter(private val context: Context) {
                 val baseKey = rowArray.getString(j)
                 
                 // Get mapped character (or use base key if no mapping)
-                val mappedChar = baseMap.optString(baseKey, baseKey)
+                val mappedChar = primaryLayer.optString(
+                    baseKey,
+                    fallbackLower.optString(baseKey, fallbackBase.optString(baseKey, baseKey))
+                )
+                val finalChar = mappedChar.ifEmpty { baseKey }
                 
                 // Get alt mapping for number row hints
                 val altRaw = altMap.optString(baseKey, altMap.optString(baseKey.lowercase(), ""))
@@ -410,7 +439,13 @@ class LanguageLayoutAdapter(private val context: Context) {
                 }
                 
                 // Get long-press variants from keymap or fall back to default mapping
-                val keyCode = mappedChar.codePointAt(0)
+                var resolvedChar = finalChar
+                val uppercaseFallbackNeeded = shiftActive && (!keymap.has("uppercase") || !primaryLayer.has(baseKey))
+                if (uppercaseFallbackNeeded && resolvedChar.length == 1 && resolvedChar[0].isLetter()) {
+                    resolvedChar = resolvedChar.uppercase()
+                }
+
+                val keyCode = resolvedChar.codePointAt(0)
                 val configuredLongPress = longPressMap.optJSONArray(baseKey)?.let { array ->
                     List(array.length()) { idx -> array.getString(idx) }
                 } ?: getLongPressOptions(keyCode)  // Fallback to default mapping
@@ -432,7 +467,7 @@ class LanguageLayoutAdapter(private val context: Context) {
                 }
 
                 val keyModel = KeyModel(
-                    label = mappedChar,
+                    label = resolvedChar,
                     code = keyCode,
                     altLabel = when {
                         hintLabel.isNotEmpty() -> hintLabel

@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.annotation.DrawableRes
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.ai_keyboard.themes.PanelTheme
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import com.example.ai_keyboard.utils.LogUtil
 import kotlinx.coroutines.*
@@ -396,7 +397,7 @@ class UnifiedPanelManager(
     }
     
     private fun triggerDefaultGrammarAction() {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val firstChip = grammarChipViews.firstOrNull() ?: return
         updateChipGroupSelection(grammarChipViews, firstChip, palette)
         selectedGrammarChip = firstChip
@@ -404,7 +405,7 @@ class UnifiedPanelManager(
     }
 
     private fun triggerDefaultToneAction() {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val firstChip = toneChipViews.firstOrNull() ?: return
         updateChipGroupSelection(toneChipViews, firstChip, palette)
         selectedToneChip = firstChip
@@ -488,7 +489,7 @@ class UnifiedPanelManager(
      * Create Grammar Panel - Pure Kotlin UI
      */
     private fun createGrammarPanel(): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         val languageConfig = LanguageConfig(supportedLanguages, grammarLanguage) { option ->
             grammarLanguage = option
@@ -623,7 +624,7 @@ class UnifiedPanelManager(
      * Create Tone Panel - Pure Kotlin UI
      */
     private fun createTonePanel(): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         val languageConfig = LanguageConfig(supportedLanguages, toneLanguage) { option ->
             toneLanguage = option
@@ -757,7 +758,7 @@ class UnifiedPanelManager(
      * Create AI Assistant Panel - Pure Kotlin UI matching reference images
      */
     private fun createAIAssistantPanel(): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         
         val panelBg = if (themeManager.isImageBackground()) palette.panelSurface else palette.keyboardBg
@@ -1232,7 +1233,7 @@ class UnifiedPanelManager(
                             statusText,
                             resultContainer,
                             replaceButton,
-                            themeManager.getCurrentPalette()
+                            PanelTheme.palette
                         )
         } else {
                         statusText.text = "❌ Error: ${result.error ?: "No response"}"
@@ -1320,7 +1321,7 @@ class UnifiedPanelManager(
 
     private fun updateAIAssistantState() {
         val hasInput = currentInputText.trim().isNotEmpty()
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         
         aiAssistantEmptyState?.visibility = if (hasInput) View.GONE else View.VISIBLE
         aiChipScroll?.visibility = if (hasInput) View.VISIBLE else View.GONE
@@ -1366,7 +1367,7 @@ class UnifiedPanelManager(
      * Create Translate Panel - Pure Kotlin UI
      */
     private fun createTranslatePanel(): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         val languageOptions = listOf(
             "🇺🇸 English" to "English",
@@ -1408,7 +1409,7 @@ class UnifiedPanelManager(
                     
                     val outputView = themedTextView("Translation will appear here...", 14f, false).apply {
                         minHeight = dpToPx(80)
-                        background = createRoundedDrawable(themeManager.getKeyColor(), dpToPx(8))
+                        background = createRoundedDrawable(PanelTheme.palette.keyBg, dpToPx(8))
                         setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
                         setOnClickListener {
                             val text = this.text.toString()
@@ -1500,7 +1501,7 @@ class UnifiedPanelManager(
      * Create Clipboard Panel - Pure Kotlin UI
      */
     private fun createClipboardPanel(): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         val prefs = context.getSharedPreferences("ai_keyboard_clipboard", Context.MODE_PRIVATE)
         val root = createPanelRoot(palette, height)
@@ -1575,7 +1576,7 @@ class UnifiedPanelManager(
      * Create Settings Panel - Pure Kotlin UI
      */
     private fun createSettingsPanel(): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         val prefs = context.getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         
@@ -1637,7 +1638,7 @@ class UnifiedPanelManager(
      * ✅ REFINED: Minimal padding, no extra top space
      */
     private fun createPanelHeader(title: String, languageConfig: LanguageConfig? = null): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         val headerTextColor = palette.keyText
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1766,7 +1767,7 @@ class UnifiedPanelManager(
     }
 
     private fun createHeroBlock(title: String, subtitle: String): LinearLayout {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1810,7 +1811,7 @@ class UnifiedPanelManager(
 
     private fun createGuideLink(palette: ThemePaletteV2): TextView {
         return TextView(context).apply {
-            text = "How to Use CleverType Guide"
+            text = "How to Use Kvive Guide"
             gravity = Gravity.CENTER
             textSize = 13f
             setPadding(0, dpToPx(10), 0, 0)
@@ -2034,7 +2035,7 @@ class UnifiedPanelManager(
     }
     
     private fun themedTextView(text: String, size: Float = 16f, bold: Boolean = false): TextView {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         return TextView(context).apply {
             this.text = text
             this.textSize = size
@@ -2049,11 +2050,11 @@ class UnifiedPanelManager(
     }
     
     private fun themedButton(label: String, onClick: () -> Unit): Button {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         return Button(context).apply {
             text = label
             textSize = 13f
-            background = themeManager.createKeyDrawable()
+            background = createRoundedDrawable(palette.keyBg, dpToPx(12))
             setTextColor(palette.keyText)
             setOnClickListener { onClick() }
             isAllCaps = false
@@ -2071,7 +2072,7 @@ class UnifiedPanelManager(
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = radiusPx.toFloat()
-            val palette = themeManager.getCurrentPalette()
+            val palette = PanelTheme.palette
             setStroke(dpToPx(1), palette.keyBorderColor)
         }
     }
@@ -2104,7 +2105,7 @@ class UnifiedPanelManager(
         key: String,
         prefs: android.content.SharedPreferences
     ): View {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2113,7 +2114,7 @@ class UnifiedPanelManager(
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             setPadding(0, dpToPx(12), 0, dpToPx(12))
-            background = createRoundedDrawable(themeManager.getKeyColor(), dpToPx(8))
+            background = createRoundedDrawable(PanelTheme.palette.keyBg, dpToPx(8))
             setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
             
             val labelView = TextView(context).apply {
@@ -2638,7 +2639,7 @@ class UnifiedPanelManager(
         resultContainer: LinearLayout,
         replaceButton: Button
     ) {
-        val palette = themeManager.getCurrentPalette()
+        val palette = PanelTheme.palette
         
         // Parse multiple results if newline-separated
         val results = text.split("\n")

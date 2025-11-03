@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.Log
 import android.util.TypedValue
@@ -16,6 +17,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.*
@@ -26,11 +28,19 @@ import androidx.core.widget.ImageViewCompat
 import androidx.core.graphics.ColorUtils
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import kotlinx.coroutines.*
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
+
+import com.example.ai_keyboard.GestureAction
+import com.example.ai_keyboard.GestureSettings
+import com.example.ai_keyboard.GestureSource
 
 /**
  * Manages keyboard height calculations and navigation bar detection
@@ -368,6 +378,21 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         ONE_HANDED_RIGHT, 
         FLOATING 
     }
+    
+    enum class TapEffectStyle {
+        NONE,
+        RIPPLE,
+        GLOW,
+        BOUNCE;
+
+        companion object {
+            fun fromPreference(value: String): TapEffectStyle {
+                val normalized = value.lowercase()
+                if (normalized == "none") return NONE
+                return values().firstOrNull { it != NONE && it.name.equals(value, ignoreCase = true) } ?: RIPPLE
+            }
+        }
+    }
 
     /**
      * Dynamic key model
@@ -417,8 +442,21 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private val suggestionViews = mutableListOf<TextView>()
     private val suggestionSeparators = mutableListOf<View>()
     private var suggestionSlotState: List<SuggestionSlotState> = emptyList()
+    private var suggestionsEnabled: Boolean = true
     private val toolbarButtons = mutableListOf<ImageButton>()
+    private var tapEffectStyle: TapEffectStyle = TapEffectStyle.NONE
+    private var tapEffectsEnabled: Boolean = false
     private var lastEditorText: String = ""
+
+    private var gestureSettings: GestureSettings = GestureSettings.DEFAULT
+    private var gestureHandler: ((GestureSource) -> Unit)? = null
+    private val density = context.resources.displayMetrics.density
+    private var swipeDistanceThresholdPx: Float = MIN_SWIPE_DISTANCE_PX
+    private var swipeVelocityThresholdPxPerSec: Float = 1900f * density
+    private var showGlideTrailSetting: Boolean = true
+    private var glideTrailFadeMs: Long = 200L
+    private val trailHandler = Handler(Looper.getMainLooper())
+    private var trailRunnable: Runnable? = null
 
     // Current keyboard mode and language
     var currentKeyboardModeEnum = LanguageLayoutAdapter.KeyboardMode.LETTERS
@@ -447,6 +485,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var oneHandedModeEnabled = false
     private var oneHandedSide: String = "right"
     private var oneHandedWidthPct: Float = 0.75f
+    private var numberRowActive = false
     // Tuned to mirror CleverType row density and gutters
     private var keySpacingVerticalDp = 1
     private var keySpacingHorizontalDp = 1
@@ -469,9 +508,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     
     // Spacebar and backspace gesture tracking
     private var spacebarDownX = 0f
-    private var isSpacebarSwipe = false
+    private var spacebarDownY = 0f
     private var backspaceDownX = 0f
-    private var isBackspaceSwipe = false
     
     // Firebase language readiness
     private var isLanguageReady = true
@@ -563,7 +601,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         currentLangCode = model.languageCode
 
         toolbarContainer.visibility = VISIBLE
-        suggestionContainer.visibility = VISIBLE
+        suggestionContainer.visibility = if (suggestionsEnabled) VISIBLE else GONE
 
         // Hide panel if visible
         currentPanelView?.visibility = GONE
@@ -727,6 +765,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         rebuildKeyboardGrid()
     }
 
+    fun setNumberRowEnabled(enabled: Boolean) {
+        if (numberRowActive == enabled) return
+        numberRowActive = enabled
+        heightManager.setNumberRowEnabled(enabled)
+        rebuildKeyboardGrid()
+    }
+
     /**
      * Set key spacing
      */
@@ -856,7 +901,39 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             ensureSuggestionSlots(forceRebuild = true)
             val slotData = buildSuggestionSlotState(lastProvidedSuggestions)
             suggestionSlotState = slotData
-            renderSuggestionSlots(slotData)
+            if (suggestionsEnabled) {
+                renderSuggestionSlots(slotData)
+            }
+        }
+    }
+
+    fun setTapEffectStyle(style: String, enabled: Boolean) {
+        val parsed = TapEffectStyle.fromPreference(style)
+        val shouldEnable = enabled && parsed != TapEffectStyle.NONE
+        if (tapEffectStyle == parsed && tapEffectsEnabled == shouldEnable) return
+
+        tapEffectStyle = parsed
+        tapEffectsEnabled = shouldEnable
+        keyboardGridView?.setTapEffectStyle(parsed, shouldEnable)
+        if (!shouldEnable) {
+            keyboardGridView?.clearTapEffect()
+        }
+        invalidate()
+    }
+
+    private fun clearSwipeTrail() {
+        keyboardGridView?.clearSwipeTrail()
+    }
+
+    fun updateGestureSettings(settings: GestureSettings, handler: ((GestureSource) -> Unit)?) {
+        gestureSettings = settings
+        gestureHandler = handler
+        swipeDistanceThresholdPx = (settings.swipeDistanceThreshold * density).coerceAtLeast(5f)
+        swipeVelocityThresholdPxPerSec = (settings.swipeVelocityThreshold * density).coerceAtLeast(100f)
+        showGlideTrailSetting = settings.showGlideTrail
+        glideTrailFadeMs = settings.glideTrailFadeMs.toLong().coerceAtLeast(0L)
+        if (!showGlideTrailSetting) {
+            clearSwipeTrail()
         }
     }
 
@@ -874,16 +951,39 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             lastProvidedSuggestions = sanitized
             val slotData = buildSuggestionSlotState(sanitized)
             suggestionSlotState = slotData
-            
+
             mainHandler.post {
                 try {
-                    renderSuggestionSlots(slotData)
+                    if (suggestionsEnabled) {
+                        renderSuggestionSlots(slotData)
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating suggestion container", e)
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in updateSuggestions", e)
+        }
+    }
+
+    fun setSuggestionsEnabled(enabled: Boolean) {
+        if (suggestionsEnabled == enabled) return
+
+        suggestionsEnabled = enabled
+
+        mainHandler.post {
+            suggestionContainer.visibility = if (enabled) VISIBLE else GONE
+            if (!enabled) {
+                suggestionViews.forEach { view ->
+                    view.text = ""
+                    view.isEnabled = false
+                }
+            } else {
+                val slotData = buildSuggestionSlotState(lastProvidedSuggestions)
+                suggestionSlotState = slotData
+                renderSuggestionSlots(slotData)
+            }
+            recalcHeight()
         }
     }
 
@@ -936,7 +1036,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val includeExtras = currentMode != DisplayMode.PANEL
         val newHeight = heightManager.calculateKeyboardHeight(
             includeToolbar = includeExtras,
-            includeSuggestions = includeExtras
+            includeSuggestions = includeExtras && suggestionsEnabled
         )
 
         layoutParams = layoutParams?.apply {
@@ -1189,6 +1289,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     }
 
     private fun renderSuggestionSlots(slots: List<SuggestionSlotState>) {
+        if (!suggestionsEnabled) {
+            return
+        }
         ensureSuggestionSlots()
         val palette = themeManager.getCurrentPalette()
         
@@ -1336,6 +1439,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             onKeyCallback = onKeyCallback,
             parentView = this
         )
+        keyboardGridView?.setTapEffectStyle(tapEffectStyle, tapEffectsEnabled)
 
         // Add to body container
         bodyContainer.addView(keyboardGridView, FrameLayout.LayoutParams(
@@ -1450,16 +1554,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     }
 
     private fun handleSwipeSuggestions(seq: List<Int>, path: List<Pair<Float, Float>>) {
-        mainScope.launch {
-            try {
-                // This would integrate with UnifiedAutocorrectEngine.suggestForSwipe()
-                // For now, show placeholder suggestions
-                val suggestions = listOf("swiped", "word", "here")
-                updateSuggestions(suggestions)
-                } catch (e: Exception) {
-                Log.e(TAG, "Error handling swipe suggestions", e)
-            }
-        }
+        // Swipe suggestions are provided by AIKeyboardService via the swipe listener.
+        // This helper is retained for future hook-ins (e.g. local previews) but is a no-op for now.
     }
 
     // ========================================
@@ -1475,69 +1571,120 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             val spacebar = gridView.findViewWithTag<View>("spacebar")
             val backspace = gridView.findViewWithTag<View>("key_backspace")
 
+            val spaceLongPressHandler = Handler(Looper.getMainLooper())
+            var spaceLongPressRunnable: Runnable? = null
+            var spacebarGestureTriggered = false
+
+            fun cancelSpaceLongPress() {
+                spaceLongPressRunnable?.let { spaceLongPressHandler.removeCallbacks(it) }
+                spaceLongPressRunnable = null
+            }
+
             spacebar?.setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         spacebarDownX = event.x
-                        isSpacebarSwipe = false
+                        spacebarDownY = event.y
+                        spacebarGestureTriggered = false
+                        spaceLongPressRunnable = Runnable {
+                            spacebarGestureTriggered = true
+                            gestureHandler?.invoke(GestureSource.SPACE_LONG_PRESS)
+                        }
+                        spaceLongPressHandler.postDelayed(
+                            spaceLongPressRunnable!!,
+                            ViewConfiguration.getLongPressTimeout().toLong()
+                        )
+                        true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = event.x - spacebarDownX
-                        if (abs(dx) > 40f) {
-                            isSpacebarSwipe = true
-                            handleSpacebarSwipe(dx)
+                        val dy = event.y - spacebarDownY
+                        val absDx = abs(dx)
+                        val absDy = abs(dy)
+                        val threshold = swipeDistanceThresholdPx
+
+                        if (!spacebarGestureTriggered && gestureHandler != null) {
+                            if (absDx > threshold && absDx > absDy) {
+                                spacebarGestureTriggered = true
+                                cancelSpaceLongPress()
+                                val direction = if (dx > 0) GestureSource.SPACE_SWIPE_RIGHT else GestureSource.SPACE_SWIPE_LEFT
+                                gestureHandler?.invoke(direction)
+                            } else if (dy > threshold && absDy > absDx) {
+                                spacebarGestureTriggered = true
+                                cancelSpaceLongPress()
+                                gestureHandler?.invoke(GestureSource.SPACE_SWIPE_DOWN)
+                            } else if (absDx > threshold || absDy > threshold) {
+                                cancelSpaceLongPress()
+                            }
+                        } else if (absDx > threshold || absDy > threshold) {
+                            cancelSpaceLongPress()
                         }
+                        true
                     }
-                    MotionEvent.ACTION_UP -> isSpacebarSwipe = false
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        val wasTriggered = spacebarGestureTriggered
+                        cancelSpaceLongPress()
+                        spacebarGestureTriggered = false
+                        if (event.action == MotionEvent.ACTION_UP && !wasTriggered) {
+                            val spaceCode = ' '.code
+                            onKeyCallback?.invoke(spaceCode, intArrayOf(spaceCode))
+                        }
+                        true
+                    }
+                    else -> true
                 }
-                true
+            }
+
+            val backspaceLongPressHandler = Handler(Looper.getMainLooper())
+            var backspaceLongPressRunnable: Runnable? = null
+            var backspaceGestureTriggered = false
+
+            fun cancelBackspaceLongPress() {
+                backspaceLongPressRunnable?.let { backspaceLongPressHandler.removeCallbacks(it) }
+                backspaceLongPressRunnable = null
             }
 
             backspace?.setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         backspaceDownX = event.x
-                        isBackspaceSwipe = false
+                        backspaceGestureTriggered = false
+                        backspaceLongPressRunnable = Runnable {
+                            backspaceGestureTriggered = true
+                            gestureHandler?.invoke(GestureSource.DELETE_LONG_PRESS)
+                        }
+                        backspaceLongPressHandler.postDelayed(
+                            backspaceLongPressRunnable!!,
+                            ViewConfiguration.getLongPressTimeout().toLong()
+                        )
+                        true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = event.x - backspaceDownX
-                        if (dx < -50f) { // swipe left
-                            isBackspaceSwipe = true
-                            handleBackspaceSwipe()
+                        val threshold = swipeDistanceThresholdPx
+                        if (!backspaceGestureTriggered && dx < -threshold && gestureHandler != null) {
+                            backspaceGestureTriggered = true
+                            cancelBackspaceLongPress()
+                            gestureHandler?.invoke(GestureSource.DELETE_SWIPE_LEFT)
+                        } else if (abs(dx) > threshold) {
+                            cancelBackspaceLongPress()
                         }
+                        true
                     }
-                    MotionEvent.ACTION_UP -> isBackspaceSwipe = false
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        val wasTriggered = backspaceGestureTriggered
+                        cancelBackspaceLongPress()
+                        backspaceGestureTriggered = false
+                        if (event.action == MotionEvent.ACTION_UP && !wasTriggered) {
+                            inputConnectionProvider?.getCurrentInputConnection()?.let { ic ->
+                                CursorAwareTextHandler.performBackspace(ic)
+                            }
+                        }
+                        true
+                    }
+                    else -> true
                 }
-                true
             }
-        }
-    }
-
-    private fun handleSpacebarSwipe(deltaX: Float) {
-        val ic = inputConnectionProvider?.getCurrentInputConnection()
-        if (ic != null) {
-            val direction = if (deltaX > 0) "right" else "left"
-            val step = (abs(deltaX) / 20).toInt().coerceAtLeast(1)
-            repeat(step) {
-                val keyCode = if (direction == "right") 
-                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT 
-                else 
-                    android.view.KeyEvent.KEYCODE_DPAD_LEFT
-                    
-                ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
-                ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
-            }
-        }
-    }
-
-    private fun handleBackspaceSwipe() {
-        val ic = inputConnectionProvider?.getCurrentInputConnection()
-        ic?.apply {
-            // Delete previous word (Ctrl+Backspace equivalent)
-            sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_CTRL_LEFT))
-            sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL))
-            sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL))
-            sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_CTRL_LEFT))
         }
     }
 
@@ -1584,9 +1731,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         return (dp * context.resources.displayMetrics.density).toInt()
     }
 
-    private fun getKeyWidthFactor(label: String): Float {
+    private fun getKeyWidthFactor(label: String, hasUtilityKey: Boolean = true): Float {
         return when {
-            label == " " || label == "SPACE" || label.startsWith("space") -> 2.5f
+            // ✅ Dynamic space bar width: Increase when utility key is hidden
+            label == " " || label == "SPACE" || label.startsWith("space") -> {
+                if (hasUtilityKey) 2.5f else 3.5f  // Add 1f when utility key is removed
+            }
             label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
             label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
             label == "🌐" || label == "GLOBE" -> 1f
@@ -1704,15 +1854,60 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         // Swipe state
         private val fingerPoints = mutableListOf<FloatArray>()
         private var isSwipeActive = false
+        private var swipeEligibleForCurrentGesture = false
+        private var swipeStartTime = 0L
+        private val nonSwipeKeyTypes = setOf(
+            "space",
+            "enter",
+            "shift",
+            "backspace",
+            "symbols",
+            "emoji",
+            "mic",
+            "globe",
+            "voice"
+        )
+        private val trailHandler = Handler(Looper.getMainLooper())
+        private var trailRunnable: Runnable? = null
         
         // Continuous delete state
         private var deleteRepeatHandler = Handler(Looper.getMainLooper())
         private var deleteRepeatRunnable: Runnable? = null
         private var isDeleteRepeating = false
+        private val tapRipplePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val tapGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+        private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private var tapEffectStyle: UnifiedKeyboardView.TapEffectStyle = UnifiedKeyboardView.TapEffectStyle.NONE
+        private var tapEffectsEnabled: Boolean = false
+        private var tapEffectState: TapEffectState? = null
+
+        private data class TapEffectState(
+            val key: DynamicKey,
+            val startTime: Long,
+            val duration: Long,
+            val overlays: Map<String, List<OverlayElement>> = emptyMap()
+        ) {
+            fun progress(): Float {
+                val elapsed = (SystemClock.uptimeMillis() - startTime).coerceAtLeast(0L)
+                return (elapsed / duration.toFloat()).coerceIn(0f, 1f)
+            }
+
+            fun isFinished(): Boolean = SystemClock.uptimeMillis() - startTime >= duration
+        }
+
+        private data class OverlayElement(
+            val dx: Float,
+            val dy: Float,
+            val size: Float,
+            val rotation: Float,
+            val color: Int? = null,
+            val extra: FloatArray? = null
+        )
 
         init {
             setWillNotDraw(false) // Enable onDraw
             setBackgroundColor(Color.TRANSPARENT)
+            setLayerType(LAYER_TYPE_SOFTWARE, null)
 
             if (width > 0 && height > 0) {
                 buildKeys()
@@ -1728,6 +1923,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
         private fun buildKeys() {
             dynamicKeys.clear()
+            tapEffectState = null
 
             val screenWidth = width
             val screenHeight = height
@@ -1804,8 +2000,11 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             rows.forEachIndexed { rowIndex, row ->
                 val rowHeight = max(rowHeights.getOrElse(rowIndex) { 0 }, 1)
 
+                // Check if this row has a utility key (globe button)
+                val hasUtilityKey = row.any { it.code == -14 }
+                
                 val totalWidthUnits = row.sumOf { key ->
-                    getKeyWidthFactor(key.label).toDouble()
+                    getKeyWidthFactor(key.label, hasUtilityKey).toDouble()
                 }.toFloat().coerceAtLeast(1f)
 
                 val spacingTotal = if (row.size > 1) horizontalSpacingPx * (row.size - 1) else 0f
@@ -1823,7 +2022,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 var currentX = startX
 
                 row.forEachIndexed { keyIndex, keyModel ->
-                    var keyWidth = unitWidth * getKeyWidthFactor(keyModel.label)
+                    var keyWidth = unitWidth * getKeyWidthFactor(keyModel.label, hasUtilityKey)
                     if (keyIndex == row.lastIndex) {
                         val expectedEnd = startX + rowWidth
                         val actualEnd = currentX + keyWidth
@@ -1865,6 +2064,20 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             invalidate()
             Log.d(TAG, "✅ Built ${dynamicKeys.size} keys with swipe support")
         }
+
+        fun setTapEffectStyle(style: UnifiedKeyboardView.TapEffectStyle, enabled: Boolean) {
+            tapEffectStyle = style
+            tapEffectsEnabled = enabled && style != UnifiedKeyboardView.TapEffectStyle.NONE
+            if (!tapEffectsEnabled) {
+                tapEffectState = null
+                invalidate()
+            }
+        }
+
+        fun clearTapEffect() {
+            tapEffectState = null
+            invalidate()
+        }
         
         private fun resolveIndentRatio(
             rowIndex: Int,
@@ -1889,6 +2102,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             if (containsAnchorKey) return 0f
             
             return 0.5f
+        }
+
+        private fun getKeyRect(key: DynamicKey): RectF {
+            val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
+            val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+            val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+
+            return RectF(
+                key.x.toFloat() + basePadding + horizontalInset,
+                key.y.toFloat() + basePadding + verticalInset,
+                (key.x + key.width).toFloat() - basePadding - horizontalInset,
+                (key.y + key.height).toFloat() - basePadding - verticalInset
+            )
         }
 
         override fun onDraw(canvas: Canvas) {
@@ -1925,27 +2151,28 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun drawKey(canvas: Canvas, key: DynamicKey, palette: ThemePaletteV2) {
-            val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
-            val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
-            val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+            val keyRect = getKeyRect(key)
+            val effect = tapEffectState
+            val hasTapVisuals = tapEffectsEnabled && tapEffectStyle != UnifiedKeyboardView.TapEffectStyle.NONE && effect?.key == key
+            val hasOverlay = effect?.key == key && (effect.overlays.isNotEmpty())
+            val shouldAnimate = hasTapVisuals || hasOverlay
+            val progress = if (shouldAnimate) effect!!.progress() else 0f
 
-            val keyRect = RectF(
-                key.x.toFloat() + basePadding + horizontalInset,
-                key.y.toFloat() + basePadding + verticalInset,
-                (key.x + key.width).toFloat() - basePadding - horizontalInset,
-                (key.y + key.height).toFloat() - basePadding - verticalInset
-            )
+            var didSaveCanvas = false
+            if (hasTapVisuals && tapEffectStyle == UnifiedKeyboardView.TapEffectStyle.BOUNCE) {
+                val scale = computeBounceScale(progress)
+                canvas.save()
+                canvas.scale(scale, scale, keyRect.centerX(), keyRect.centerY())
+                didSaveCanvas = true
+            }
 
             // ✅ Draw background with per-key customization support
-            // Use key label as identifier for per-key customization
             val keyIdentifier = getKeyIdentifier(key)
-            val useNeutralBackground = key.keyType == "enter" || key.keyType == "shift"
             val shouldDrawBackground = !borderlessMode
+            val shouldUseAccentBackground = !borderlessMode && themeManager.shouldUseAccentForKey(key.keyType)
             val keyDrawable = if (shouldDrawBackground) {
-                when {
-                    !useNeutralBackground && themeManager.shouldUseAccentForKey(key.keyType) -> themeManager.createSpecialKeyDrawable()
-                    else -> themeManager.createKeyDrawable(keyIdentifier)
-                }
+                if (shouldUseAccentBackground) themeManager.createSpecialKeyDrawable()
+                else themeManager.createKeyDrawable(keyIdentifier)
             } else null
 
             keyDrawable?.let { drawable ->
@@ -1953,13 +2180,1249 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 drawable.draw(canvas)
             }
 
-            // Draw icon or text
-            val iconResId = getIconForKeyType(key.keyType, key.label)
-            if (iconResId != null) {
-                drawKeyIcon(canvas, key, keyRect, iconResId, palette)
-            } else {
-                drawKeyText(canvas, key, keyRect, palette)
+            // Draw icon or text content
+            val overlayIconId = palette.keyOverlayIcon
+            val overlayTargets = palette.keyOverlayTargets
+            var overlayConsumed = false
+            if (overlayIconId != null && overlayTargets.contains(key.keyType)) {
+                overlayConsumed = drawKeyOverlayIcon(
+                    canvas,
+                    keyRect,
+                    overlayIconId,
+                    palette.keyOverlayIconColor ?: palette.keyText
+                )
             }
+
+            if (!overlayConsumed) {
+                val iconResId = getIconForKeyType(key.keyType, key.label)
+                if (iconResId != null) {
+                    drawKeyIcon(canvas, key, keyRect, iconResId, palette)
+                } else {
+                    drawKeyText(canvas, key, keyRect, palette)
+                }
+            }
+
+            if (didSaveCanvas) {
+                canvas.restore()
+            }
+
+            if (shouldAnimate && effect != null) {
+                drawTapEffectOverlay(canvas, keyRect, palette, effect, hasTapVisuals)
+                if (effect.isFinished()) {
+                    tapEffectState = null
+                } else {
+                    postInvalidateOnAnimation()
+                }
+            }
+        }
+
+        private fun drawTapEffectOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            palette: ThemePaletteV2,
+            state: TapEffectState,
+            drawPrimary: Boolean
+        ) {
+            val progress = state.progress()
+            if (drawPrimary) {
+                when (tapEffectStyle) {
+                    UnifiedKeyboardView.TapEffectStyle.NONE -> {
+                        // No tap animation; overlays handled separately below
+                    }
+                    UnifiedKeyboardView.TapEffectStyle.RIPPLE -> {
+                        val maxDimension = max(keyRect.width(), keyRect.height())
+                        val radius = maxDimension * (0.25f + 0.75f * progress)
+                        val alpha = (150 * (1f - progress)).toInt().coerceIn(0, 180)
+                        tapRipplePaint.color = ColorUtils.setAlphaComponent(palette.specialAccent, alpha)
+                        tapRipplePaint.style = Paint.Style.FILL
+                        canvas.drawCircle(keyRect.centerX(), keyRect.centerY(), radius, tapRipplePaint)
+                    }
+                    UnifiedKeyboardView.TapEffectStyle.GLOW -> {
+                        val alpha = (160 * (1f - progress)).toInt().coerceIn(0, 200)
+                        tapGlowPaint.color = ColorUtils.setAlphaComponent(palette.specialAccent, alpha)
+                        tapGlowPaint.style = Paint.Style.STROKE
+                        tapGlowPaint.strokeWidth = dpToPx(3f) * (1f - 0.4f * progress)
+                        tapGlowPaint.setShadowLayer(
+                            dpToPx(6f),
+                            0f,
+                            0f,
+                            ColorUtils.setAlphaComponent(palette.specialAccent, (alpha * 0.9f).toInt().coerceAtLeast(0))
+                        )
+                        val cornerRadius = dpToPx(8f)
+                        canvas.drawRoundRect(keyRect, cornerRadius, cornerRadius, tapGlowPaint)
+                        tapGlowPaint.clearShadowLayer()
+                    }
+                    UnifiedKeyboardView.TapEffectStyle.BOUNCE -> {
+                        val alpha = (120 * (1f - progress)).toInt().coerceIn(0, 160)
+                        tapRipplePaint.color = ColorUtils.setAlphaComponent(palette.specialAccent, alpha)
+                        tapRipplePaint.style = Paint.Style.FILL
+                        canvas.drawCircle(keyRect.centerX(), keyRect.centerY(), keyRect.width() * 0.35f, tapRipplePaint)
+                    }
+                }
+            }
+
+            drawOverlayEffects(canvas, keyRect, palette, state, progress)
+        }
+
+        private fun drawOverlayEffects(
+            canvas: Canvas,
+            keyRect: RectF,
+            palette: ThemePaletteV2,
+            state: TapEffectState,
+            progress: Float
+        ) {
+            if (state.overlays.isEmpty()) return
+            state.overlays.forEach { (effect, elements) ->
+                when (effect) {
+                    "stars" -> drawStarOverlay(canvas, keyRect, palette.specialAccent, elements, progress, sparkle = false)
+                    "sparkles" -> drawStarOverlay(canvas, keyRect, Color.WHITE, elements, progress, sparkle = true)
+                    "hearts" -> drawHeartOverlay(canvas, keyRect, elements, progress)
+                    "bubbles" -> drawBubbleOverlay(canvas, keyRect, elements, progress)
+                    "leaves" -> drawLeafOverlay(canvas, keyRect, elements, progress)
+                    "snow" -> drawSnowOverlay(canvas, keyRect, elements, progress)
+                    "lightning" -> drawLightningOverlay(canvas, keyRect, elements, progress)
+                    "confetti" -> drawConfettiOverlay(canvas, keyRect, elements, progress)
+                    "butterflies" -> drawButterflyOverlay(canvas, keyRect, elements, progress)
+                    "rainbow" -> drawRainbowOverlay(canvas, keyRect, elements, progress)
+                }
+            }
+        }
+
+        private fun drawStarOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            baseColor: Int,
+            elements: List<OverlayElement>,
+            progress: Float,
+            sparkle: Boolean
+        ) {
+            if (elements.isEmpty()) return
+            val baseAlpha = if (sparkle) 170 else 210
+            val alpha = (baseAlpha * (1f - progress)).toInt().coerceIn(0, baseAlpha)
+            if (alpha <= 0) return
+
+            elements.forEach { element ->
+                val tint = ColorUtils.setAlphaComponent(element.color ?: baseColor, alpha)
+                overlayPaint.color = tint
+                canvas.save()
+                val cx = keyRect.centerX() + element.dx
+                val cy = keyRect.centerY() + element.dy
+                val size = element.size * (1f + progress * 0.25f)
+                canvas.translate(cx, cy)
+                canvas.rotate(element.rotation)
+                canvas.drawPath(createStarPath(size, sparkle), overlayPaint)
+                canvas.restore()
+            }
+        }
+
+        private fun drawHeartOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            val alpha = (200 * (1f - progress)).toInt().coerceIn(0, 200)
+            if (alpha <= 0) return
+
+            elements.forEach { element ->
+                val color = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FF7AAE"), alpha)
+                overlayPaint.color = color
+                canvas.save()
+                val cx = keyRect.centerX() + element.dx
+                val cy = keyRect.centerY() + element.dy
+                val size = element.size * (1f + progress * 0.2f)
+                canvas.translate(cx, cy)
+                canvas.rotate(element.rotation)
+                canvas.drawPath(createHeartPath(size), overlayPaint)
+                canvas.restore()
+            }
+        }
+
+        private fun drawBubbleOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            elements.forEach { element ->
+                val alpha = (150 * (1f - progress)).toInt().coerceIn(0, 170)
+                val color = ColorUtils.setAlphaComponent(element.color ?: ColorUtils.setAlphaComponent(Color.WHITE, 200), alpha)
+                overlayPaint.color = color
+                val radius = element.size * (1f + progress * 0.18f)
+                canvas.drawCircle(keyRect.centerX() + element.dx, keyRect.centerY() + element.dy, radius, overlayPaint)
+            }
+        }
+
+        private fun drawLeafOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            val path = Path()
+            elements.forEach { element ->
+                val baseColor = element.color ?: Color.parseColor("#4CAF50")
+                val alpha = (200 * (1f - progress)).toInt().coerceIn(0, 255)
+                overlayPaint.style = Paint.Style.FILL
+                overlayPaint.color = ColorUtils.setAlphaComponent(baseColor, alpha)
+                canvas.save()
+                val cx = keyRect.centerX() + element.dx
+                val cy = keyRect.centerY() + element.dy
+                canvas.translate(cx, cy)
+                canvas.rotate(element.rotation)
+                val size = element.size * (1f + progress * 0.15f)
+                path.reset()
+                path.moveTo(0f, -size * 0.6f)
+                path.quadTo(size * 0.55f, -size * 0.3f, size * 0.2f, size * 0.6f)
+                path.quadTo(0f, size * 0.3f, -size * 0.2f, size * 0.6f)
+                path.quadTo(-size * 0.55f, -size * 0.3f, 0f, -size * 0.6f)
+                canvas.drawPath(path, overlayPaint)
+                canvas.restore()
+            }
+        }
+
+        private fun drawSnowOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            val strokePaint = Paint(overlayPaint).apply {
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+            }
+
+            elements.forEach { element ->
+                val baseColor = element.color ?: Color.WHITE
+                val alpha = (210 * (1f - progress)).toInt().coerceIn(0, 220)
+                overlayPaint.style = Paint.Style.FILL
+                overlayPaint.color = ColorUtils.setAlphaComponent(baseColor, alpha)
+                val cx = keyRect.centerX() + element.dx
+                val cy = keyRect.centerY() + element.dy
+                val radius = element.size * 0.35f * (1f + progress * 0.1f)
+                canvas.drawCircle(cx, cy, radius, overlayPaint)
+
+                strokePaint.color = overlayPaint.color
+                strokePaint.strokeWidth = radius * 0.6f
+                canvas.drawLine(cx - radius, cy, cx + radius, cy, strokePaint)
+                canvas.drawLine(cx, cy - radius, cx, cy + radius, strokePaint)
+                canvas.drawLine(cx - radius * 0.7f, cy - radius * 0.7f, cx + radius * 0.7f, cy + radius * 0.7f, strokePaint)
+                canvas.drawLine(cx + radius * 0.7f, cy - radius * 0.7f, cx - radius * 0.7f, cy + radius * 0.7f, strokePaint)
+            }
+        }
+
+        private fun drawLightningOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            val path = Path()
+            overlayPaint.style = Paint.Style.STROKE
+            overlayPaint.strokeCap = Paint.Cap.ROUND
+            overlayPaint.strokeJoin = Paint.Join.ROUND
+
+            elements.forEach { element ->
+                val alpha = (235 * (1f - progress)).toInt().coerceIn(0, 235)
+                overlayPaint.color = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FFD740"), alpha)
+                overlayPaint.strokeWidth = element.size * 0.18f
+
+                val coords = element.extra ?: floatArrayOf(
+                    0f, -element.size * 0.6f,
+                    element.size * 0.25f, -element.size * 0.15f,
+                    -element.size * 0.15f, element.size * 0.1f,
+                    element.size * 0.2f, element.size * 0.55f
+                )
+
+                path.reset()
+                path.moveTo(coords[0], coords[1])
+                var idx = 2
+                while (idx < coords.size) {
+                    path.lineTo(coords[idx], coords[idx + 1])
+                    idx += 2
+                }
+
+                canvas.save()
+                canvas.translate(keyRect.centerX() + element.dx, keyRect.centerY() + element.dy)
+                canvas.rotate(element.rotation)
+                canvas.drawPath(path, overlayPaint)
+                canvas.restore()
+            }
+            overlayPaint.style = Paint.Style.FILL
+        }
+
+        private fun drawConfettiOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            elements.forEach { element ->
+                val alpha = (210 * (1f - progress)).toInt().coerceIn(0, 220)
+                val color = ColorUtils.setAlphaComponent(element.color ?: Color.WHITE, alpha)
+                overlayPaint.style = Paint.Style.FILL
+                overlayPaint.color = color
+
+                val width = (element.extra?.getOrNull(0) ?: element.size * 0.4f) * (1f + progress * 0.15f)
+                val height = (element.extra?.getOrNull(1) ?: element.size * 0.15f) * (1f + progress * 0.05f)
+
+                canvas.save()
+                canvas.translate(keyRect.centerX() + element.dx, keyRect.centerY() + element.dy)
+                canvas.rotate(element.rotation)
+                canvas.drawRoundRect(
+                    -width / 2f,
+                    -height / 2f,
+                    width / 2f,
+                    height / 2f,
+                    height / 2f,
+                    height / 2f,
+                    overlayPaint
+                )
+                canvas.restore()
+            }
+        }
+
+        private fun drawButterflyOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            val wingPaint = Paint(overlayPaint)
+            val bodyPaint = Paint(overlayPaint).apply {
+                style = Paint.Style.FILL
+                color = ColorUtils.setAlphaComponent(Color.DKGRAY, 180)
+            }
+            val wingPath = Path()
+
+            elements.forEach { element ->
+                val alpha = (200 * (1f - progress)).toInt().coerceIn(0, 200)
+                val wingColor = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FFB6C1"), alpha)
+                wingPaint.style = Paint.Style.FILL
+                wingPaint.color = wingColor
+
+                canvas.save()
+                val cx = keyRect.centerX() + element.dx
+                val cy = keyRect.centerY() + element.dy
+                canvas.translate(cx, cy)
+                canvas.rotate(element.rotation)
+                val size = element.size * (1f + progress * 0.12f)
+
+                // Left wing
+                wingPath.reset()
+                wingPath.moveTo(0f, 0f)
+                wingPath.cubicTo(-size * 0.9f, -size * 0.2f, -size * 0.9f, -size, -size * 0.1f, -size * 0.9f)
+                wingPath.cubicTo(-size * 0.8f, -size * 0.3f, -size * 0.8f, size * 0.3f, -size * 0.1f, size * 0.9f)
+                wingPath.close()
+                canvas.drawPath(wingPath, wingPaint)
+
+                // Right wing
+                wingPath.reset()
+                wingPath.moveTo(0f, 0f)
+                wingPath.cubicTo(size * 0.9f, -size * 0.2f, size * 0.9f, -size, size * 0.1f, -size * 0.9f)
+                wingPath.cubicTo(size * 0.8f, -size * 0.3f, size * 0.8f, size * 0.3f, size * 0.1f, size * 0.9f)
+                wingPath.close()
+                canvas.drawPath(wingPath, wingPaint)
+
+                // Body
+                canvas.drawRoundRect(
+                    -size * 0.1f,
+                    -size * 0.8f,
+                    size * 0.1f,
+                    size * 0.8f,
+                    size * 0.1f,
+                    size * 0.1f,
+                    bodyPaint
+                )
+
+                canvas.restore()
+            }
+        }
+
+        private fun drawRainbowOverlay(
+            canvas: Canvas,
+            keyRect: RectF,
+            elements: List<OverlayElement>,
+            progress: Float
+        ) {
+            if (elements.isEmpty()) return
+            val colors = intArrayOf(
+                Color.parseColor("#FF6F61"),
+                Color.parseColor("#FDB045"),
+                Color.parseColor("#F9ED69"),
+                Color.parseColor("#9ADBCB"),
+                Color.parseColor("#62B0E8"),
+                Color.parseColor("#A685E2")
+            )
+
+            val strokePaint = Paint(overlayPaint).apply {
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+            }
+
+            elements.forEach { element ->
+                val cx = keyRect.centerX() + element.dx
+                val cy = keyRect.centerY() + element.dy
+                val baseRadius = element.size * (1f + progress * 0.1f)
+                val thickness = (element.extra?.getOrNull(0) ?: element.size * 0.12f)
+
+                canvas.save()
+                canvas.translate(cx, cy)
+                canvas.rotate(element.rotation)
+
+                colors.forEachIndexed { index, color ->
+                    val radius = baseRadius - index * thickness
+                    if (radius <= 0f) return@forEachIndexed
+
+                    strokePaint.strokeWidth = thickness * 0.8f
+                    val alpha = (210 * (1f - progress)).toInt().coerceIn(0, 210)
+                    strokePaint.color = ColorUtils.setAlphaComponent(color, alpha)
+                    val arcRect = RectF(-radius, -radius, radius, radius)
+                    canvas.drawArc(arcRect, 200f, 140f, false, strokePaint)
+                }
+
+                canvas.restore()
+            }
+        }
+
+        private fun drawKeyOverlayIcon(
+            canvas: Canvas,
+            keyRect: RectF,
+            iconId: String,
+            iconColor: Int
+        ): Boolean {
+            val size = min(keyRect.width(), keyRect.height())
+            overlayPaint.color = iconColor
+            overlayPaint.style = Paint.Style.FILL
+
+            canvas.save()
+            canvas.translate(keyRect.centerX(), keyRect.centerY())
+
+            val consumed = when (iconId.lowercase()) {
+                "heart" -> {
+                    val heartPath = createHeartPath(size * 0.5f)
+                    canvas.drawPath(heartPath, overlayPaint)
+                    true
+                }
+                "ball" -> {
+                    val radius = size * 0.38f
+                    canvas.drawCircle(0f, 0f, radius, overlayPaint)
+
+                    val seamPaint = Paint(overlayPaint).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = radius * 0.18f
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 220)
+                    }
+                    val seamRect = RectF(-radius, -radius, radius, radius)
+                    canvas.drawArc(seamRect, 35f, 110f, false, seamPaint)
+                    canvas.drawArc(seamRect, 215f, 110f, false, seamPaint)
+                    true
+                }
+                "watermelon" -> {
+                    val sliceWidth = size * 0.82f
+                    val sliceHeight = size * 0.62f
+                    val topY = -sliceHeight / 2f
+                    val baseY = sliceHeight / 2.2f
+
+                    val fleshPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = iconColor
+                    }
+                    val rindPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = Color.parseColor("#2ECC71")
+                    }
+                    val pithPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = Color.parseColor("#F4FFD1")
+                    }
+                    val seedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = ColorUtils.setAlphaComponent(Color.BLACK, 210)
+                    }
+
+                    val slicePath = Path()
+                    slicePath.moveTo(0f, topY)
+                    slicePath.lineTo(sliceWidth / 2f, baseY)
+                    slicePath.lineTo(-sliceWidth / 2f, baseY)
+                    slicePath.close()
+                    canvas.drawPath(slicePath, fleshPaint)
+
+                    val rindHeight = sliceHeight * 0.22f
+                    val rindRect = RectF(
+                        -sliceWidth / 2f,
+                        baseY - rindHeight,
+                        sliceWidth / 2f,
+                        baseY + rindHeight * 0.6f
+                    )
+                    canvas.drawRoundRect(rindRect, rindHeight, rindHeight, rindPaint)
+
+                    val pithRect = RectF(
+                        -sliceWidth / 2f,
+                        baseY - rindHeight * 1.15f,
+                        sliceWidth / 2f,
+                        baseY - rindHeight * 0.25f
+                    )
+                    canvas.drawRoundRect(pithRect, rindHeight * 0.9f, rindHeight * 0.9f, pithPaint)
+
+                    val seedHeight = sliceHeight * 0.22f
+                    val seedWidth = seedHeight * 0.45f
+                    val seedBaseY = topY + sliceHeight * 0.58f
+                    val seedOffsets = listOf(-sliceWidth * 0.28f, 0f, sliceWidth * 0.28f)
+                    seedOffsets.forEach { offsetX ->
+                        canvas.save()
+                        canvas.translate(offsetX, seedBaseY)
+                        val tilt = when {
+                            offsetX < 0f -> -14f
+                            offsetX > 0f -> 14f
+                            else -> 0f
+                        }
+                        canvas.rotate(tilt)
+                        canvas.drawOval(
+                            RectF(
+                                -seedWidth / 2f,
+                                -seedHeight / 2f,
+                                seedWidth / 2f,
+                                seedHeight / 2f
+                            ),
+                            seedPaint
+                        )
+                        canvas.restore()
+                    }
+                    false
+                }
+                "butterfly" -> {
+                    val wingWidth = size * 0.52f
+                    val wingHeight = size * 0.46f
+                    val wingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = iconColor
+                        alpha = (Color.alpha(iconColor) * 0.9f).toInt()
+                    }
+                    val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 90)
+                    }
+                    val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = ColorUtils.blendARGB(iconColor, Color.BLACK, 0.55f)
+                    }
+                    val antennaPaint = Paint(bodyPaint).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = size * 0.045f
+                        strokeCap = Paint.Cap.ROUND
+                    }
+
+                    val innerOffset = size * 0.22f
+                    canvas.drawOval(
+                        RectF(
+                            -wingWidth - innerOffset,
+                            -wingHeight,
+                            -innerOffset,
+                            wingHeight
+                        ),
+                        wingPaint
+                    )
+                    canvas.drawOval(
+                        RectF(
+                            innerOffset,
+                            -wingHeight,
+                            wingWidth + innerOffset,
+                            wingHeight
+                        ),
+                        wingPaint
+                    )
+
+                    val highlightWidth = size * 0.36f
+                    val highlightHeight = wingHeight * 0.65f
+                    listOf(-wingWidth * 0.7f, wingWidth * 0.7f).forEach { offsetX ->
+                        canvas.drawOval(
+                            RectF(
+                                offsetX - highlightWidth / 2f,
+                                -highlightHeight,
+                                offsetX + highlightWidth / 2f,
+                                highlightHeight
+                            ),
+                            highlightPaint
+                        )
+                    }
+
+                    val bodyRect = RectF(
+                        -size * 0.09f,
+                        -size * 0.38f,
+                        size * 0.09f,
+                        size * 0.38f
+                    )
+                    canvas.drawRoundRect(bodyRect, size * 0.12f, size * 0.12f, bodyPaint)
+
+                    canvas.drawLine(0f, -size * 0.38f, -size * 0.22f, -size * 0.6f, antennaPaint)
+                    canvas.drawLine(0f, -size * 0.38f, size * 0.22f, -size * 0.6f, antennaPaint)
+                    false
+                }
+                "snowcap" -> {
+                    val capWidth = size * 0.9f
+                    val capHeight = size * 0.42f
+                    val top = -size * 0.5f
+                    val snowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = iconColor
+                    }
+                    val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.FILL
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 200)
+                    }
+                    val flakePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 210)
+                        strokeWidth = size * 0.05f
+                        strokeCap = Paint.Cap.ROUND
+                    }
+
+                    val capRect = RectF(-capWidth / 2f, top, capWidth / 2f, top + capHeight)
+                    canvas.drawRoundRect(capRect, capHeight * 0.6f, capHeight * 0.6f, snowPaint)
+
+                    val driftRadius = capHeight * 0.36f
+                    val driftCenters = listOf(
+                        PointF(-capWidth * 0.3f, top + capHeight * 0.65f),
+                        PointF(0f, top + capHeight * 0.78f),
+                        PointF(capWidth * 0.28f, top + capHeight * 0.62f)
+                    )
+                    driftCenters.forEachIndexed { index, center ->
+                        val radius = driftRadius * (0.95f + index * 0.05f)
+                        canvas.drawCircle(center.x, center.y, radius, snowPaint)
+                        canvas.drawCircle(center.x, center.y - radius * 0.35f, radius * 0.55f, shadePaint)
+                    }
+
+                    val flakeRadius = size * 0.12f
+                    val flakeCenters = listOf(
+                        PointF(-capWidth * 0.28f, size * 0.12f),
+                        PointF(capWidth * 0.3f, size * 0.05f)
+                    )
+                    flakeCenters.forEach { center ->
+                        canvas.save()
+                        canvas.translate(center.x, center.y)
+                        canvas.drawLine(-flakeRadius, 0f, flakeRadius, 0f, flakePaint)
+                        canvas.drawLine(0f, -flakeRadius, 0f, flakeRadius, flakePaint)
+                        canvas.drawLine(
+                            -flakeRadius * 0.7f,
+                            -flakeRadius * 0.7f,
+                            flakeRadius * 0.7f,
+                            flakeRadius * 0.7f,
+                            flakePaint
+                        )
+                        canvas.drawLine(
+                            -flakeRadius * 0.7f,
+                            flakeRadius * 0.7f,
+                            flakeRadius * 0.7f,
+                            -flakeRadius * 0.7f,
+                            flakePaint
+                        )
+                        canvas.restore()
+                    }
+                    false
+                }
+                "star" -> {
+                    val starPath = createStarPath(size * 0.45f, sparkle = false)
+                    canvas.drawPath(starPath, overlayPaint)
+                    true
+                }
+                "bolt" -> {
+                    val boltPath = Path()
+                    boltPath.moveTo(-size * 0.12f, -size * 0.5f)
+                    boltPath.lineTo(size * 0.04f, -size * 0.12f)
+                    boltPath.lineTo(-size * 0.08f, -size * 0.12f)
+                    boltPath.lineTo(size * 0.12f, size * 0.5f)
+                    boltPath.lineTo(-size * 0.04f, size * 0.18f)
+                    boltPath.lineTo(size * 0.08f, size * 0.18f)
+                    boltPath.close()
+                    canvas.drawPath(boltPath, overlayPaint)
+                    true
+                }
+                "download" -> {
+                    val shaftWidth = size * 0.18f
+                    val shaftHeight = size * 0.48f
+                    val shaftRect = RectF(
+                        -shaftWidth / 2f,
+                        -shaftHeight / 2f,
+                        shaftWidth / 2f,
+                        shaftHeight * 0.1f
+                    )
+                    canvas.drawRoundRect(shaftRect, shaftWidth, shaftWidth, overlayPaint)
+
+                    val arrowPath = Path()
+                    arrowPath.moveTo(-size * 0.3f, shaftHeight * 0.05f)
+                    arrowPath.lineTo(0f, shaftHeight * 0.52f)
+                    arrowPath.lineTo(size * 0.3f, shaftHeight * 0.05f)
+                    arrowPath.close()
+                    canvas.drawPath(arrowPath, overlayPaint)
+
+                    val barRect = RectF(
+                        -size * 0.32f,
+                        -shaftHeight * 0.65f,
+                        size * 0.32f,
+                        -shaftHeight * 0.5f
+                    )
+                    canvas.drawRoundRect(barRect, size * 0.12f, size * 0.12f, overlayPaint)
+                    true
+                }
+                "chat" -> {
+                    val bubbleWidth = size * 0.62f
+                    val bubbleHeight = size * 0.46f
+                    val rect = RectF(
+                        -bubbleWidth / 2f,
+                        -bubbleHeight / 2f,
+                        bubbleWidth / 2f,
+                        bubbleHeight / 2f
+                    )
+                    canvas.drawRoundRect(rect, bubbleHeight * 0.6f, bubbleHeight * 0.6f, overlayPaint)
+
+                    val tailPath = Path()
+                    tailPath.moveTo(rect.right - bubbleWidth * 0.28f, rect.bottom)
+                    tailPath.lineTo(rect.right - bubbleWidth * 0.46f, rect.bottom + bubbleHeight * 0.34f)
+                    tailPath.lineTo(rect.right - bubbleWidth * 0.62f, rect.bottom)
+                    tailPath.close()
+                    canvas.drawPath(tailPath, overlayPaint)
+
+                    val linePaint = Paint(overlayPaint).apply {
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 210)
+                        style = Paint.Style.STROKE
+                        strokeWidth = bubbleHeight * 0.08f
+                        strokeCap = Paint.Cap.ROUND
+                    }
+                    val centerY = rect.centerY()
+                    canvas.drawLine(
+                        rect.left + bubbleWidth * 0.18f,
+                        centerY - bubbleHeight * 0.12f,
+                        rect.right - bubbleWidth * 0.2f,
+                        centerY - bubbleHeight * 0.12f,
+                        linePaint
+                    )
+                    canvas.drawLine(
+                        rect.left + bubbleWidth * 0.18f,
+                        centerY + bubbleHeight * 0.05f,
+                        rect.right - bubbleWidth * 0.38f,
+                        centerY + bubbleHeight * 0.05f,
+                        linePaint
+                    )
+                    true
+                }
+                "leaf" -> {
+                    val leafWidth = size * 0.6f
+                    val leafHeight = size * 0.7f
+                    val leafPath = Path()
+                    leafPath.moveTo(0f, -leafHeight / 2f)
+                    leafPath.cubicTo(
+                        leafWidth / 2f,
+                        -leafHeight / 3f,
+                        leafWidth / 2f,
+                        leafHeight / 3f,
+                        0f,
+                        leafHeight / 2f
+                    )
+                    leafPath.cubicTo(
+                        -leafWidth / 2f,
+                        leafHeight / 3f,
+                        -leafWidth / 2f,
+                        -leafHeight / 3f,
+                        0f,
+                        -leafHeight / 2f
+                    )
+                    leafPath.close()
+                    canvas.drawPath(leafPath, overlayPaint)
+
+                    val veinPaint = Paint(overlayPaint).apply {
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 190)
+                        style = Paint.Style.STROKE
+                        strokeWidth = leafWidth * 0.06f
+                        strokeCap = Paint.Cap.ROUND
+                    }
+                    canvas.drawLine(0f, -leafHeight * 0.35f, 0f, leafHeight * 0.35f, veinPaint)
+                    canvas.drawLine(0f, -leafHeight * 0.05f, leafWidth * 0.24f, leafHeight * 0.18f, veinPaint)
+                    canvas.drawLine(0f, -leafHeight * 0.05f, -leafWidth * 0.26f, leafHeight * 0.06f, veinPaint)
+                    true
+                }
+                "bell" -> {
+                    val bellWidth = size * 0.58f
+                    val bellHeight = size * 0.66f
+                    val bellPath = Path()
+                    bellPath.moveTo(-bellWidth / 2f, bellHeight * 0.1f)
+                    bellPath.quadTo(-bellWidth / 2f, -bellHeight / 2f, 0f, -bellHeight / 2f)
+                    bellPath.quadTo(bellWidth / 2f, -bellHeight / 2f, bellWidth / 2f, bellHeight * 0.1f)
+                    bellPath.lineTo(bellWidth * 0.34f, bellHeight * 0.55f)
+                    bellPath.lineTo(-bellWidth * 0.34f, bellHeight * 0.55f)
+                    bellPath.close()
+                    canvas.drawPath(bellPath, overlayPaint)
+
+                    val handleRect = RectF(
+                        -bellWidth * 0.16f,
+                        -bellHeight * 0.78f,
+                        bellWidth * 0.16f,
+                        -bellHeight * 0.55f
+                    )
+                    canvas.drawRoundRect(handleRect, bellWidth * 0.12f, bellWidth * 0.12f, overlayPaint)
+
+                    val clapperPaint = Paint(overlayPaint).apply {
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 215)
+                    }
+                    canvas.drawCircle(0f, bellHeight * 0.55f, size * 0.09f, clapperPaint)
+                    true
+                }
+                "note" -> {
+                    val headRadius = size * 0.2f
+                    val stemHeight = size * 0.6f
+                    val stemWidth = headRadius * 0.4f
+                    val primaryHead = PointF(headRadius * 0.55f, stemHeight / 2f - headRadius * 0.1f)
+                    val secondaryHead = PointF(
+                        primaryHead.x - headRadius * 0.95f,
+                        primaryHead.y + headRadius * 0.7f
+                    )
+
+                    val stemRect = RectF(
+                        primaryHead.x - stemWidth / 2f,
+                        -stemHeight / 2f,
+                        primaryHead.x + stemWidth / 2f,
+                        primaryHead.y
+                    )
+                    canvas.drawRoundRect(stemRect, stemWidth, stemWidth, overlayPaint)
+                    canvas.drawCircle(primaryHead.x, primaryHead.y, headRadius, overlayPaint)
+                    canvas.drawCircle(secondaryHead.x, secondaryHead.y, headRadius * 0.95f, overlayPaint)
+
+                    val beamPath = Path()
+                    beamPath.moveTo(primaryHead.x + stemWidth / 2f, -stemHeight / 2f)
+                    beamPath.lineTo(primaryHead.x + stemWidth * 1.6f, -stemHeight / 3f)
+                    beamPath.lineTo(primaryHead.x + stemWidth * 1.6f, -stemHeight / 4f)
+                    beamPath.lineTo(primaryHead.x + stemWidth / 2f, -stemHeight / 6f)
+                    beamPath.close()
+                    canvas.drawPath(beamPath, overlayPaint)
+                    true
+                }
+                "ghost" -> {
+                    val ghostWidth = size * 0.6f
+                    val ghostHeight = size * 0.7f
+                    val ghostPath = Path()
+                    ghostPath.moveTo(-ghostWidth / 2f, ghostHeight * 0.3f)
+                    ghostPath.quadTo(-ghostWidth / 2f, -ghostHeight / 2f, 0f, -ghostHeight / 2f)
+                    ghostPath.quadTo(ghostWidth / 2f, -ghostHeight / 2f, ghostWidth / 2f, ghostHeight * 0.3f)
+                    ghostPath.lineTo(ghostWidth * 0.3f, ghostHeight / 2f)
+                    ghostPath.lineTo(0f, ghostHeight * 0.35f)
+                    ghostPath.lineTo(-ghostWidth * 0.3f, ghostHeight / 2f)
+                    ghostPath.close()
+                    canvas.drawPath(ghostPath, overlayPaint)
+
+                    val eyePaint = Paint().apply { color = Color.WHITE }
+                    val pupilPaint = Paint().apply { color = ColorUtils.blendARGB(iconColor, Color.BLACK, 0.55f) }
+                    val eyeRadius = ghostWidth * 0.12f
+                    val pupilRadius = eyeRadius * 0.45f
+                    val eyeY = -ghostHeight * 0.12f
+                    canvas.drawCircle(-ghostWidth * 0.18f, eyeY, eyeRadius, eyePaint)
+                    canvas.drawCircle(ghostWidth * 0.18f, eyeY, eyeRadius, eyePaint)
+                    canvas.drawCircle(-ghostWidth * 0.18f, eyeY, pupilRadius, pupilPaint)
+                    canvas.drawCircle(ghostWidth * 0.18f, eyeY, pupilRadius, pupilPaint)
+                    true
+                }
+                "cat" -> {
+                    val headRadius = size * 0.36f
+
+                    val leftEar = Path()
+                    leftEar.moveTo(-headRadius * 0.6f, -headRadius * 0.2f)
+                    leftEar.lineTo(-headRadius * 1.2f, -headRadius * 0.95f)
+                    leftEar.lineTo(-headRadius * 0.2f, -headRadius * 0.65f)
+                    leftEar.close()
+
+                    val rightEar = Path()
+                    rightEar.moveTo(headRadius * 0.6f, -headRadius * 0.2f)
+                    rightEar.lineTo(headRadius * 1.2f, -headRadius * 0.95f)
+                    rightEar.lineTo(headRadius * 0.2f, -headRadius * 0.65f)
+                    rightEar.close()
+
+                    canvas.drawPath(leftEar, overlayPaint)
+                    canvas.drawPath(rightEar, overlayPaint)
+                    canvas.drawCircle(0f, 0f, headRadius, overlayPaint)
+
+                    val eyePaint = Paint().apply { color = Color.WHITE }
+                    val detailColor = ColorUtils.blendARGB(iconColor, Color.BLACK, 0.55f)
+                    val pupilPaint = Paint().apply { color = detailColor }
+                    val eyeRadius = headRadius * 0.18f
+                    val pupilRadius = eyeRadius * 0.55f
+                    val eyeY = -headRadius * 0.05f
+                    canvas.drawCircle(-headRadius * 0.4f, eyeY, eyeRadius, eyePaint)
+                    canvas.drawCircle(headRadius * 0.4f, eyeY, eyeRadius, eyePaint)
+                    canvas.drawCircle(-headRadius * 0.4f, eyeY, pupilRadius, pupilPaint)
+                    canvas.drawCircle(headRadius * 0.4f, eyeY, pupilRadius, pupilPaint)
+
+                    val nosePaint = Paint().apply { color = detailColor }
+                    val nosePath = Path()
+                    nosePath.moveTo(0f, headRadius * 0.18f)
+                    nosePath.lineTo(-headRadius * 0.12f, headRadius * 0.05f)
+                    nosePath.lineTo(headRadius * 0.12f, headRadius * 0.05f)
+                    nosePath.close()
+                    canvas.drawPath(nosePath, nosePaint)
+
+                    val whiskerPaint = Paint().apply {
+                        color = ColorUtils.setAlphaComponent(detailColor, 200)
+                        strokeWidth = headRadius * 0.08f
+                        strokeCap = Paint.Cap.ROUND
+                        style = Paint.Style.STROKE
+                    }
+                    canvas.drawLine(-headRadius * 0.5f, headRadius * 0.2f, -headRadius * 1.0f, headRadius * 0.1f, whiskerPaint)
+                    canvas.drawLine(-headRadius * 0.5f, headRadius * 0.3f, -headRadius * 1.0f, headRadius * 0.35f, whiskerPaint)
+                    canvas.drawLine(headRadius * 0.5f, headRadius * 0.2f, headRadius * 1.0f, headRadius * 0.1f, whiskerPaint)
+                    canvas.drawLine(headRadius * 0.5f, headRadius * 0.3f, headRadius * 1.0f, headRadius * 0.35f, whiskerPaint)
+                    true
+                }
+                "candy" -> {
+                    val candyRadius = size * 0.26f
+                    canvas.drawCircle(0f, 0f, candyRadius, overlayPaint)
+
+                    val leftWrapper = Path()
+                    leftWrapper.moveTo(-candyRadius, -candyRadius * 0.7f)
+                    leftWrapper.lineTo(-candyRadius - candyRadius * 0.9f, 0f)
+                    leftWrapper.lineTo(-candyRadius, candyRadius * 0.7f)
+                    leftWrapper.close()
+                    canvas.drawPath(leftWrapper, overlayPaint)
+
+                    val rightWrapper = Path()
+                    rightWrapper.moveTo(candyRadius, -candyRadius * 0.7f)
+                    rightWrapper.lineTo(candyRadius + candyRadius * 0.9f, 0f)
+                    rightWrapper.lineTo(candyRadius, candyRadius * 0.7f)
+                    rightWrapper.close()
+                    canvas.drawPath(rightWrapper, overlayPaint)
+
+                    val swirlPaint = Paint(overlayPaint).apply {
+                        color = ColorUtils.setAlphaComponent(Color.WHITE, 200)
+                        style = Paint.Style.STROKE
+                        strokeWidth = candyRadius * 0.22f
+                        strokeCap = Paint.Cap.ROUND
+                    }
+                    val swirlRect = RectF(
+                        -candyRadius * 0.55f,
+                        -candyRadius * 0.55f,
+                        candyRadius * 0.55f,
+                        candyRadius * 0.55f
+                    )
+                    canvas.drawArc(swirlRect, 210f, 210f, false, swirlPaint)
+                    true
+                }
+                else -> false
+            }
+
+            canvas.restore()
+            return consumed
+        }
+
+        private fun createStarPath(radius: Float, sparkle: Boolean): Path {
+            val path = Path()
+            val points = if (sparkle) 4 else 5
+            val innerRadius = radius * if (sparkle) 0.42f else 0.5f
+            val totalPoints = points * 2
+            var angle = -PI.toFloat() / 2
+            val step = PI.toFloat() / points
+            path.moveTo(0f, -radius)
+            for (i in 1 until totalPoints) {
+                angle += step
+                val currentRadius = if (i % 2 == 0) radius else innerRadius
+                val x = (cos(angle.toDouble()) * currentRadius).toFloat()
+                val y = (sin(angle.toDouble()) * currentRadius).toFloat()
+                path.lineTo(x, y)
+            }
+            path.close()
+            return path
+        }
+
+        private fun createHeartPath(size: Float): Path {
+            val radius = size / 2f
+            val left = RectF(-radius, -radius, 0f, 0f)
+            val right = RectF(0f, -radius, radius, 0f)
+            val path = Path()
+            path.addArc(left, 180f, 180f)
+            path.addArc(right, 180f, 180f)
+            path.lineTo(0f, radius * 1.6f)
+            path.close()
+            return path
+        }
+
+        private fun buildOverlayState(palette: ThemePaletteV2, key: DynamicKey): Map<String, List<OverlayElement>> {
+            if (palette.globalEffects.isEmpty()) return emptyMap()
+            val keyRect = getKeyRect(key)
+            val overlays = mutableMapOf<String, List<OverlayElement>>()
+
+            palette.globalEffects.forEach { effect ->
+                when (effect.lowercase()) {
+                    "stars" -> {
+                        val elements = generateStarOverlay(keyRect, sparkle = false)
+                        if (elements.isNotEmpty()) overlays["stars"] = elements
+                    }
+                    "sparkles" -> {
+                        val elements = generateStarOverlay(keyRect, sparkle = true)
+                        if (elements.isNotEmpty()) overlays["sparkles"] = elements
+                    }
+                    "hearts" -> {
+                        val elements = generateHeartOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["hearts"] = elements
+                    }
+                    "bubbles" -> {
+                        val elements = generateBubbleOverlay(keyRect, palette)
+                        if (elements.isNotEmpty()) overlays["bubbles"] = elements
+                    }
+                    "leaves" -> {
+                        val elements = generateLeafOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["leaves"] = elements
+                    }
+                    "snow" -> {
+                        val elements = generateSnowOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["snow"] = elements
+                    }
+                    "lightning" -> {
+                        val elements = generateLightningOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["lightning"] = elements
+                    }
+                    "confetti" -> {
+                        val elements = generateConfettiOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["confetti"] = elements
+                    }
+                    "butterflies" -> {
+                        val elements = generateButterflyOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["butterflies"] = elements
+                    }
+                    "rainbow" -> {
+                        val elements = generateRainbowOverlay(keyRect)
+                        if (elements.isNotEmpty()) overlays["rainbow"] = elements
+                    }
+                }
+            }
+
+            return overlays
+        }
+
+        private fun generateStarOverlay(keyRect: RectF, sparkle: Boolean): List<OverlayElement> {
+            val count = if (sparkle) 7 else 5
+            val spread = max(keyRect.width(), keyRect.height())
+            val minSize = min(keyRect.width(), keyRect.height()) * (if (sparkle) 0.12f else 0.18f)
+            val maxSize = min(keyRect.width(), keyRect.height()) * (if (sparkle) 0.22f else 0.28f)
+            val radiusRange = spread * (if (sparkle) 0.65f else 0.85f)
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * radiusRange
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = minSize + Random.nextFloat() * (maxSize - minSize)
+                val rotation = Random.nextFloat() * 360f
+                OverlayElement(dx, dy, size, rotation)
+            }
+        }
+
+        private fun generateHeartOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 6
+            val spread = max(keyRect.width(), keyRect.height())
+            val minSize = min(keyRect.width(), keyRect.height()) * 0.22f
+            val maxSize = min(keyRect.width(), keyRect.height()) * 0.3f
+            val radiusRange = spread * 0.75f
+            val palette = intArrayOf(
+                Color.parseColor("#FF7AAE"),
+                Color.parseColor("#FF4F93"),
+                Color.parseColor("#FF9FC5")
+            )
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * radiusRange
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = minSize + Random.nextFloat() * (maxSize - minSize)
+                val rotation = Random.nextFloat() * 30f - 15f
+                val color = palette[Random.nextInt(palette.size)]
+                OverlayElement(dx, dy, size, rotation, color)
+            }
+        }
+
+        private fun generateBubbleOverlay(keyRect: RectF, palette: ThemePaletteV2): List<OverlayElement> {
+            val count = 6
+            val spread = max(keyRect.width(), keyRect.height())
+            val minRadius = min(keyRect.width(), keyRect.height()) * 0.18f
+            val maxRadius = min(keyRect.width(), keyRect.height()) * 0.26f
+            val radiusRange = spread * 0.9f
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * radiusRange
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = minRadius + Random.nextFloat() * (maxRadius - minRadius)
+                val rotation = 0f
+                val accent = ColorUtils.setAlphaComponent(palette.specialAccent, 160 + Random.nextInt(60))
+                OverlayElement(dx, dy, size, rotation, accent)
+            }
+        }
+
+        private fun generateLeafOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 6
+            val spread = max(keyRect.width(), keyRect.height())
+            val minSize = min(keyRect.width(), keyRect.height()) * 0.2f
+            val maxSize = min(keyRect.width(), keyRect.height()) * 0.32f
+            val radiusRange = spread * 0.85f
+            val palette = intArrayOf(
+                Color.parseColor("#4CAF50"),
+                Color.parseColor("#81C784"),
+                Color.parseColor("#66BB6A"),
+                Color.parseColor("#A5D6A7")
+            )
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * radiusRange
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = minSize + Random.nextFloat() * (maxSize - minSize)
+                val rotation = Random.nextFloat() * 360f
+                val color = palette[Random.nextInt(palette.size)]
+                OverlayElement(dx, dy, size, rotation, color)
+            }
+        }
+
+        private fun generateSnowOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 5
+            val spread = max(keyRect.width(), keyRect.height())
+            val minSize = min(keyRect.width(), keyRect.height()) * 0.22f
+            val maxSize = min(keyRect.width(), keyRect.height()) * 0.32f
+            val radiusRange = spread * 0.8f
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * radiusRange
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = minSize + Random.nextFloat() * (maxSize - minSize)
+                OverlayElement(dx, dy, size, 0f, Color.WHITE)
+            }
+        }
+
+        private fun generateLightningOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 3
+            val spread = max(keyRect.width(), keyRect.height()) * 0.5f
+            val palette = intArrayOf(
+                Color.parseColor("#FFD740"),
+                Color.parseColor("#FFEA00"),
+                Color.parseColor("#FFC400")
+            )
+
+            return List(count) {
+                val dx = Random.nextFloat() * spread - spread / 2f
+                val dy = Random.nextFloat() * spread - spread / 2f
+                val size = min(keyRect.width(), keyRect.height()) * (0.25f + Random.nextFloat() * 0.15f)
+                val rotation = Random.nextFloat() * 40f - 20f
+
+                val segments = FloatArray(8).apply {
+                    this[0] = 0f
+                    this[1] = -size * 0.6f
+                    this[2] = size * (0.15f + Random.nextFloat() * 0.2f)
+                    this[3] = -size * 0.15f
+                    this[4] = -size * (0.2f + Random.nextFloat() * 0.1f)
+                    this[5] = size * (0.1f + Random.nextFloat() * 0.1f)
+                    this[6] = size * (0.18f + Random.nextFloat() * 0.15f)
+                    this[7] = size * 0.6f
+                }
+
+                OverlayElement(dx, dy, size, rotation, palette[Random.nextInt(palette.size)], segments)
+            }
+        }
+
+        private fun generateConfettiOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 10
+            val spread = max(keyRect.width(), keyRect.height())
+            val palette = intArrayOf(
+                Color.parseColor("#FF6F61"),
+                Color.parseColor("#F7B32B"),
+                Color.parseColor("#4ECDC4"),
+                Color.parseColor("#845EC2"),
+                Color.parseColor("#FF9671")
+            )
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * spread * 0.95f
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = min(keyRect.width(), keyRect.height()) * (0.18f + Random.nextFloat() * 0.1f)
+                val rotation = Random.nextFloat() * 360f
+                val color = palette[Random.nextInt(palette.size)]
+                val width = size * (0.8f + Random.nextFloat() * 0.4f)
+                val height = size * (0.35f + Random.nextFloat() * 0.25f)
+                OverlayElement(dx, dy, size, rotation, color, floatArrayOf(width, height))
+            }
+        }
+
+        private fun generateButterflyOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 4
+            val spread = max(keyRect.width(), keyRect.height()) * 0.9f
+            val minSize = min(keyRect.width(), keyRect.height()) * 0.22f
+            val maxSize = min(keyRect.width(), keyRect.height()) * 0.32f
+            val palette = intArrayOf(
+                Color.parseColor("#FFB6C1"),
+                Color.parseColor("#FFCCBC"),
+                Color.parseColor("#B39DDB"),
+                Color.parseColor("#90CAF9")
+            )
+
+            return List(count) {
+                val angle = Random.nextFloat() * (PI.toFloat() * 2f)
+                val distance = Random.nextFloat() * spread
+                val dx = (cos(angle.toDouble()) * distance).toFloat()
+                val dy = (sin(angle.toDouble()) * distance).toFloat()
+                val size = minSize + Random.nextFloat() * (maxSize - minSize)
+                val rotation = Random.nextFloat() * 360f
+                val color = palette[Random.nextInt(palette.size)]
+                OverlayElement(dx, dy, size, rotation, color)
+            }
+        }
+
+        private fun generateRainbowOverlay(keyRect: RectF): List<OverlayElement> {
+            val count = 2
+            val spread = max(keyRect.width(), keyRect.height()) * 0.6f
+
+            return List(count) {
+                val dx = Random.nextFloat() * spread - spread / 2f
+                val dy = Random.nextFloat() * spread / 1.2f - spread / 2.4f
+                val size = min(keyRect.width(), keyRect.height()) * (0.35f + Random.nextFloat() * 0.1f)
+                val rotation = Random.nextFloat() * 40f - 20f
+                val thickness = size * (0.1f + Random.nextFloat() * 0.05f)
+                OverlayElement(dx, dy, size, rotation, null, floatArrayOf(thickness))
+            }
+        }
+
+        private fun computeBounceScale(progress: Float): Float {
+            return if (progress < 0.5f) {
+                1f - 0.08f * (progress / 0.5f)
+            } else {
+                0.92f + 0.08f * ((progress - 0.5f) / 0.5f)
+            }
+        }
+
+        private fun startTapEffect(key: DynamicKey) {
+            val palette = themeManager.getCurrentPalette()
+            val overlays = buildOverlayState(palette, key)
+            if (!tapEffectsEnabled && overlays.isEmpty()) return
+            val duration = when (tapEffectStyle) {
+                UnifiedKeyboardView.TapEffectStyle.NONE -> 320L
+                UnifiedKeyboardView.TapEffectStyle.RIPPLE -> 320L
+                UnifiedKeyboardView.TapEffectStyle.GLOW -> 360L
+                UnifiedKeyboardView.TapEffectStyle.BOUNCE -> 240L
+            }
+            tapEffectState = TapEffectState(
+                key = key,
+                startTime = SystemClock.uptimeMillis(),
+                duration = duration,
+                overlays = overlays
+            )
+            postInvalidateOnAnimation()
         }
         
         /**
@@ -1993,10 +3456,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             val maxDrawableExtent = (min(key.width, key.height) - dpToPx(6)).coerceAtLeast(dpToPx(20))
             val iconSize = min(desiredSizePx.toFloat(), maxDrawableExtent.toFloat())
 
+            val accentForeground = if (borderlessMode) palette.specialAccent else getAccentForegroundColor(palette)
+            val shouldAccent = themeManager.shouldUseAccentForKey(key.keyType)
             val tintColor = when {
                 key.keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
+                shouldAccent -> accentForeground
                 key.keyType == "enter" || key.keyType == "shift" -> palette.specialAccent
-                themeManager.shouldUseAccentForKey(key.keyType) -> if (borderlessMode) palette.specialAccent else Color.WHITE
                 else -> palette.keyText
             }
 
@@ -2040,10 +3505,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 textPaint.textSize = spToPx(20f) * labelScaleMultiplier
             }
 
+            val accentForeground = if (borderlessMode) palette.specialAccent else getAccentForegroundColor(palette)
+            val shouldAccent = themeManager.shouldUseAccentForKey(key.keyType)
             textPaint.color = when {
                 key.keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
+                shouldAccent -> accentForeground
                 key.keyType == "enter" || key.keyType == "shift" -> palette.specialAccent
-                themeManager.shouldUseAccentForKey(key.keyType) -> if (borderlessMode) palette.specialAccent else Color.WHITE
                 else -> themeManager.getTextColor(keyIdentifier)
             }
 
@@ -2084,6 +3551,11 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas.drawText(hint.take(2), hintX, hintY, hintPaint)
         }
 
+        private fun getAccentForegroundColor(palette: ThemePaletteV2): Int {
+            val luminance = ColorUtils.calculateLuminance(palette.specialAccent)
+            return if (luminance > 0.5) Color.BLACK else Color.WHITE
+        }
+
         override fun onTouchEvent(event: MotionEvent): Boolean {
             // Handle accent popup sliding selection
             if (accentPopup?.isShowing == true) {
@@ -2093,33 +3565,52 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             return when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     val key = findKeyAtPosition(event.x.toInt(), event.y.toInt())
+                    swipeEligibleForCurrentGesture = key?.let {
+                        val normalizedType = it.keyType.lowercase()
+                        !nonSwipeKeyTypes.contains(normalizedType)
+                    } ?: false
+
                     if (key != null) {
                         handleKeyDown(key)
-                        // Start swipe tracking
-                        fingerPoints.clear()
-                        fingerPoints.add(floatArrayOf(event.x, event.y))
-                        isSwipeActive = false
+                        if (parentView.swipeEnabled) {
+                            startSwipeTracking(event.x, event.y)
+                            if (!swipeEligibleForCurrentGesture) {
+                                cancelTrailFade()
+                                fingerPoints.clear()
+                                isSwipeActive = false
+                                invalidate()
+                            }
+                        } else {
+                            cancelTrailFade()
+                            fingerPoints.clear()
+                            isSwipeActive = false
+                            invalidate()
+                        }
                         true
-                    } else false
+                    } else {
+                        swipeEligibleForCurrentGesture = false
+                        false
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (!swipeEligibleForCurrentGesture || !parentView.swipeEnabled) {
+                        return true
+                    }
                     // Continue swipe tracking
                     if (!isSwipeActive && fingerPoints.isNotEmpty()) {
                         val st = fingerPoints[0]
                         val dx = event.x - st[0]
                         val dy = event.y - st[1]
                         val dist = sqrt(dx*dx + dy*dy)
-                        if (dist > SWIPE_START_THRESHOLD && parentView.swipeEnabled) {
+                        if (dist > SWIPE_START_THRESHOLD) {
                             isSwipeActive = true
                             // Cancel long press when swipe starts
                             cancelLongPressInternal()
-                            if (parentView.swipeEnabled) {
-                                parentView.swipeListener?.onSwipeStarted()
-                            }
+                            parentView.swipeListener?.onSwipeStarted()
                         }
                     }
                     
-                    if (isSwipeActive && parentView.swipeEnabled) {
+                    if (isSwipeActive) {
                         fingerPoints.add(floatArrayOf(event.x, event.y))
                         invalidate() // Redraw for swipe trail
                     }
@@ -2131,18 +3622,21 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     // Stop delete repeat
                     stopDeleteRepeat()
                     
-                    if (isSwipeActive && fingerPoints.size > 1) {
-                        // Handle swipe
-                        endSwipe()
+                    if (swipeEligibleForCurrentGesture && isSwipeActive && fingerPoints.size > 1) {
+                        completeSwipe()
                     } else if (key != null && !isSwipeActive && accentPopup?.isShowing != true) {
                         // Handle tap (only if no popup is showing)
                         handleKeyUp(key)
+                        fingerPoints.clear()
+                        invalidate()
+                    } else {
+                        fingerPoints.clear()
+                        invalidate()
                     }
-                    
+
                     cancelLongPressInternal()
-                    fingerPoints.clear()
                     isSwipeActive = false
-                    invalidate()
+                    swipeEligibleForCurrentGesture = false
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
@@ -2150,6 +3644,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     cancelLongPressInternal()
                     isSwipeActive = false
                     fingerPoints.clear()
+                    swipeEligibleForCurrentGesture = false
                     invalidate()
                     true
                 }
@@ -2157,6 +3652,120 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             }
         }
         
+        private fun startSwipeTracking(x: Float, y: Float) {
+            cancelTrailFade()
+            fingerPoints.clear()
+            fingerPoints.add(floatArrayOf(x, y))
+            swipeStartTime = System.currentTimeMillis()
+            isSwipeActive = false
+        }
+
+        private fun cancelTrailFade() {
+            trailRunnable?.let { trailHandler.removeCallbacks(it) }
+            trailRunnable = null
+        }
+
+        private fun scheduleTrailFade() {
+            cancelTrailFade()
+            if (!parentView.showGlideTrailSetting || parentView.glideTrailFadeMs <= 0L) {
+                fingerPoints.clear()
+                invalidate()
+                return
+            }
+            trailRunnable = Runnable {
+                fingerPoints.clear()
+                invalidate()
+            }
+            trailHandler.postDelayed(trailRunnable!!, parentView.glideTrailFadeMs)
+        }
+
+        fun clearSwipeTrail() {
+            cancelTrailFade()
+            fingerPoints.clear()
+            invalidate()
+        }
+
+        private fun completeSwipe() {
+            if (fingerPoints.size < 2) {
+                fingerPoints.clear()
+                invalidate()
+                return
+            }
+
+            val durationMs = (System.currentTimeMillis() - swipeStartTime).coerceAtLeast(1L)
+            val distancePx = computeTotalDistance()
+            val velocity = (distancePx / durationMs) * 1000f
+            val meetsDistance = distancePx >= parentView.swipeDistanceThresholdPx
+            val meetsVelocity = velocity >= parentView.swipeVelocityThresholdPxPerSec
+
+            val normalized = fingerPoints.map { p ->
+                Pair(p[0] / width.coerceAtLeast(1).toFloat(), p[1] / height.coerceAtLeast(1).toFloat())
+            }
+            val keySeq = resolveKeySequence(normalized)
+
+            val treatAsTyping = parentView.gestureSettings.glideTyping &&
+                keySeq.size > 1 &&
+                (meetsDistance || meetsVelocity)
+
+            if (treatAsTyping) {
+                parentView.swipeListener?.onSwipeDetected(keySeq, normalized)
+                parentView.handleSwipeSuggestions(keySeq, normalized)
+                if (parentView.showGlideTrailSetting) {
+                    scheduleTrailFade()
+                } else {
+                    fingerPoints.clear()
+                    invalidate()
+                }
+            } else {
+                val source = determineGestureSource()
+                if (source != null) {
+                    parentView.gestureHandler?.invoke(source)
+                }
+                if (parentView.showGlideTrailSetting) {
+                    scheduleTrailFade()
+                } else {
+                    fingerPoints.clear()
+                    invalidate()
+                }
+            }
+
+            parentView.swipeListener?.onSwipeEnded()
+            isSwipeActive = false
+        }
+
+        private fun computeTotalDistance(): Float {
+            if (fingerPoints.size < 2) return 0f
+            var total = 0f
+            for (i in 1 until fingerPoints.size) {
+                val prev = fingerPoints[i - 1]
+                val curr = fingerPoints[i]
+                val dx = curr[0] - prev[0]
+                val dy = curr[1] - prev[1]
+                total += sqrt(dx * dx + dy * dy)
+            }
+            return total
+        }
+
+        private fun determineGestureSource(): GestureSource? {
+            val start = fingerPoints.firstOrNull() ?: return null
+            val end = fingerPoints.lastOrNull() ?: return null
+            val dx = end[0] - start[0]
+            val dy = end[1] - start[1]
+            val absDx = abs(dx)
+            val absDy = abs(dy)
+
+            val threshold = parentView.swipeDistanceThresholdPx
+            if (absDx < threshold && absDy < threshold) {
+                return null
+            }
+
+            return if (absDx > absDy) {
+                if (dx > 0) GestureSource.GENERAL_SWIPE_RIGHT else GestureSource.GENERAL_SWIPE_LEFT
+            } else {
+                if (dy > 0) GestureSource.GENERAL_SWIPE_DOWN else GestureSource.GENERAL_SWIPE_UP
+            }
+        }
+
         private fun handleAccentPopupTouch(event: MotionEvent): Boolean {
             when (event.action) {
                 MotionEvent.ACTION_MOVE -> {
@@ -2302,12 +3911,14 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             // Stop delete repeat if it's the delete key
             if (key.keyType == "backspace") {
                 stopDeleteRepeat()
+                startTapEffect(key)
                 return
             }
             
             cancelLongPressInternal()
             if (accentPopup?.isShowing != true) {
-                        onKeyCallback?.invoke(key.code, intArrayOf(key.code))
+                onKeyCallback?.invoke(key.code, intArrayOf(key.code))
+                startTapEffect(key)
             }
         }
 
@@ -2437,8 +4048,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             }
         }
 
-        private fun getKeyWidthFactor(label: String): Float = when {
-            label == " " || label == "SPACE" || label.startsWith("space") -> 2.5f
+        private fun getKeyWidthFactor(label: String, hasUtilityKey: Boolean = true): Float = when {
+            label == " " || label == "SPACE" || label.startsWith("space") -> {
+                if (hasUtilityKey) 2.5f else 3.5f  // Add 1f when utility key is removed
+            }
             label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
             label == "⇧" || label == "SHIFT" -> 1.5f
             label == "⌫" || label == "DELETE" -> 1.5f

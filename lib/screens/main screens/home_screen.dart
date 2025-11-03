@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:ai_keyboard/theme/theme_v2.dart';
 import 'package:ai_keyboard/theme/theme_editor_v2.dart';
 import 'package:ai_keyboard/screens/main%20screens/chat_screen.dart';
+import 'package:ai_keyboard/services/firebase_auth_service.dart';
+import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,6 +20,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final FirebaseAuthService _authService = FirebaseAuthService();
 
   Future<void> _applyTheme(KeyboardThemeV2 theme) async {
     try {
@@ -54,6 +57,19 @@ class _HomeScreenState extends State<HomeScreen> {
   
 
   void _showUpgradeProBottomSheet() {
+    // Check if user is logged in
+    if (_authService.currentUser == null) {
+      // User is not logged in, navigate to login screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const LoginIllustraionScreen(),
+        ),
+      );
+      return;
+    }
+    
+    // User is logged in, show upgrade pro screen
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

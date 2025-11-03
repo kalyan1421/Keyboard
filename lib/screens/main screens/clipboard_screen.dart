@@ -76,7 +76,7 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
       clearPrimaryClipAffects = prefs.getBool('clear_primary_clip_affects') ?? true;
       internalClipboard = prefs.getBool('internal_clipboard') ?? true;
       syncFromSystem = prefs.getBool('sync_from_system') ?? true;
-      syncToFivive = prefs.getBool('sync_to_fivive') ?? true;
+      
     });
   }
   
@@ -88,7 +88,7 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
     await prefs.setBool('clear_primary_clip_affects', clearPrimaryClipAffects);
     await prefs.setBool('internal_clipboard', internalClipboard);
     await prefs.setBool('sync_from_system', syncFromSystem);
-    await prefs.setBool('sync_to_fivive', syncToFivive);
+   
     
     // Send settings to keyboard via MethodChannel
     debugPrint('🔧 Sending clipboard settings: enabled=$clipboardHistory, maxSize=${historySize.toInt()}');
@@ -336,16 +336,6 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
 
             const SizedBox(height: 12),
 
-            // Sync to fivive
-            _buildToggleSetting(
-              title: 'Sync to fivive',
-              description: 'Sync to fivive clipboard',
-              value: syncToFivive,
-              onChanged: (value) {
-                setState(() => syncToFivive = value);
-                _saveSettings();
-              },
-            ),
 
             const SizedBox(height: 32),
 

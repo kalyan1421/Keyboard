@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+const Object _noChange = Object();
+
 /// CleverType Theme Engine V2 - Flutter Models
 /// Mirrors the Android ThemeModels.kt for consistency
 /// Single source of truth for theme data across platforms
@@ -80,7 +82,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF1A73E8),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF5F6368),
       ),
       toolbar: const ThemeToolbar(
@@ -109,13 +111,13 @@ class KeyboardThemeV2 {
         ),
       ),
       effects: const ThemeEffects(
-        pressAnimation: 'ripple',
+        pressAnimation: 'none',
         globalEffects: [],
       ),
       sounds: const ThemeSounds(
-        pack: 'soft',
+        pack: 'silent',
         customUris: {},
-        volume: 0.6,
+        volume: 0.0,
       ),
       stickers: const ThemeStickers(
         enabled: false,
@@ -177,7 +179,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF1A73E8),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF5F6368),
       ),
       toolbar: const ThemeToolbar(
@@ -206,13 +208,13 @@ class KeyboardThemeV2 {
         ),
       ),
       effects: const ThemeEffects(
-        pressAnimation: 'ripple',
+        pressAnimation: 'none',
         globalEffects: [],
       ),
       sounds: const ThemeSounds(
-        pack: 'soft',
+        pack: 'silent',
         customUris: {},
-        volume: 0.6,
+        volume: 0.0,
       ),
       stickers: const ThemeStickers(
         enabled: false,
@@ -277,7 +279,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFE91E63),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(
@@ -378,7 +380,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF4285F4),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(
@@ -462,7 +464,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF007AFF),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFFFFF), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF007AFF), iconPack: 'default'),
@@ -503,7 +505,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFFF9F1A),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF121212), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFFF9F1A), iconPack: 'default'),
@@ -544,7 +546,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFFFB300),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFD54F), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFFB300), iconPack: 'default'),
@@ -585,7 +587,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFC62828),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFE53935), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFC62828), iconPack: 'default'),
@@ -629,7 +631,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFFF7043),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF222222),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFB347), icon: Color(0xFF222222), heightDp: 44.0, activeAccent: Color(0xFFFF7043), iconPack: 'default'),
@@ -670,7 +672,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFFF9F1A),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0x80000000), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFFF9F1A), iconPack: 'default'),
@@ -711,7 +713,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF0D47A1),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF2196F3), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF0D47A1), iconPack: 'default'),
@@ -752,7 +754,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF1B5E20),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF4CAF50), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF1B5E20), iconPack: 'default'),
@@ -793,7 +795,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF4A148C),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF9C27B0), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF4A148C), iconPack: 'default'),
@@ -834,7 +836,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFE65100),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFF9800), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFE65100), iconPack: 'default'),
@@ -875,7 +877,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF880E4F),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFE91E63), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF880E4F), iconPack: 'default'),
@@ -916,7 +918,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF006064),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF00BCD4), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF006064), iconPack: 'default'),
@@ -957,7 +959,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF01579B),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF03A9F4), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF01579B), iconPack: 'default'),
@@ -998,7 +1000,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF0D47A1),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF1565C0), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF0D47A1), iconPack: 'default'),
@@ -1039,7 +1041,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF827717),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFCDDC39), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF827717), iconPack: 'default'),
@@ -1080,7 +1082,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFFF6F00),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFC107), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFF6F00), iconPack: 'default'),
@@ -1121,7 +1123,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF004D40),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF009688), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF004D40), iconPack: 'default'),
@@ -1162,7 +1164,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF1A237E),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF3F51B5), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF1A237E), iconPack: 'default'),
@@ -1203,7 +1205,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF3E2723),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF795548), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF3E2723), iconPack: 'default'),
@@ -1244,7 +1246,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF311B92),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFFFFFFF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF673AB7), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF311B92), iconPack: 'default'),
@@ -1285,7 +1287,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF33691E),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFF8BC34A), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFF33691E), iconPack: 'default'),
@@ -1326,7 +1328,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFBF360C),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFF5722), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'default'),
@@ -1370,7 +1372,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF880E4F),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF4A148C),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFE91E63), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF880E4F), iconPack: 'valentine'),
@@ -1455,7 +1457,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF00E5FF),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFE1F5FE),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF0D1421), icon: Color(0xFF00E5FF), heightDp: 44.0, activeAccent: Color(0xFF00E5FF), iconPack: 'default'),
@@ -1499,7 +1501,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFBF360C),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFFBF360C),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFFF7043), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'default'),
@@ -1543,7 +1545,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF006064),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF006064),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF006064), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFF00BCD4), iconPack: 'default'),
@@ -1625,7 +1627,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFFAD1457),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF880E4F),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFF8BBD9), icon: Color(0xFF880E4F), heightDp: 44.0, activeAccent: Color(0xFFAD1457), iconPack: 'default'),
@@ -1666,7 +1668,7 @@ class KeyboardThemeV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF6C4400),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF6C4400),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFD700), icon: Color(0xFF6C4400), heightDp: 44.0, activeAccent: Color(0xFF6C4400), iconPack: 'star'),
@@ -1916,6 +1918,11 @@ class ThemeKeys {
   final double radius;
   final ThemeKeysShadow shadow;
   final ThemeKeysFont font;
+  final String styleId;
+  final List<Color> gradient;
+  final String? overlayIcon;
+  final Color? overlayIconColor;
+  final List<String> overlayIconTargets;
 
   const ThemeKeys({
     required this.preset,
@@ -1927,6 +1934,11 @@ class ThemeKeys {
     required this.radius,
     required this.shadow,
     required this.font,
+    this.styleId = 'default',
+    this.gradient = const [],
+    this.overlayIcon,
+    this.overlayIconColor,
+    this.overlayIconTargets = const [],
   });
 
   factory ThemeKeys.fromJson(Map<String, dynamic> json) {
@@ -1940,6 +1952,18 @@ class ThemeKeys {
       radius: (json['radius'] ?? 10.0).toDouble(),
       shadow: ThemeKeysShadow.fromJson(json['shadow'] ?? {}),
       font: ThemeKeysFont.fromJson(json['font'] ?? {}),
+      styleId: json['styleId'] ?? 'default',
+      gradient: (json['gradient'] as List<dynamic>?)
+              ?.map((value) => _parseColor(value) ?? const Color(0x00000000))
+              .where((color) => color.alpha > 0)
+              .toList() ??
+          const [],
+      overlayIcon: json['overlayIcon'],
+      overlayIconColor: _parseColor(json['overlayIconColor']),
+      overlayIconTargets: (json['overlayIconTargets'] as List<dynamic>?)
+              ?.map((value) => value.toString())
+              .toList() ??
+          const [],
     );
   }
 
@@ -1954,6 +1978,11 @@ class ThemeKeys {
       'radius': radius,
       'shadow': shadow.toJson(),
       'font': font.toJson(),
+      'styleId': styleId,
+      'gradient': gradient.map(_colorToHex).toList(),
+      'overlayIcon': overlayIcon,
+      'overlayIconColor': overlayIconColor != null ? _colorToHex(overlayIconColor!) : null,
+      'overlayIconTargets': overlayIconTargets,
     };
   }
 }
@@ -2068,7 +2097,7 @@ class ThemeSpecialKeys {
     return ThemeSpecialKeys(
       accent: _parseColor(json['accent']) ?? const Color(0xFFFF9F1A),
       useAccentForEnter: json['useAccentForEnter'] ?? true,
-      applyTo: List<String>.from(json['applyTo'] ?? ['enter', 'globe', 'emoji', 'mic']),
+      applyTo: _normalizeSpecialKeyApplyList(json['applyTo']),
       spaceLabelColor: _parseColor(json['spaceLabelColor']) ?? const Color(0xFFFFFFFF),
     );
   }
@@ -2242,7 +2271,7 @@ class ThemeEffects {
 
   factory ThemeEffects.fromJson(Map<String, dynamic> json) {
     return ThemeEffects(
-      pressAnimation: json['pressAnimation'] ?? 'ripple',
+      pressAnimation: json['pressAnimation'] ?? 'none',
       globalEffects: List<String>.from(json['globalEffects'] ?? []),
     );
   }
@@ -2270,9 +2299,9 @@ class ThemeSounds {
 
   factory ThemeSounds.fromJson(Map<String, dynamic> json) {
     return ThemeSounds(
-      pack: json['pack'] ?? 'soft',
+      pack: json['pack'] ?? 'silent',
       customUris: Map<String, String>.from(json['customUris'] ?? {}),
-      volume: (json['volume'] ?? 0.6).toDouble(),
+      volume: (json['volume'] ?? 0.0).toDouble(),
     );
   }
 
@@ -2386,6 +2415,32 @@ Color? _parseColor(String? colorStr) {
 String _colorToHex(Color color) {
   final hex = color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
   return '#$hex';
+}
+
+List<String> _normalizeSpecialKeyApplyList(dynamic raw) {
+  const requiredKeys = ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'];
+  final result = <String>[];
+
+  if (raw is Iterable) {
+    for (final value in raw) {
+      final str = value?.toString();
+      if (str != null && str.isNotEmpty && !result.contains(str)) {
+        result.add(str);
+      }
+    }
+  }
+
+  if (result.isEmpty) {
+    result.addAll(requiredKeys);
+  } else {
+    for (final key in requiredKeys) {
+      if (!result.contains(key)) {
+        result.add(key);
+      }
+    }
+  }
+
+  return result;
 }
 
 /// Theme management functions
@@ -2511,7 +2566,7 @@ class ThemeManagerV2 {
       specialKeys: const ThemeSpecialKeys(
         accent: Color(0xFF1A73E8),
         useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic'],
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
         spaceLabelColor: Color(0xFF3C4043),
       ),
     );
@@ -2574,6 +2629,11 @@ extension ThemeKeysCopyWith on ThemeKeys {
     double? radius,
     ThemeKeysShadow? shadow,
     ThemeKeysFont? font,
+    String? styleId,
+    List<Color>? gradient,
+    Object? overlayIcon = _noChange,
+    Object? overlayIconColor = _noChange,
+    List<String>? overlayIconTargets,
   }) {
     return ThemeKeys(
       preset: preset ?? this.preset,
@@ -2585,6 +2645,15 @@ extension ThemeKeysCopyWith on ThemeKeys {
       radius: radius ?? this.radius,
       shadow: shadow ?? this.shadow,
       font: font ?? this.font,
+      styleId: styleId ?? this.styleId,
+      gradient: gradient != null ? List<Color>.from(gradient) : this.gradient,
+      overlayIcon: identical(overlayIcon, _noChange) ? this.overlayIcon : overlayIcon as String?,
+      overlayIconColor: identical(overlayIconColor, _noChange)
+          ? this.overlayIconColor
+          : overlayIconColor as Color?,
+      overlayIconTargets: overlayIconTargets != null
+          ? List<String>.from(overlayIconTargets)
+          : this.overlayIconTargets,
     );
   }
 }
@@ -2615,7 +2684,7 @@ extension ThemeSpecialKeysCopyWith on ThemeSpecialKeys {
     return ThemeSpecialKeys(
       accent: accent ?? this.accent,
       useAccentForEnter: useAccentForEnter ?? this.useAccentForEnter,
-      applyTo: applyTo ?? this.applyTo,
+      applyTo: _normalizeSpecialKeyApplyList(applyTo ?? this.applyTo),
       spaceLabelColor: spaceLabelColor ?? this.spaceLabelColor,
     );
   }

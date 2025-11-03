@@ -1,5 +1,5 @@
 name: ai_keyboard
-description: "A new Flutter project."
+description: "Kvive - Smart AI-powered keyboard with intelligent suggestions"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
@@ -48,13 +48,14 @@ dependencies:
   # Permission handler for managing permissions
   permission_handler: ^11.3.1
   # Android intent for opening system settings
-  android_intent_plus: ^5.1.0
+  android_intent_plus: ^6.0.0
   
   # Firebase dependencies
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.3
   google_sign_in: ^6.2.1
+  flutter_colorpicker: ^1.1.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -88,6 +89,7 @@ flutter:
     - assets/icons/
     - assets/keyboards/
     - assets/animations/
+    - assets/dictionaries/
     
 
   # An image asset can refer to one or more resolution-specific "variants", see

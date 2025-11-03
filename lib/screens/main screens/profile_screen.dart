@@ -31,8 +31,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _displayName = user.displayName ?? user.email?.split('@').first ?? 'User';
         _userEmail = user.email ?? '';
       });
+    } else {
+      setState(() {
+        _displayName = 'Guest';
+        _userEmail = '';
+      });
     }
   }
+
+  bool get _isUserLoggedIn => _authService.currentUser != null;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +51,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ReminderCard(onUpgradeTap: () {}),
+              _ReminderCard(
+                onUpgradeTap: () {
+                  if (!_isUserLoggedIn) {
+                    // Navigate to login screen if user is not logged in
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const LoginIllustraionScreen(),
+                      ),
+                    );
+                  } else {
+                    // TODO: Navigate to upgrade/premium screen for logged in users
+                  }
+                },
+              ),
               const SizedBox(height: 24),
               Text(
                 'Profile',
@@ -53,13 +74,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              _TileOption(
-                title: 'Change Profile Name',
-                subtitle: 'Edit or change profile name',
-                icon: AppIcons.profile_color,
-                onTap: () => _showChangeNameDialog(context),
-              ),
-              const SizedBox(height: 12),
+              // Only show Change Profile Name if user is logged in
+              if (_isUserLoggedIn) ...[
+                _TileOption(
+                  title: 'Change Profile Name',
+                  subtitle: 'Edit or change profile name',
+                  icon: AppIcons.profile_color,
+                  onTap: () => _showChangeNameDialog(context),
+                ),
+                const SizedBox(height: 12),
+              ],
               _TileOption(
                 title: 'Theme',
                 subtitle: 'Edit or change theme',
@@ -100,20 +124,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _TileOption(
-                title: 'Log out',
-                subtitle: _userEmail,
-                icon: AppIcons.logout_icon,
-                onTap: () => _showLogoutDialog(context),
-              ),
-              const SizedBox(height: 12),
-              _TileOption(
-                title: 'Delete Account',
-                subtitle: 'Delete permanently account',
-                icon: AppIcons.Delete_icon,
-                onTap: () => _showDeleteDialog(context),
-              ),
+              // Only show Log out and Delete Account if user is logged in
+              if (_isUserLoggedIn) ...[
+                const SizedBox(height: 12),
+                _TileOption(
+                  title: 'Log out',
+                  subtitle: _userEmail,
+                  icon: AppIcons.logout_icon,
+                  onTap: () => _showLogoutDialog(context),
+                ),
+                const SizedBox(height: 12),
+                _TileOption(
+                  title: 'Delete Account',
+                  subtitle: 'Delete permanently account',
+                  icon: AppIcons.Delete_icon,
+                  onTap: () => _showDeleteDialog(context),
+                ),
+              ],
               const SizedBox(height: 24),
             ],
           ),

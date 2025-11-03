@@ -12,6 +12,7 @@ import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
 import com.example.ai_keyboard.utils.LogUtil
 import com.example.ai_keyboard.utils.BroadcastManager
+import com.example.ai_keyboard.GestureAction
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.tasks.await
@@ -142,6 +143,52 @@ class MainActivity : FlutterActivity() {
                                     )
                                 }
                                 LogUtil.d("MainActivity", "✓ Settings updated via MethodChannel")
+                                result.success(true)
+                            }
+                            "updateGestureSettings" -> {
+                                val glideTyping = call.argument<Boolean>("glideTyping") ?: true
+                                val showTrailPref = call.argument<Boolean>("showGlideTrail") ?: true
+                                val effectiveShowTrail = glideTyping && showTrailPref
+                                val fadeMs = if (effectiveShowTrail) {
+                                    call.argument<Int>("glideTrailFadeTime") ?: 200
+                                } else 0
+                                val alwaysDeleteWord = call.argument<Boolean>("alwaysDeleteWord") ?: true
+                                val velocityThreshold = call.argument<Double>("swipeVelocityThreshold") ?: 1900.0
+                                val distanceThreshold = call.argument<Double>("swipeDistanceThreshold") ?: 20.0
+                                val swipeUpAction = call.argument<String>("swipeUpAction") ?: GestureAction.SHIFT.code
+                                val swipeDownAction = call.argument<String>("swipeDownAction") ?: GestureAction.HIDE_KEYBOARD.code
+                                val swipeLeftAction = call.argument<String>("swipeLeftAction") ?: GestureAction.DELETE_CHARACTER_BEFORE_CURSOR.code
+                                val swipeRightAction = call.argument<String>("swipeRightAction") ?: GestureAction.INSERT_SPACE.code
+                                val spaceLongPressAction = call.argument<String>("spaceLongPressAction") ?: GestureAction.SHOW_INPUT_METHOD_PICKER.code
+                                val spaceSwipeDownAction = call.argument<String>("spaceSwipeDownAction") ?: GestureAction.NONE.code
+                                val spaceSwipeLeftAction = call.argument<String>("spaceSwipeLeftAction") ?: GestureAction.MOVE_CURSOR_LEFT.code
+                                val spaceSwipeRightAction = call.argument<String>("spaceSwipeRightAction") ?: GestureAction.MOVE_CURSOR_RIGHT.code
+                                val deleteSwipeLeftAction = call.argument<String>("deleteSwipeLeftAction") ?: GestureAction.DELETE_WORD_BEFORE_CURSOR.code
+                                val deleteLongPressAction = call.argument<String>("deleteLongPressAction") ?: GestureAction.DELETE_CHARACTER_BEFORE_CURSOR.code
+
+                                withContext(Dispatchers.IO) {
+                                    val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
+                                    prefs.edit()
+                                        .putBoolean("gestures_glide_typing", glideTyping)
+                                        .putBoolean("gestures_show_glide_trail", effectiveShowTrail)
+                                        .putInt("gestures_glide_trail_fade_ms", fadeMs)
+                                        .putBoolean("gestures_always_delete_word", alwaysDeleteWord)
+                                        .putFloat("gestures_swipe_velocity_threshold", velocityThreshold.toFloat())
+                                        .putFloat("gestures_swipe_distance_threshold", distanceThreshold.toFloat())
+                                        .putString("gestures_swipe_up_action", swipeUpAction)
+                                        .putString("gestures_swipe_down_action", swipeDownAction)
+                                        .putString("gestures_swipe_left_action", swipeLeftAction)
+                                        .putString("gestures_swipe_right_action", swipeRightAction)
+                                        .putString("gestures_space_long_press_action", spaceLongPressAction)
+                                        .putString("gestures_space_swipe_down_action", spaceSwipeDownAction)
+                                        .putString("gestures_space_swipe_left_action", spaceSwipeLeftAction)
+                                        .putString("gestures_space_swipe_right_action", spaceSwipeRightAction)
+                                        .putString("gestures_delete_swipe_left_action", deleteSwipeLeftAction)
+                                        .putString("gestures_delete_long_press_action", deleteLongPressAction)
+                                        .apply()
+
+                                    notifyKeyboardServiceSettingsChanged()
+                                }
                                 result.success(true)
                             }
                             "notifyConfigChange" -> {

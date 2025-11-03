@@ -117,7 +117,7 @@ class SettingsManager {
     }
     
     var soundIntensity: Int {
-        get { userDefaults?.integer(forKey: "sound_intensity") ?? 1 } // light by default
+        get { userDefaults?.integer(forKey: "sound_intensity") ?? 0 }
         set {
             userDefaults?.set(newValue, forKey: "sound_intensity")
             userDefaults?.synchronize()
@@ -125,7 +125,7 @@ class SettingsManager {
     }
     
     var visualIntensity: Int {
-        get { userDefaults?.integer(forKey: "visual_intensity") ?? 2 } // medium by default
+        get { userDefaults?.integer(forKey: "visual_intensity") ?? 0 }
         set {
             userDefaults?.set(newValue, forKey: "visual_intensity")
             userDefaults?.synchronize()

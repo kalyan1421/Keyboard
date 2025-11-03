@@ -118,6 +118,19 @@
           "default": 0.12,
           "description": "Ripple effect transparency"
         },
+        "styleId": {
+          "type": "string",
+          "default": "default",
+          "description": "Identifier for the selected button style"
+        },
+        "gradient": {
+          "type": "array",
+          "description": "Optional gradient colors for key background",
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+          }
+        },
         "border": {
           "type": "object",
           "properties": {
@@ -191,6 +204,23 @@
             }
           },
           "default": {}
+        },
+        "overlayIcon": {
+          "type": ["string", "null"],
+          "description": "Optional overlay icon identifier (e.g. heart, ball)"
+        },
+        "overlayIconColor": {
+          "type": ["string", "null"],
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Hex color applied to the overlay icon"
+        },
+        "overlayIconTargets": {
+          "type": "array",
+          "description": "Key types that should display the overlay icon",
+          "items": {
+            "type": "string",
+            "enum": ["space","enter","backspace","emoji","globe","mic","symbols"]
+          }
         }
       },
       "default": {}
@@ -217,7 +247,7 @@
             "type": "string", 
             "enum": ["enter","shift","globe","emoji","mic","backspace","symbols","space"] 
           },
-          "default": ["enter","globe","emoji","mic"],
+          "default": ["enter","globe","emoji","mic","symbols","backspace"],
           "description": "Keys to apply accent color to"
         },
         "spaceLabelColor": { 

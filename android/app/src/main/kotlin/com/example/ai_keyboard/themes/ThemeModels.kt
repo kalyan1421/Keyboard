@@ -58,6 +58,11 @@ data class KeyboardThemeV2(
         val radius: Float,
         val shadow: Shadow,
         val font: Font,
+        val styleId: String = "default",
+        val gradient: List<Int> = emptyList(),
+        val overlayIcon: String? = null,
+        val overlayIconColor: Int? = null,
+        val overlayIconTargets: List<String> = emptyList(),
         val perKeyCustomization: Map<String, KeyCustomization> = emptyMap() // Per-key customization by key identifier
     ) {
         data class Border(
@@ -210,6 +215,11 @@ data class KeyboardThemeV2(
                 radius = obj.optDouble("radius", 8.0).toFloat(),
                 shadow = parseShadow(obj.optJSONObject("shadow")),
                 font = parseFont(obj.optJSONObject("font")),
+                styleId = obj.optString("styleId", "default"),
+                gradient = parseColorArray(obj.optJSONArray("gradient")) ?: emptyList(),
+                overlayIcon = obj.optString("overlayIcon", "").takeIf { it.isNotEmpty() },
+                overlayIconColor = obj.optString("overlayIconColor", "").takeIf { it.isNotEmpty() }?.let { parseColor(it) },
+                overlayIconTargets = parseStringArray(obj.optJSONArray("overlayIconTargets")),
                 perKeyCustomization = parsePerKeyCustomization(obj.optJSONObject("perKeyCustomization"))
             )
         }
@@ -280,34 +290,47 @@ data class KeyboardThemeV2(
         }
 
         private fun parseSpecialKeys(obj: JSONObject?): SpecialKeys {
-            if (obj == null) return SpecialKeys(
-                accent = Color.parseColor("#FF9F1A"),
-                useAccentForEnter = true,
-                applyTo = listOf("enter", "globe", "emoji", "mic"),
-                spaceLabelColor = Color.parseColor("#FFFFFF")
-            )
+            val requiredKeys = listOf("enter", "globe", "emoji", "mic", "symbols", "backspace")
+            
+            if (obj == null) {
+                return SpecialKeys(
+                    accent = Color.parseColor("#FF9F1A"),
+                    useAccentForEnter = true,
+                    applyTo = requiredKeys,
+                    spaceLabelColor = Color.parseColor("#FFFFFF")
+                )
+            }
+            
+            val parsedApplyTo = parseStringArray(obj.optJSONArray("applyTo"))?.toMutableList() ?: mutableListOf()
+            requiredKeys.forEach { key ->
+                if (!parsedApplyTo.contains(key)) {
+                    parsedApplyTo.add(key)
+                }
+            }
+            if (parsedApplyTo.isEmpty()) {
+                parsedApplyTo.addAll(requiredKeys)
+            }
             
             return SpecialKeys(
                 accent = parseColor(obj.optString("accent", "#FF9F1A")),
                 useAccentForEnter = obj.optBoolean("useAccentForEnter", true),
-                applyTo = parseStringArray(obj.optJSONArray("applyTo")).takeIf { it.isNotEmpty() }
-                    ?: listOf("enter", "globe", "emoji", "mic"),
+                applyTo = parsedApplyTo.toList(),
                 spaceLabelColor = parseColor(obj.optString("spaceLabelColor", "#FFFFFF"))
             )
         }
 
         private fun parseEffects(obj: JSONObject?): Effects {
             return Effects(
-                pressAnimation = obj?.optString("pressAnimation", "ripple") ?: "ripple",
+                pressAnimation = obj?.optString("pressAnimation", "none") ?: "none",
                 globalEffects = parseStringArray(obj?.optJSONArray("globalEffects")) ?: emptyList()
             )
         }
 
         private fun parseSounds(obj: JSONObject?): Sounds {
             if (obj == null) return Sounds(
-                pack = "soft",
+                pack = "silent",
                 customUris = emptyMap(),
-                volume = 0.6f
+                volume = 0f
             )
             
             val customUris = mutableMapOf<String, String>()
@@ -318,9 +341,9 @@ data class KeyboardThemeV2(
             }
             
             return Sounds(
-                pack = obj.optString("pack", "soft"),
+                pack = obj.optString("pack", "silent"),
                 customUris = customUris,
-                volume = obj.optDouble("volume", 0.6).toFloat()
+                volume = obj.optDouble("volume", 0.0).toFloat().coerceIn(0f, 1f)
             )
         }
 
@@ -409,17 +432,17 @@ data class KeyboardThemeV2(
                 specialKeys = SpecialKeys(
                     accent = Color.parseColor("#1A73E8"),
                     useAccentForEnter = true,
-                    applyTo = listOf("enter", "globe", "emoji", "mic"),
+                    applyTo = listOf("enter", "globe", "emoji", "mic", "symbols", "backspace"),
                     spaceLabelColor = Color.parseColor("#5F6368")
                 ),
                 effects = Effects(
-                    pressAnimation = "ripple",
+                    pressAnimation = "none",
                     globalEffects = emptyList()
                 ),
                 sounds = Sounds(
-                    pack = "soft",
+                    pack = "silent",
                     customUris = emptyMap(),
-                    volume = 0.6f
+                    volume = 0f
                 ),
                 stickers = Stickers(
                     enabled = false,
@@ -514,6 +537,21 @@ data class KeyboardThemeV2(
         keysObj.put("pressed", formatColor(keys.pressed))
         keysObj.put("rippleAlpha", keys.rippleAlpha)
         keysObj.put("radius", keys.radius)
+        keysObj.put("styleId", keys.styleId)
+        if (keys.gradient.isNotEmpty()) {
+            val gradientArray = JSONArray()
+            keys.gradient.forEach { gradientArray.put(formatColor(it)) }
+            keysObj.put("gradient", gradientArray)
+        } else {
+            keysObj.remove("gradient")
+        }
+        keys.overlayIcon?.let { keysObj.put("overlayIcon", it) }
+        keys.overlayIconColor?.let { keysObj.put("overlayIconColor", formatColor(it)) }
+        if (keys.overlayIconTargets.isNotEmpty()) {
+            val targetsArray = JSONArray()
+            keys.overlayIconTargets.forEach { targetsArray.put(it) }
+            keysObj.put("overlayIconTargets", targetsArray)
+        }
         
         // Keys border
         val borderObj = JSONObject()
@@ -702,6 +740,11 @@ data class ThemePaletteV2(
     val keyBorderWidth: Float = theme.keys.border.widthDp
     val keyShadowElevation: Float = theme.keys.shadow.elevationDp
     val keyShadowGlow: Boolean = theme.keys.shadow.glow
+    val keyStyleId: String = theme.keys.styleId
+    val keyGradientColors: List<Int> = theme.keys.gradient
+    val keyOverlayIcon: String? = theme.keys.overlayIcon
+    val keyOverlayIconColor: Int? = theme.keys.overlayIconColor
+    val keyOverlayTargets: List<String> = theme.keys.overlayIconTargets
     
     // Effects
     val pressAnimation: String = theme.effects.pressAnimation
@@ -709,7 +752,10 @@ data class ThemePaletteV2(
     
     // Special key rules
     fun shouldApplyAccentTo(keyType: String): Boolean {
-        return theme.specialKeys.applyTo.contains(keyType)
+        return when (keyType) {
+            "enter" -> theme.specialKeys.useAccentForEnter && theme.specialKeys.applyTo.contains(keyType)
+            else -> theme.specialKeys.applyTo.contains(keyType)
+        }
     }
     
     fun shouldUseAccentForEnter(): Boolean {

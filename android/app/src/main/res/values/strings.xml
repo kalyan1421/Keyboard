@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AI Keyboard</string>
-    <string name="ime_name">AI Keyboard</string>
+    <string name="app_name">Kvive</string>
+    <string name="ime_name">Kvive Keyboard</string>
     <string name="ime_description">Smart AI-powered keyboard with intelligent suggestions</string>
     
     <!-- Keyboard Labels -->
@@ -16,7 +16,7 @@
     <string name="key_done">Done</string>
     
     <!-- Settings -->
-    <string name="settings_title">AI Keyboard Settings</string>
+    <string name="settings_title">Kvive Keyboard Settings</string>
     <string name="theme_title">Keyboard Theme</string>
     <string name="ai_suggestions_title">AI Suggestions</string>
     <string name="ai_suggestions_summary">Get smart text predictions and corrections</string>
@@ -37,13 +37,13 @@
     <string name="voice_input_not_available">Voice input not available</string>
     <string name="voice_input_listening">Listening...</string>
     <string name="voice_input_error">Unable to start voice input</string>
-    <string name="keyboard_not_enabled">Please enable AI Keyboard in system settings</string>
-    <string name="keyboard_not_active">Please select AI Keyboard as your input method</string>
+    <string name="keyboard_not_enabled">Please enable Kvive Keyboard in system settings</string>
+    <string name="keyboard_not_active">Please select Kvive Keyboard as your input method</string>
     
     <!-- Additional Strings for Keyboard Service -->
-    <string name="english_ime_name">AI Keyboard</string>
-    <string name="english_ime_settings">AI Keyboard Settings</string>
-    <string name="ai_keyboard_name">AI Keyboard</string>
+    <string name="english_ime_name">Kvive Keyboard</string>
+    <string name="english_ime_settings">Kvive Keyboard Settings</string>
+    <string name="ai_keyboard_name">Kvive Keyboard</string>
     
     <!-- Emoji Panel -->
     <string name="emoji_search">Search emojis</string>
