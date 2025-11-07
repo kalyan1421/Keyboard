@@ -1,6 +1,7 @@
 package com.example.ai_keyboard.themes
 
 import android.graphics.*
+import androidx.core.graphics.ColorUtils
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -34,11 +35,13 @@ data class KeyboardThemeV2(
         val imageOpacity: Float,
         val gradient: Gradient?,
         val overlayEffects: List<String>,
-        val adaptive: Adaptive?
+        val adaptive: Adaptive?,
+        val brightness: Float
     ) {
         data class Gradient(
-            val colors: List<Int>, 
-            val orientation: String // "TOP_BOTTOM", "TL_BR", etc.
+            val colors: List<Int>,
+            val orientation: String, // "TOP_BOTTOM", "TL_BR", etc.
+            val stops: List<Float>? = null
         )
         
         data class Adaptive(
@@ -170,7 +173,8 @@ data class KeyboardThemeV2(
                 imageOpacity = 0.85f,
                 gradient = null,
                 overlayEffects = emptyList(),
-                adaptive = null
+                adaptive = null,
+                brightness = 1.0f
             )
             
             val gradient = obj.optJSONObject("gradient")?.let {
@@ -179,7 +183,8 @@ data class KeyboardThemeV2(
                         Color.parseColor("#2B2B2B"),
                         Color.parseColor("#1B1B1F")
                     ),
-                    orientation = it.optString("orientation", "TOP_BOTTOM")
+                    orientation = it.optString("orientation", "TOP_BOTTOM"),
+                    stops = parseFloatArray(it.optJSONArray("stops"))
                 )
             }
             
@@ -198,7 +203,8 @@ data class KeyboardThemeV2(
                 imageOpacity = obj.optDouble("imageOpacity", 0.85).toFloat(),
                 gradient = gradient,
                 overlayEffects = parseStringArray(obj.optJSONArray("overlayEffects")),
-                adaptive = adaptive
+                adaptive = adaptive,
+                brightness = obj.optDouble("brightness", 1.0).toFloat().coerceIn(0.2f, 2.0f)
             )
         }
 
@@ -404,6 +410,18 @@ data class KeyboardThemeV2(
             return colors.takeIf { it.isNotEmpty() }
         }
 
+        private fun parseFloatArray(array: JSONArray?): List<Float>? {
+            if (array == null) return null
+            val positions = mutableListOf<Float>()
+            for (i in 0 until array.length()) {
+                val value = array.optDouble(i, Double.NaN)
+                if (!value.isNaN()) {
+                    positions.add(value.toFloat())
+                }
+            }
+            return positions.takeIf { it.isNotEmpty() }
+        }
+
         private fun parseStringArray(array: JSONArray?): List<String> {
             if (array == null) return emptyList()
             val strings = mutableListOf<String>()
@@ -423,26 +441,27 @@ data class KeyboardThemeV2(
                     type = "solid",
                     color = Color.parseColor("#FFFFFFFF"),
                     imagePath = null,
-                    imageOpacity = 0.85f,
+                    imageOpacity = 1.0f,
                     gradient = null,
                     overlayEffects = emptyList(),
-                    adaptive = null
+                    adaptive = null,
+                    brightness = 1.0f
                 ),
                 keys = createDefaultKeys(),
                 specialKeys = SpecialKeys(
-                    accent = Color.parseColor("#1A73E8"),
+                    accent = Color.parseColor("#FF007AFF"),
                     useAccentForEnter = true,
                     applyTo = listOf("enter", "globe", "emoji", "mic", "symbols", "backspace"),
-                    spaceLabelColor = Color.parseColor("#5F6368")
+                    spaceLabelColor = Color.parseColor("#FF000000")
                 ),
                 effects = Effects(
-                    pressAnimation = "none",
+                    pressAnimation = "ripple",
                     globalEffects = emptyList()
                 ),
                 sounds = Sounds(
-                    pack = "silent",
+                    pack = "default",
                     customUris = emptyMap(),
-                    volume = 0f
+                    volume = 0.5f
                 ),
                 stickers = Stickers(
                     enabled = false,
@@ -464,17 +483,17 @@ data class KeyboardThemeV2(
 
         private fun createDefaultKeys(): Keys {
             return Keys(
-                preset = "bordered",
-                bg = Color.parseColor("#FFFFFFFF"),
-                text = Color.parseColor("#3C4043"),
-                pressed = Color.parseColor("#E8EAED"),
+                preset = "rounded",
+                bg = Color.parseColor("#FFF2F2F2"),
+                text = Color.parseColor("#FF000000"),
+                pressed = Color.parseColor("#FFDDDDDD"),
                 rippleAlpha = 0.12f,
                 border = Keys.Border(
-                    enabled = true,
-                    color = Color.parseColor("#DADCE0"),
-                    widthDp = 1.0f
+                    enabled = false,
+                    color = Color.parseColor("#FF000000"),
+                    widthDp = 0f
                 ),
-                radius = 8.0f,
+                radius = 4.0f,
                 shadow = Keys.Shadow(
                     enabled = true,
                     elevationDp = 1.0f,
@@ -482,7 +501,7 @@ data class KeyboardThemeV2(
                 ),
                 font = Keys.Font(
                     family = "Roboto",
-                    sizeSp = 18.0f,
+                    sizeSp = 16.0f,
                     bold = false,
                     italic = false
                 )
@@ -505,6 +524,7 @@ data class KeyboardThemeV2(
         background.color?.let { bgObj.put("color", formatColor(it)) }
         background.imagePath?.let { bgObj.put("imagePath", it) }
         bgObj.put("imageOpacity", background.imageOpacity)
+        bgObj.put("brightness", background.brightness)
         background.gradient?.let { gradient ->
             val gradObj = JSONObject()
             val colorsArray = JSONArray()
@@ -513,6 +533,11 @@ data class KeyboardThemeV2(
             }
             gradObj.put("colors", colorsArray)
             gradObj.put("orientation", gradient.orientation)
+            gradient.stops?.let { stops ->
+                val stopsArray = JSONArray()
+                stops.forEach { stopsArray.put(it.toDouble()) }
+                gradObj.put("stops", stopsArray)
+            }
             bgObj.put("gradient", gradObj)
         }
         if (background.overlayEffects.isNotEmpty()) {
@@ -675,6 +700,7 @@ data class ThemePaletteV2(
     val theme: KeyboardThemeV2
 ) {
     // Resolved colors based on inheritance rules
+    private val brightnessMultiplier: Float = theme.background.brightness.coerceIn(0.2f, 2.0f)
     val keyboardBg: Int = resolveKeyboardBackground()
     val usesImageBackground: Boolean = theme.background.type == "image" && !theme.background.imagePath.isNullOrEmpty()
     
@@ -690,19 +716,17 @@ data class ThemePaletteV2(
     val stickerOpacity: Float = theme.stickers.opacity
     
     private fun resolveKeyboardBackground(): Int {
-        return when (theme.background.type) {
-            "adaptive" -> {
-                // Will be resolved at runtime based on system colors
-                theme.background.color ?: Color.parseColor("#1B1B1F")
-            }
+        val base = when (theme.background.type) {
+            "adaptive" -> theme.background.color ?: Color.parseColor("#1B1B1F")
             else -> theme.background.color ?: Color.parseColor("#1B1B1F")
         }
+        return applyBrightness(base)
     }
     
     // Keys - primary theme source
-    val keyBg: Int = theme.keys.bg
-    val keyText: Int = theme.keys.text
-    val keyPressed: Int = theme.keys.pressed
+    val keyBg: Int = applyBrightness(theme.keys.bg)
+    val keyText: Int = applyBrightness(theme.keys.text, inverse = true)
+    val keyPressed: Int = applyBrightness(theme.keys.pressed)
     val keyBorder: Int = theme.keys.border.color
     val keyRadius: Float = theme.keys.radius.coerceIn(4f, 10f)
     val keyShadowEnabled: Boolean = theme.keys.shadow.enabled
@@ -714,7 +738,7 @@ data class ThemePaletteV2(
     // Toolbar & Suggestion Bar: Always match keyboard background (SIMPLIFIED)
     val toolbarBg: Int = keyboardBg
     val suggestionBg: Int = keyboardBg
-    val panelSurface: Int = if (usesImageBackground) Color.parseColor("#16171B") else keyboardBg
+    val panelSurface: Int = if (usesImageBackground) adjustForImageSurface() else keyboardBg
     
     // Toolbar icons: Use PNGs directly (no tint applied in code)
     val toolbarIcon: Int? = null  // null = no tint
@@ -785,5 +809,23 @@ data class ThemePaletteV2(
         val b = Color.blue(color)
         fun adj(c: Int) = (c + (255 - c) * delta).coerceIn(0f, 255f).toInt()
         return Color.argb(a, adj(r), adj(g), adj(b))
+    }
+
+    private fun applyBrightness(color: Int, inverse: Boolean = false): Int {
+        if (brightnessMultiplier == 1.0f) return color
+        val factor = if (inverse) {
+            (1f / brightnessMultiplier).coerceIn(0.2f, 5.0f)
+        } else {
+            brightnessMultiplier
+        }
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[2] = (hsl[2] * factor).coerceIn(0f, 1f)
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun adjustForImageSurface(): Int {
+        val base = Color.parseColor("#16171B")
+        return applyBrightness(base)
     }
 }

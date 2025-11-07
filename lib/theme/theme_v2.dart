@@ -40,100 +40,12 @@ class KeyboardThemeV2 {
     required this.advanced,
   });
 
-  /// Create default light theme (primary fallback)
+  /// Create default theme (primary fallback)
   static KeyboardThemeV2 createDefault() {
-    return KeyboardThemeV2(
+    final dark = createDarkTheme();
+    return dark.copyWith(
       id: 'default_theme',
-      name: 'Default Light',
-      mode: 'unified',
-      background: const ThemeBackground(
-        type: 'solid',
-        color: Color(0xFFFFFFFF),
-        imagePath: null,
-        imageOpacity: 0.85,
-        gradient: null,
-        overlayEffects: [],
-        adaptive: null,
-      ),
-      keys: const ThemeKeys(
-        preset: 'bordered',
-        bg: Color(0xFFFFFFFF),
-        text: Color(0xFF3C4043),
-        pressed: Color(0xFFE8EAED),
-        rippleAlpha: 0.12,
-        border: ThemeKeysBorder(
-          enabled: true,
-          color: Color(0xFFDADCE0),
-          widthDp: 1.0,
-        ),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(
-          enabled: true,
-          elevationDp: 1.0,
-          glow: false,
-        ),
-        font: ThemeKeysFont(
-          family: 'Roboto',
-          sizeSp: 18.0,
-          bold: false,
-          italic: false,
-        ),
-      ),
-      specialKeys: const ThemeSpecialKeys(
-        accent: Color(0xFF1A73E8),
-        useAccentForEnter: true,
-        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
-        spaceLabelColor: Color(0xFF5F6368),
-      ),
-      toolbar: const ThemeToolbar(
-        inheritFromKeys: true,
-        bg: Color(0xFFFFFFFF),
-        icon: Color(0xFF5F6368),
-        heightDp: 44.0,
-        activeAccent: Color(0xFF1A73E8),
-        iconPack: 'default',
-      ),
-      suggestions: const ThemeSuggestions(
-        inheritFromKeys: true,
-        bg: Color(0xFFFFFFFF),
-        text: Color(0xFF3C4043),
-        chip: ThemeChip(
-          bg: Color(0xFFF1F3F4),
-          text: Color(0xFF3C4043),
-          pressed: Color(0xFFE8EAED),
-          radius: 14.0,
-          spacingDp: 6.0,
-        ),
-        font: ThemeSuggestionsFont(
-          family: 'Roboto',
-          sizeSp: 15.0,
-          bold: false,
-        ),
-      ),
-      effects: const ThemeEffects(
-        pressAnimation: 'none',
-        globalEffects: [],
-      ),
-      sounds: const ThemeSounds(
-        pack: 'silent',
-        customUris: {},
-        volume: 0.0,
-      ),
-      stickers: const ThemeStickers(
-        enabled: false,
-        pack: '',
-        position: 'behind',
-        opacity: 0.9,
-        animated: false,
-      ),
-      advanced: const ThemeAdvanced(
-        livePreview: true,
-        galleryEnabled: true,
-        shareEnabled: true,
-        dynamicTheme: 'none',
-        seasonalPack: 'none',
-        materialYouExtract: false,
-      ),
+      name: 'Default Dark',
     );
   }
 
@@ -457,8 +369,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFDDDDDD),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF000000), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -498,7 +410,7 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF3A3A3A),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFFFFFFFF), widthDp: 0),
-        radius: 8.0,
+        radius: 5.0,
         shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
@@ -1680,6 +1592,170 @@ class KeyboardThemeV2 {
     );
   }
 
+  /// Create Bench Image theme
+  static KeyboardThemeV2 createBenchImageTheme(String localImagePath) {
+    return KeyboardThemeV2(
+      id: 'theme_bench_image',
+      name: 'Bench',
+      mode: 'unified',
+      background: ThemeBackground(
+        type: 'image',
+        color: const Color(0xFFFFFFFF).withOpacity(0.0),
+        imagePath: localImagePath,
+        imageOpacity: 0.85,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Colors.transparent, // Solid white for better visibility on image
+        text: Color(0xFF000000),
+        pressed: Color(0xFFE8E8E8),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys:  ThemeSpecialKeys(
+        accent:  Color(0xFFFFFFFF).withOpacity(0.0),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFFFFF), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFF9F1A), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFFFFFF), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFF2F2F2), text: Color(0xFF000000), pressed: Color(0xFFE8E8E8), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'default', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Circle Design Image theme
+  static KeyboardThemeV2 createCircleDesignImageTheme(String localImagePath) {
+    return KeyboardThemeV2(
+      id: 'theme_circle_design',
+      name: 'Circle Design',
+      mode: 'unified',
+      background: ThemeBackground(
+        type: 'image',
+        color: const Color(0xFFFFFFFF).withOpacity(0.0),
+        imagePath: localImagePath,
+        imageOpacity: 0.88,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFFFFFFF), // Solid white for better visibility
+        text: Color(0xFF000000),
+        pressed: Color(0xFFE8E8E8),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys:  ThemeSpecialKeys(
+        accent: const Color(0xFFFFFFFF).withOpacity(0.0),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFFFFF), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFF9F1A), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFFFFFF), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFF2F2F2), text: Color(0xFF000000), pressed: Color(0xFFE8E8E8), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'default', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Sunset Image theme
+  static KeyboardThemeV2 createSunsetImageTheme(String localImagePath) {
+    return KeyboardThemeV2(
+      id: 'theme_sunset_image',
+      name: 'Sunset',
+      mode: 'unified',
+      background: ThemeBackground(
+        type: 'image',
+        color: const Color(0xFFFFFFFF).withOpacity(0.0),
+        imagePath: localImagePath,
+        imageOpacity: 0.85,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFFFFFFF), // Solid white for better visibility
+        text: Color(0xFF000000),
+        pressed: Color(0xFFE8E8E8),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys:  ThemeSpecialKeys(
+        accent: const Color(0xFFFFFFFF).withOpacity(0.0),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFFFFF), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFF9F1A), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFFFFFF), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFF2F2F2), text: Color(0xFF000000), pressed: Color(0xFFE8E8E8), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'default', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
+  /// Create Sun Moon Image theme
+  static KeyboardThemeV2 createSunMoonImageTheme(String localImagePath) {
+    return KeyboardThemeV2(
+      id: 'theme_sun_moon',
+      name: 'Sun & Moon',
+      mode: 'unified',
+      background: ThemeBackground(
+        type: 'image',
+        color: const Color(0xFFFFFFFF).withOpacity(0.0),
+        imagePath: localImagePath,
+        imageOpacity: 0.85,
+        gradient: null,
+        overlayEffects: [],
+        adaptive: null,
+      ),
+      keys: const ThemeKeys(
+        preset: 'rounded',
+        bg: Color(0xFFFFFFFF), // Solid white for better visibility
+        text: Color(0xFF000000),
+        pressed: Color(0xFFE8E8E8),
+        rippleAlpha: 0.12,
+        border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
+        radius: 8.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
+      ),
+      specialKeys:  ThemeSpecialKeys(
+        accent:  Color(0xFFFFFFFF).withOpacity(0.0),
+        useAccentForEnter: true,
+        applyTo: ['enter', 'globe', 'emoji', 'mic', 'symbols', 'backspace'],
+        spaceLabelColor: Color(0xFFFFFFFF),
+      ),
+      toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFFFFFFF), icon: Color(0xFF000000), heightDp: 44.0, activeAccent: Color(0xFFFF9F1A), iconPack: 'default'),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFFFFFFF), text: Color(0xFF000000), chip: ThemeChip(bg: Color(0xFFF2F2F2), text: Color(0xFF000000), pressed: Color(0xFFE8E8E8), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
+      sounds: const ThemeSounds(pack: 'default', customUris: {}, volume: 0.5),
+      stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
+      advanced: const ThemeAdvanced(livePreview: true, galleryEnabled: true, shareEnabled: true, dynamicTheme: 'none', seasonalPack: 'none', materialYouExtract: false),
+    );
+  }
+
   /// Get all available preset themes (CleverType style)
   static List<KeyboardThemeV2> getPresetThemes() {
     return [
@@ -1814,6 +1890,7 @@ class ThemeBackground {
   final ThemeGradient? gradient;
   final List<String> overlayEffects;
   final ThemeAdaptive? adaptive;
+  final double brightness;
 
   const ThemeBackground({
     required this.type,
@@ -1823,6 +1900,7 @@ class ThemeBackground {
     this.gradient,
     required this.overlayEffects,
     this.adaptive,
+    this.brightness = 1.0,
   });
 
   factory ThemeBackground.fromJson(Map<String, dynamic> json) {
@@ -1834,6 +1912,7 @@ class ThemeBackground {
       gradient: json['gradient'] != null ? ThemeGradient.fromJson(json['gradient']) : null,
       overlayEffects: List<String>.from(json['overlayEffects'] ?? []),
       adaptive: json['adaptive'] != null ? ThemeAdaptive.fromJson(json['adaptive']) : null,
+      brightness: (json['brightness'] ?? 1.0).toDouble(),
     );
   }
 
@@ -1846,6 +1925,7 @@ class ThemeBackground {
       if (gradient != null) 'gradient': gradient!.toJson(),
       'overlayEffects': overlayEffects,
       if (adaptive != null) 'adaptive': adaptive!.toJson(),
+      'brightness': brightness,
     };
   }
 }
@@ -1884,17 +1964,29 @@ class ThemeAdaptive {
 class ThemeGradient {
   final List<Color> colors;
   final String orientation;
+  final List<double>? stops;
 
   const ThemeGradient({
     required this.colors,
     required this.orientation,
+    this.stops,
   });
 
   factory ThemeGradient.fromJson(Map<String, dynamic> json) {
+    final rawStops = (json['stops'] as List?)
+        ?.map((value) {
+          if (value is num) {
+            return value.toDouble().clamp(0.0, 1.0);
+          }
+          return null;
+        })
+        .whereType<double>()
+        .toList();
     return ThemeGradient(
       colors: (json['colors'] as List?)?.map((c) => _parseColor(c) ?? Colors.black).toList() ?? 
               [const Color(0xFF2B2B2B), const Color(0xFF1B1B1F)],
       orientation: json['orientation'] ?? 'TOP_BOTTOM',
+      stops: rawStops != null && rawStops.isNotEmpty ? rawStops : null,
     );
   }
 
@@ -1902,6 +1994,7 @@ class ThemeGradient {
     return {
       'colors': colors.map(_colorToHex).toList(),
       'orientation': orientation,
+      if (stops != null && stops!.isNotEmpty) 'stops': stops,
     };
   }
 }
@@ -2449,6 +2542,10 @@ class ThemeManagerV2 {
   // So 'theme.v2.json' becomes 'flutter.theme.v2.json' in native Android
   static const String _themeKey = 'theme.v2.json';
   static const String _settingsChangedKey = 'keyboard_settings.settings_changed';
+  static const MethodChannel _configChannel = MethodChannel('ai_keyboard/config');
+  static const MethodChannel _themeChannel = MethodChannel('keyboard.theme');
+  static const MethodChannel _soundChannel = MethodChannel('keyboard.sound');
+  static const MethodChannel _effectsChannel = MethodChannel('keyboard.effects');
 
   /// Save theme to SharedPreferences
   static Future<void> saveThemeV2(KeyboardThemeV2 theme) async {
@@ -2460,25 +2557,30 @@ class ThemeManagerV2 {
     await prefs.setString(_themeKey, jsonStr);
     await prefs.setBool(_settingsChangedKey, true);
     
-    // Small delay to ensure Android native layer receives the data
-    await Future.delayed(const Duration(milliseconds: 100));
     await prefs.reload();
     
-    // Send broadcast to notify Android keyboard service
-    await _sendThemeBroadcast(theme);
+    await _applyThemeViaChannel(theme);
+  }
+
+  static Future<void> _applyThemeViaChannel(KeyboardThemeV2 theme) async {
+    try {
+      final payload = Map<String, dynamic>.from(theme.toJson());
+      payload['fontScale'] = theme.keys.font.sizeSp / 18.0;
+      await _themeChannel.invokeMethod('applyTheme', payload);
+    } catch (_) {
+      await _sendThemeBroadcast(theme);
+    }
   }
   
   /// Send broadcast to Android keyboard service
   static Future<void> _sendThemeBroadcast(KeyboardThemeV2 theme) async {
     try {
-      // Use MethodChannel to send broadcast (more reliable than SharedPreferences polling)
-      const platform = MethodChannel('ai_keyboard/config');
-      await platform.invokeMethod('themeChanged', {
+      await _configChannel.invokeMethod('themeChanged', {
         'themeId': theme.id,
         'themeName': theme.name,
         'hasThemeData': true,
       });
-    } catch (e) {
+    } catch (_) {
       // Fallback: Try to trigger through settings broadcast
       await _triggerSettingsBroadcast();
     }
@@ -2487,10 +2589,43 @@ class ThemeManagerV2 {
   /// Fallback broadcast method
   static Future<void> _triggerSettingsBroadcast() async {
     try {
-      const platform = MethodChannel('ai_keyboard/config');
-      await platform.invokeMethod('settingsChanged');
-    } catch (e) {
+      await _configChannel.invokeMethod('settingsChanged');
+    } catch (_) {
       // Silently fail
+    }
+  }
+
+  static Future<void> notifySoundSelection(String name, {String? asset}) async {
+    try {
+      final payload = <String, dynamic>{'name': name};
+      if (asset != null && asset.isNotEmpty) {
+        payload['asset'] = asset;
+      }
+      await _soundChannel.invokeMethod('setSound', payload);
+    } catch (_) {
+      // Ignore failures; sound preview is optional.
+    }
+  }
+
+  static Future<void> playSoundSample(String? asset) async {
+    if (asset == null || asset.isEmpty) {
+      return;
+    }
+    try {
+      await _soundChannel.invokeMethod('playSample', {'asset': asset});
+    } catch (_) {
+      // Ignore failures; sound preview is optional.
+    }
+  }
+
+  static Future<void> applyEffectPreview(String type, double opacity) async {
+    try {
+      await _effectsChannel.invokeMethod('applyEffect', {
+        'type': type,
+        'opacity': opacity,
+      });
+    } catch (_) {
+      // Ignore failures; preview is optional.
     }
   }
 
@@ -2591,6 +2726,7 @@ extension ThemeBackgroundCopyWith on ThemeBackground {
     ThemeGradient? gradient,
     List<String>? overlayEffects,
     ThemeAdaptive? adaptive,
+    double? brightness,
   }) {
     return ThemeBackground(
       type: type ?? this.type,
@@ -2600,6 +2736,7 @@ extension ThemeBackgroundCopyWith on ThemeBackground {
       gradient: gradient ?? this.gradient,
       overlayEffects: overlayEffects ?? this.overlayEffects,
       adaptive: adaptive ?? this.adaptive,
+      brightness: brightness ?? this.brightness,
     );
   }
 }

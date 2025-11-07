@@ -5,7 +5,6 @@ import 'package:ai_keyboard/screens/main%20screens/clipboard_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/language_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/dictionary_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
-import 'package:ai_keyboard/screens/onboarding/animated_onboarding_screen.dart';
 import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +19,7 @@ import 'theme_manager.dart';
 import 'theme/theme_editor_v2.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/clipboard_service.dart';
+import 'services/keyboard_settings_bootstrapper.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/main%20screens/mainscreen.dart';
@@ -30,6 +30,8 @@ import 'screens/main screens/dictionary_screen.dart';
 import 'screens/main screens/clipboard_screen.dart';
 import 'screens/main screens/ai_writing_assistance_screen.dart';
 import 'screens/main screens/ai_rewriting_screen.dart';
+import 'package:ai_keyboard/theme/Custom_theme.dart';
+import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
 // In-app keyboard widgets removed - using system-wide keyboard only
 
 /// Language Cache Manager for handling downloaded languages
@@ -193,6 +195,9 @@ void main() async {
   // Initialize the advanced feedback system
   KeyboardFeedbackSystem.initialize();
   
+  // Ensure saved keyboard settings are applied before the user interacts again
+  await KeyboardSettingsBootstrapper.ensureBootstrapped();
+  
   // Initialize theme manager
   await FlutterThemeManager.instance.initialize();
   
@@ -275,6 +280,20 @@ class _AIKeyboardAppState extends State<AIKeyboardApp> {
           ),
         );
         break;
+      case 'theme_editor':
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const ThemeEditorScreenV2(isCreatingNew: true),
+          ),
+        );
+        break;
+      case 'settings_screen':
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const SettingScreen(),
+          ),
+        );
+        break;
       default:
         debugPrint('⚠️ Unknown navigation route: $route');
     }
@@ -291,7 +310,7 @@ class _AIKeyboardAppState extends State<AIKeyboardApp> {
         useMaterial3: true,
         fontFamily: 'noto_sans',
       ),
-      home: const AuthWrapper(),
+      home:  AuthWrapper(), 
       // home: AnimatedOnboardingScreen(),
     );
   }
@@ -2184,4 +2203,3 @@ Future<void> openKeyboardConfigIfReady(BuildContext context) async {
 //     );
 //   }
 // }
-

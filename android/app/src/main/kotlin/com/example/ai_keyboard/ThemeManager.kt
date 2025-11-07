@@ -158,7 +158,8 @@ class ThemeManager(context: Context) : BaseManager(context) {
                 imageOpacity = 0.85f,
                 gradient = null,
                 overlayEffects = emptyList(),
-                adaptive = null
+                adaptive = null,
+                brightness = 1.0f
             ),
             keys = KeyboardThemeV2.Keys(
                 preset = "bordered",
@@ -217,6 +218,31 @@ class ThemeManager(context: Context) : BaseManager(context) {
             .putString(THEME_V2_KEY, json)
             .putBoolean(SETTINGS_CHANGED_KEY, true)
             .apply()
+    }
+
+    fun applyThemeFromFlutter(themeMap: Map<String, Any?>, persist: Boolean = false): Boolean {
+        return try {
+            val jsonObject = JSONObject(themeMap)
+            val theme = KeyboardThemeV2.parseFromJsonObject(jsonObject)
+            currentTheme = theme
+            currentPalette = ThemePaletteV2(theme)
+            themeHash = jsonObject.toString().hashCode().toString()
+
+            if (persist) {
+                prefs.edit()
+                    .putString(THEME_V2_KEY, jsonObject.toString())
+                    .putBoolean(SETTINGS_CHANGED_KEY, true)
+                    .apply()
+            }
+
+            drawableCache.evictAll()
+            imageCache.evictAll()
+            notifyThemeChanged()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying theme from Flutter", e)
+            false
+        }
     }
     
     /**
@@ -343,9 +369,9 @@ class ThemeManager(context: Context) : BaseManager(context) {
         return drawableCache.get(cacheKey) ?: run {
             val drawable = when (theme.background.type) {
                 "adaptive" -> buildAdaptiveBackground()
-                "gradient" -> buildGradientBackground()
-                "image" -> buildImageBackground()
-                else -> buildSolidDrawable(theme.background.color ?: Color.BLACK)
+                "gradient" -> buildGradientBackground(theme)
+                "image" -> buildImageBackground(theme)
+                else -> buildSolidDrawable(palette.keyboardBg)
             }
             
             // Apply seasonal overlay if active
@@ -623,10 +649,9 @@ class ThemeManager(context: Context) : BaseManager(context) {
         return drawable
     }
     
-    private fun buildGradientBackground(): Drawable {
-        val theme = getCurrentTheme()
+    private fun buildGradientBackground(theme: com.example.ai_keyboard.themes.KeyboardThemeV2): Drawable {
         val gradient = theme.background.gradient ?: return buildSolidDrawable(Color.BLACK)
-        
+
         val orientation = when (gradient.orientation) {
             "TOP_BOTTOM" -> GradientDrawable.Orientation.TOP_BOTTOM
             "TL_BR" -> GradientDrawable.Orientation.TL_BR
@@ -636,10 +661,22 @@ class ThemeManager(context: Context) : BaseManager(context) {
             "BL_TR" -> GradientDrawable.Orientation.BL_TR
             else -> GradientDrawable.Orientation.TOP_BOTTOM
         }
-        
-        val drawable = GradientDrawable(orientation, gradient.colors.toIntArray())
-        drawable.shape = GradientDrawable.RECTANGLE
-        
+
+        val brightness = theme.background.brightness.coerceIn(0.2f, 2.0f)
+        val adjustedColors = gradient.colors.map { applyBrightnessMultiplier(it, brightness) }
+        val colorsArray = adjustedColors.toIntArray()
+
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            this.orientation = orientation
+            val stops = gradient.stops
+            if (stops != null && stops.isNotEmpty() && stops.size == colorsArray.size && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                setColors(colorsArray, stops.toFloatArray())
+            } else {
+                colors = colorsArray
+            }
+        }
+
         return drawable
     }
 
@@ -649,13 +686,20 @@ class ThemeManager(context: Context) : BaseManager(context) {
         hsl[2] = (hsl[2] + delta).coerceIn(0f, 1f)
         return ColorUtils.HSLToColor(hsl)
     }
+
+    private fun applyBrightnessMultiplier(color: Int, multiplier: Float): Int {
+        if (multiplier == 1.0f) return color
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[2] = (hsl[2] * multiplier).coerceIn(0f, 1f)
+        return ColorUtils.HSLToColor(hsl)
+    }
     
-    private fun buildImageBackground(): Drawable {
-        val theme = getCurrentTheme()
+    private fun buildImageBackground(theme: com.example.ai_keyboard.themes.KeyboardThemeV2): Drawable {
         val imagePath = theme.background.imagePath
-        
+
         if (imagePath.isNullOrEmpty()) {
-            return buildSolidDrawable(theme.background.color ?: Color.TRANSPARENT)
+            return buildSolidDrawable(applyBrightnessMultiplier(theme.background.color ?: Color.TRANSPARENT, theme.background.brightness))
         }
         
         val cacheKey = "bg_image_layer_$imagePath"
@@ -673,6 +717,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
                     originalBitmap.recycle()
                 }
                 
+                val brightness = theme.background.brightness.coerceIn(0.2f, 2.0f)
                 val bitmapDrawable = BitmapDrawable(context.resources, scaledBitmap).apply {
                     alpha = (theme.background.imageOpacity * 255).toInt().coerceIn(0, 255)
                     
@@ -686,12 +731,24 @@ class ThemeManager(context: Context) : BaseManager(context) {
                     // No tiling - image should fill completely
                     tileModeX = Shader.TileMode.CLAMP
                     tileModeY = Shader.TileMode.CLAMP
+                    if (brightness != 1.0f) {
+                        colorFilter = ColorMatrixColorFilter(
+                            ColorMatrix(
+                                floatArrayOf(
+                                    brightness, 0f, 0f, 0f, 0f,
+                                    0f, brightness, 0f, 0f, 0f,
+                                    0f, 0f, brightness, 0f, 0f,
+                                    0f, 0f, 0f, 1f, 0f
+                                )
+                            )
+                        )
+                    }
                 }
 
                 val baseColor = when {
                     theme.background.color == null -> Color.TRANSPARENT
                     theme.background.color == Color.BLACK && theme.background.overlayEffects.isEmpty() -> Color.TRANSPARENT
-                    else -> theme.background.color
+                    else -> applyBrightnessMultiplier(theme.background.color ?: Color.TRANSPARENT, brightness)
                 }
                 val layers = mutableListOf<Drawable>().apply {
                     if (baseColor != Color.TRANSPARENT) {

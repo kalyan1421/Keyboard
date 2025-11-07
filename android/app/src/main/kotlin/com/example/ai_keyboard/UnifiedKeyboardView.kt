@@ -1,10 +1,13 @@
 package com.example.ai_keyboard
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.content.res.Resources
 import android.graphics.*
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -21,6 +24,7 @@ import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.*
+import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -50,6 +54,7 @@ import com.example.ai_keyboard.GestureSource
 class KeyboardHeightManager(private val context: Context) {
     
     companion object {
+        private const val TAG = "KeyboardHeightManager"
         private const val KEYBOARD_HEIGHT_RATIO = 0.265f
         private const val MIN_KEYBOARD_GRID_HEIGHT_DP = 234
         private const val MAX_KEYBOARD_GRID_HEIGHT_DP = 248
@@ -57,10 +62,48 @@ class KeyboardHeightManager(private val context: Context) {
         private const val NUMBER_ROW_EXTRA_DP = 44
         private const val TOOLBAR_HEIGHT_DP = 64
         private const val SUGGESTION_BAR_HEIGHT_DP = 40
+        private var lastHeight = 0
+        private var cachedHeight = 0
+
+        fun applyKeyboardHeight(context: Context, newHeight: Int) {
+            val prefs = context.getSharedPreferences("KeyboardHeightPrefs", Context.MODE_PRIVATE)
+            val displayMetrics = context.resources.displayMetrics
+            val minHeight = (displayMetrics.heightPixels * 0.32).toInt()
+
+            var finalHeight = newHeight
+            if (newHeight < minHeight && cachedHeight > 0) {
+                Log.w(TAG, "⚠️ Ignoring low height $newHeight, using cached $cachedHeight")
+                finalHeight = cachedHeight
+            }
+
+            if (abs(finalHeight - lastHeight) < 5) {
+                Log.d(TAG, "⏸️ Skipping height update (diff < 5px)")
+                return
+            }
+
+            lastHeight = finalHeight
+            cachedHeight = finalHeight
+            prefs.edit().putInt("last_keyboard_height", finalHeight).apply()
+            Log.d(TAG, "📐 Applied keyboard height: $finalHeight px")
+        }
+
+        fun getSavedHeight(context: Context): Int {
+            val prefs = context.getSharedPreferences("KeyboardHeightPrefs", Context.MODE_PRIVATE)
+            val saved = prefs.getInt("last_keyboard_height", 0)
+            if (saved > 0) {
+                cachedHeight = saved
+                lastHeight = saved
+                Log.d(TAG, "📦 Restoring saved height: $saved px")
+            }
+            return saved
+        }
     }
     
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val density = context.resources.displayMetrics.density
+    private val sharedPrefs: SharedPreferences by lazy {
+        context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+    }
     private var numberRowEnabled = false
     
     /**
@@ -83,8 +126,9 @@ class KeyboardHeightManager(private val context: Context) {
         val maxGridPx = dpToPx(MAX_KEYBOARD_GRID_HEIGHT_DP).coerceAtLeast(minGridPx)
         val availableDisplayHeight = computeUsableDisplayHeightPx().coerceAtLeast(structuralMinPx)
         val ratioTargetPx = (availableDisplayHeight * KEYBOARD_HEIGHT_RATIO).roundToInt()
+        val percentTargetPx = resolveHeightPercentPx(availableDisplayHeight)
         
-        var gridHeight = ratioTargetPx.coerceIn(minGridPx, maxGridPx).coerceAtLeast(structuralMinPx)
+        var gridHeight = (percentTargetPx ?: ratioTargetPx).coerceIn(minGridPx, maxGridPx).coerceAtLeast(structuralMinPx)
 
         if (numberRowEnabled) {
             val extraPx = dpToPx(NUMBER_ROW_EXTRA_DP)
@@ -104,6 +148,46 @@ class KeyboardHeightManager(private val context: Context) {
         totalHeight += navigationInset
         
         return totalHeight
+    }
+
+    private fun resolveHeightPercentPx(availableDisplayHeight: Int): Int? {
+        val percent = resolveHeightPercent() ?: return null
+        return (availableDisplayHeight * (percent / 100f)).roundToInt()
+    }
+
+    private fun resolveHeightPercent(): Int? {
+        val orientation = context.resources.configuration.orientation
+        val orientationKeys = if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            listOf("flutter.keyboard.heightPercentLandscape", "keyboard.heightPercentLandscape")
+        } else {
+            listOf("flutter.keyboard.heightPercentPortrait", "keyboard.heightPercentPortrait")
+        }
+        val genericKeys = listOf(
+            "flutter.keyboard.heightPercent",
+            "keyboard.heightPercent",
+            "keyboard_height_percent"
+        )
+        val keysToCheck = orientationKeys + genericKeys
+        for (key in keysToCheck) {
+            val value = readPercentPreference(key)
+            if (value != null && value > 0) {
+                return value.coerceIn(20, 40)
+            }
+        }
+        return null
+    }
+
+    private fun readPercentPreference(key: String): Int? {
+        if (!sharedPrefs.contains(key)) return null
+        val value = sharedPrefs.all[key] ?: return null
+        return when (value) {
+            is Int -> value
+            is Long -> value.toInt()
+            is Float -> value.roundToInt()
+            is Double -> value.roundToInt()
+            is String -> value.toIntOrNull()
+            else -> null
+        }
     }
     
     /**
@@ -216,7 +300,7 @@ class KeyboardHeightManager(private val context: Context) {
     }
     
     private fun dpToPx(dp: Int): Int {
-        return (dp * density).toInt()
+        return (dp * density).roundToInt()
     }
     
     private fun hasNavigationBarAndroid11(): Boolean {
@@ -486,6 +570,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var oneHandedSide: String = "right"
     private var oneHandedWidthPct: Float = 0.75f
     private var numberRowActive = false
+    private var instantLongPressSelectFirst = true
     // Tuned to mirror CleverType row density and gutters
     private var keySpacingVerticalDp = 1
     private var keySpacingHorizontalDp = 1
@@ -500,6 +585,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
     // Keyboard grid view (child of bodyContainer)
     private var keyboardGridView: KeyboardGridView? = null
+    private var oneHandedControlsContainer: LinearLayout? = null
+    private var oneHandedCollapseButton: ImageButton? = null
+    private var oneHandedSwapButton: ImageButton? = null
+    private var emojiSearchOverlayActive: Boolean = false
     
     // Swipe gesture tracking
     private val fingerPoints = mutableListOf<FloatArray>()
@@ -599,6 +688,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         currentMode = DisplayMode.TYPING
         currentLayout = model
         currentLangCode = model.languageCode
+        emojiSearchOverlayActive = false
 
         toolbarContainer.visibility = VISIBLE
         suggestionContainer.visibility = if (suggestionsEnabled) VISIBLE else GONE
@@ -629,11 +719,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         dynamicKeys.clear()
 
         toolbarContainer.visibility = GONE
-        suggestionContainer.visibility = GONE
+        val isEmojiPanel = panelManager?.getCurrentPanelType() == UnifiedPanelManager.PanelType.EMOJI
+        val overlayActive = emojiSearchOverlayActive && isEmojiPanel
+        suggestionContainer.visibility = if (overlayActive && suggestionsEnabled) VISIBLE else GONE
         panelManager?.setInputText(lastEditorText)
 
-        // ✅ FIX: Hide keyboard grid view when showing panel (prevents overlay/touch issues)
-        keyboardGridView?.visibility = GONE
+        keyboardGridView?.visibility = if (overlayActive) VISIBLE else GONE
 
         // Remove old panel if any
         currentPanelView?.let { bodyContainer.removeView(it) }
@@ -659,53 +750,36 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     fun backToTyping() {
         currentLayout?.let { showTypingLayout(it) }
     }
+
+    fun setEmojiSearchActive(active: Boolean) {
+        val isEmojiPanel = panelManager?.getCurrentPanelType() == UnifiedPanelManager.PanelType.EMOJI
+        emojiSearchOverlayActive = active
+        if (currentMode == DisplayMode.PANEL && isEmojiPanel) {
+            keyboardGridView?.visibility = if (active) VISIBLE else GONE
+            suggestionContainer.visibility = if (active && suggestionsEnabled) VISIBLE else GONE
+        }
+    }
     
     /**
      * Toggle keyboard layout mode (normal, one-handed, floating)
      */
     fun toggleMode(newMode: LayoutMode) {
-        if (newMode == currentLayoutMode) {
-            // Restore to normal
-            layoutParams = layoutParams.apply {
-                width = LayoutParams.MATCH_PARENT
-                height = LayoutParams.WRAP_CONTENT
-            }
-            translationX = 0f
-            translationY = 0f
-            elevation = 0f
-            currentLayoutMode = LayoutMode.NORMAL
+        if (newMode == LayoutMode.FLOATING) {
+            Log.d(TAG, "ℹ️ Floating keyboard mode is disabled")
             return
         }
 
-        currentLayoutMode = newMode
-        when (newMode) {
-            LayoutMode.ONE_HANDED_LEFT -> {
-                layoutParams = layoutParams.apply {
-                    width = (resources.displayMetrics.widthPixels * 0.75f).toInt()
-                    height = LayoutParams.WRAP_CONTENT
-                }
-                translationX = 0f
-            }
-            LayoutMode.ONE_HANDED_RIGHT -> {
-                layoutParams = layoutParams.apply {
-                    width = (resources.displayMetrics.widthPixels * 0.75f).toInt()
-                    height = LayoutParams.WRAP_CONTENT
-                }
-                translationX = (resources.displayMetrics.widthPixels * 0.25f)
-            }
-            LayoutMode.FLOATING -> {
-                layoutParams = layoutParams.apply {
-                    width = (resources.displayMetrics.widthPixels * 0.8f).toInt()
-                    height = LayoutParams.WRAP_CONTENT
-                }
-                translationY = -dpToPx(100).toFloat()
-                elevation = dpToPx(16).toFloat()
-                background = themeManager.createKeyDrawable()
-            }
-            else -> {}
+        if (newMode == LayoutMode.NORMAL || newMode == currentLayoutMode) {
+            setOneHandedMode(false, oneHandedSide, oneHandedWidthPct)
+            Log.d(TAG, "✅ Keyboard mode changed to: NORMAL")
+            return
         }
-        requestLayout()
-        Log.d(TAG, "✅ Keyboard mode changed to: $newMode")
+
+        when (newMode) {
+            LayoutMode.ONE_HANDED_LEFT -> setOneHandedMode(true, "left", oneHandedWidthPct)
+            LayoutMode.ONE_HANDED_RIGHT -> setOneHandedMode(true, "right", oneHandedWidthPct)
+            else -> setOneHandedMode(false, oneHandedSide, oneHandedWidthPct)
+        }
     }
 
     // ========================================
@@ -735,6 +809,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
      */
     fun setLabelScale(multiplier: Float) {
         labelScaleMultiplier = multiplier.coerceIn(0.8f, 1.3f)
+        keyboardGridView?.setLabelScale(labelScaleMultiplier)
         invalidate()
     }
 
@@ -772,6 +847,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         rebuildKeyboardGrid()
     }
 
+    fun setInstantLongPressSelectFirst(enabled: Boolean) {
+        if (instantLongPressSelectFirst == enabled) return
+        instantLongPressSelectFirst = enabled
+        keyboardGridView?.setInstantLongPressSelectFirst(enabled)
+    }
+
     /**
      * Set key spacing
      */
@@ -788,44 +869,201 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     fun setOneHandedMode(enabled: Boolean, side: String = "right", widthPct: Float = 0.75f) {
         val clampedPct = widthPct.coerceIn(0.6f, 0.9f)
         val normalizedSide = if (side.equals("left", ignoreCase = true)) "left" else "right"
+        if (keyboardGridView == null) {
+            oneHandedModeEnabled = enabled
+            oneHandedSide = normalizedSide
+            oneHandedWidthPct = clampedPct
+            currentLayoutMode = if (enabled) {
+                if (normalizedSide == "left") LayoutMode.ONE_HANDED_LEFT else LayoutMode.ONE_HANDED_RIGHT
+            } else {
+                LayoutMode.NORMAL
+            }
+            return
+        }
 
         if (!enabled) {
-            if (!oneHandedModeEnabled) return
-            layoutParams = layoutParams?.apply {
-                width = LayoutParams.MATCH_PARENT
-                height = LayoutParams.WRAP_CONTENT
-            } ?: LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-            translationX = 0f
-            translationY = 0f
-            elevation = 0f
             oneHandedModeEnabled = false
             oneHandedSide = "right"
             oneHandedWidthPct = 0.75f
             currentLayoutMode = LayoutMode.NORMAL
-            requestLayout()
+            updateOneHandedChrome(false, normalizedSide, 0)
             recalcHeight()
             return
         }
 
-        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
-        val targetWidth = (screenWidth * clampedPct).roundToInt()
-        val offset = (screenWidth - targetWidth) / 2f
-
-        layoutParams = layoutParams?.apply {
-            width = targetWidth
-            height = LayoutParams.WRAP_CONTENT
-        } ?: LayoutParams(targetWidth, LayoutParams.WRAP_CONTENT)
-
-        translationX = if (normalizedSide == "left") -offset else offset
-        translationY = 0f
-        elevation = 0f
         oneHandedModeEnabled = true
         oneHandedSide = normalizedSide
         oneHandedWidthPct = clampedPct
         currentLayoutMode = if (normalizedSide == "left") LayoutMode.ONE_HANDED_LEFT else LayoutMode.ONE_HANDED_RIGHT
-        requestLayout()
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val targetWidth = (screenWidth * clampedPct).roundToInt()
+        updateOneHandedChrome(true, normalizedSide, targetWidth)
         recalcHeight()
     }
+
+    private fun updateOneHandedChrome(enabled: Boolean, side: String, targetWidth: Int) {
+        val grid = keyboardGridView ?: return
+        val panelWidth = oneHandPanelWidthPx()
+        val gap = dpToPx(8)
+
+        val params = grid.layoutParams as? FrameLayout.LayoutParams
+            ?: FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+
+        if (enabled) {
+            val containerWidth = if (bodyContainer.width > 0) bodyContainer.width else resources.displayMetrics.widthPixels
+            val maxGridWidth = (containerWidth - (panelWidth + gap * 2)).coerceAtLeast((containerWidth * 0.5f).toInt())
+            val desiredWidth = targetWidth.coerceAtMost(maxGridWidth)
+
+            params.width = desiredWidth
+            params.height = FrameLayout.LayoutParams.MATCH_PARENT
+            if (side == "left") {
+                params.gravity = Gravity.START or Gravity.BOTTOM
+                params.marginStart = gap
+                params.marginEnd = panelWidth + gap
+            } else {
+                params.gravity = Gravity.END or Gravity.BOTTOM
+                params.marginStart = panelWidth + gap
+                params.marginEnd = gap
+            }
+            params.topMargin = gap
+            params.bottomMargin = gap
+            grid.layoutParams = params
+
+            bodyContainer.setBackgroundColor(ContextCompat.getColor(context, R.color.one_hand_panel_bg))
+
+            val controls = ensureOneHandedControls()
+            val controlsParams = controls.layoutParams as FrameLayout.LayoutParams
+            controlsParams.width = panelWidth
+            controlsParams.height = FrameLayout.LayoutParams.MATCH_PARENT
+            controlsParams.gravity = if (side == "left") Gravity.END else Gravity.START
+            controls.layoutParams = controlsParams
+            controls.visibility = View.VISIBLE
+            controls.bringToFront()
+
+            updateOneHandedButtons(side)
+        } else {
+            params.width = FrameLayout.LayoutParams.MATCH_PARENT
+            params.height = FrameLayout.LayoutParams.MATCH_PARENT
+            params.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+            params.marginStart = 0
+            params.marginEnd = 0
+            params.topMargin = 0
+            params.bottomMargin = 0
+            grid.layoutParams = params
+
+            bodyContainer.setBackgroundColor(Color.TRANSPARENT)
+            oneHandedControlsContainer?.visibility = View.GONE
+        }
+
+        bodyContainer.invalidate()
+        bodyContainer.requestLayout()
+    }
+
+    private fun ensureOneHandedControls(): LinearLayout {
+        if (oneHandedControlsContainer != null) return oneHandedControlsContainer!!
+
+        val panelPadding = dpToPx(12)
+        val panel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = ContextCompat.getDrawable(context, R.drawable.one_hand_panel_background)
+            setPadding(panelPadding, panelPadding, panelPadding, panelPadding)
+            visibility = View.GONE
+        }
+
+        val collapseBtn = createOneHandedButton(
+            iconRes = R.drawable.ic_one_hand_full,
+            contentDesc = context.getString(R.string.one_hand_expand)
+        ) {
+            AIKeyboardService.getInstance()?.applyOneHandedMode(false, oneHandedSide, oneHandedWidthPct)
+                ?: setOneHandedMode(false, oneHandedSide, oneHandedWidthPct)
+        }
+
+        val switchBtn = createOneHandedButton(
+            iconRes = R.drawable.ic_one_hand_switch,
+            contentDesc = context.getString(R.string.one_hand_switch_side)
+        ) {
+            val newSide = if (oneHandedSide == "left") "right" else "left"
+            AIKeyboardService.getInstance()?.applyOneHandedMode(true, newSide, oneHandedWidthPct)
+                ?: setOneHandedMode(true, newSide, oneHandedWidthPct)
+        }
+
+        panel.addView(collapseBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        panel.addView(View(context), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+
+        panel.addView(switchBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        panel.addView(View(context), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+
+        oneHandedControlsContainer = panel
+        oneHandedCollapseButton = collapseBtn
+        oneHandedSwapButton = switchBtn
+        bodyContainer.addView(panel, FrameLayout.LayoutParams(
+            oneHandPanelWidthPx(),
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        return panel
+    }
+
+    private fun updateOneHandedButtons(side: String) {
+        val tint = ContextCompat.getColor(context, R.color.one_hand_panel_icon)
+        oneHandedCollapseButton?.imageTintList = ColorStateList.valueOf(tint)
+        oneHandedSwapButton?.apply {
+            imageTintList = ColorStateList.valueOf(tint)
+            scaleX = if (side == "left") -1f else 1f
+        }
+        oneHandedControlsContainer?.let { container ->
+            val radius = dpToPx(16).toFloat()
+            val drawable = GradientDrawable().apply {
+                setColor(ContextCompat.getColor(context, R.color.one_hand_panel_bg))
+                cornerRadii = if (side == "left") {
+                    floatArrayOf(0f, 0f, radius, radius, radius, radius, 0f, 0f)
+                } else {
+                    floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
+                }
+            }
+            container.background = drawable
+        }
+    }
+
+    private fun createOneHandedButton(
+        @DrawableRes iconRes: Int,
+        contentDesc: String,
+        onClick: () -> Unit
+    ): ImageButton {
+        val button = ImageButton(context).apply {
+            setImageResource(iconRes)
+            background = ContextCompat.getDrawable(context, R.drawable.one_hand_button_background)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
+            contentDescription = contentDesc
+            isFocusable = true
+            isClickable = true
+        }
+        button.setOnClickListener { onClick.invoke() }
+        return button
+    }
+
+    private fun oneHandPanelWidthPx(): Int = dpToPx(64)
 
     /**
      * Adjust horizontal gutters at the screen edges (left/right)
@@ -1432,6 +1670,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             borderlessMode = borderlessMode,
             hintedNumberRow = hintedNumberRow,
             hintedSymbols = hintedSymbols,
+            numberRowActive = numberRowActive,
+            instantLongPressSelectFirst = instantLongPressSelectFirst,
             keySpacingVerticalDp = keySpacingVerticalDp,
             keySpacingHorizontalDp = keySpacingHorizontalDp,
             edgePaddingDp = edgePaddingDp,
@@ -1818,10 +2058,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private val heightManager: KeyboardHeightManager,
         private val showLanguageOnSpace: Boolean,
         private val currentLanguageLabel: String,
-        private val labelScaleMultiplier: Float,
+        private var labelScaleMultiplier: Float,
         private val borderlessMode: Boolean,
         private val hintedNumberRow: Boolean,
         private val hintedSymbols: Boolean,
+        private val numberRowActive: Boolean,
+        private var instantLongPressSelectFirst: Boolean,
         private val keySpacingVerticalDp: Int,
         private val keySpacingHorizontalDp: Int,
         private val edgePaddingDp: Int,
@@ -1848,8 +2090,22 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private var longPressHandler = Handler(Looper.getMainLooper())
         private var longPressRunnable: Runnable? = null
         private var accentPopup: PopupWindow? = null
+        private var stickyFirstPopupSelection = false
         private var accentOptionViews = mutableListOf<TextView>()
         private var selectedAccentIndex = -1
+        private var activeAccentKey: DynamicKey? = null
+        private var activeAccentOptions: List<String> = emptyList()
+
+        fun setInstantLongPressSelectFirst(enabled: Boolean) {
+            instantLongPressSelectFirst = enabled
+        }
+
+        fun setLabelScale(multiplier: Float) {
+            val coerced = multiplier.coerceIn(0.8f, 1.3f)
+            if (coerced == labelScaleMultiplier) return
+            labelScaleMultiplier = coerced
+            invalidate()
+        }
         
         // Swipe state
         private val fingerPoints = mutableListOf<FloatArray>()
@@ -3769,16 +4025,18 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private fun handleAccentPopupTouch(event: MotionEvent): Boolean {
             when (event.action) {
                 MotionEvent.ACTION_MOVE -> {
-                    // Find which accent option is under the finger
-                    updateAccentSelection(event.rawX, event.rawY)
+                    updateAccentSelection(event.rawX)
                 }
                 MotionEvent.ACTION_UP -> {
-                    // Commit the selected accent
-                    if (selectedAccentIndex >= 0 && selectedAccentIndex < accentOptionViews.size) {
-                        val selectedView = accentOptionViews[selectedAccentIndex]
-                        val option = selectedView.text.toString()
-                        val charCode = option.firstOrNull()?.code ?: return true
+                    val selectedOption = activeAccentOptions.getOrNull(selectedAccentIndex)
+                    val charCode = selectedOption?.firstOrNull()?.code
+
+                    if (charCode != null) {
                         onKeyCallback?.invoke(charCode, intArrayOf(charCode))
+                    } else {
+                        activeAccentKey?.let { key ->
+                            onKeyCallback?.invoke(key.code, intArrayOf(key.code))
+                        }
                     }
                     hideAccentPopup()
                 }
@@ -3788,53 +4046,49 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             }
             return true
         }
-        
-        private fun updateAccentSelection(rawX: Float, rawY: Float) {
-            var newSelectedIndex = -1
-            
+
+        private fun updateAccentSelection(rawX: Float) {
+            if (accentOptionViews.isEmpty()) return
+
+            val location = IntArray(2)
+            var closestIndex = -1
+            var closestDistance = Float.MAX_VALUE
+
             accentOptionViews.forEachIndexed { index, view ->
-                val location = IntArray(2)
                 view.getLocationOnScreen(location)
-                val viewX = location[0]
-                val viewY = location[1]
-                val viewRight = viewX + view.width
-                val viewBottom = viewY + view.height
-                
-                if (rawX >= viewX && rawX <= viewRight && rawY >= viewY && rawY <= viewBottom) {
-                    newSelectedIndex = index
+                val centerX = location[0] + view.width / 2f
+                val distance = abs(rawX - centerX)
+                if (distance < closestDistance) {
+                    closestDistance = distance
+                    closestIndex = index
                 }
             }
-            
-            if (newSelectedIndex != selectedAccentIndex) {
-                val palette = themeManager.getCurrentPalette()
-                
-                // Unhighlight old selection
-                if (selectedAccentIndex >= 0 && selectedAccentIndex < accentOptionViews.size) {
-                    val oldView = accentOptionViews[selectedAccentIndex]
-                    val normalBackground = android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = dpToPx(8).toFloat()
-                        setColor(palette.keyboardBg)
-                    }
-                    oldView.background = normalBackground
-                    oldView.setTextColor(palette.keyText) // Reset text color
-                }
-                
-                // Highlight new selection
-                if (newSelectedIndex >= 0 && newSelectedIndex < accentOptionViews.size) {
-                    val newView = accentOptionViews[newSelectedIndex]
-                    val highlightBackground = android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = dpToPx(8).toFloat()
-                        setColor(palette.specialAccent)
-                    }
-                    newView.background = highlightBackground
-                    newView.setTextColor(Color.WHITE)
-                    
-                    // Haptic feedback
-                    this@KeyboardGridView.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
-                }
-                
-                selectedAccentIndex = newSelectedIndex
+
+            if (closestIndex != -1) {
+                updateAccentHighlight(closestIndex)
             }
+        }
+
+        private fun updateAccentHighlight(newIndex: Int, force: Boolean = false) {
+            if (!force && newIndex == selectedAccentIndex) return
+
+            val palette = themeManager.getCurrentPalette()
+
+            accentOptionViews.forEachIndexed { index, view ->
+                val isSelected = index == newIndex
+                val background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dpToPx(8).toFloat()
+                    setColor(if (isSelected) palette.specialAccent else palette.keyboardBg)
+                }
+                view.background = background
+                view.setTextColor(if (isSelected) Color.WHITE else palette.keyText)
+            }
+
+            if (newIndex != selectedAccentIndex && newIndex in accentOptionViews.indices) {
+                this@KeyboardGridView.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+
+            selectedAccentIndex = newIndex
         }
         
         private fun endSwipe() {
@@ -3880,6 +4134,14 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 deleteRepeatRunnable = object : Runnable {
                     override fun run() {
                         if (isDeleteRepeating) {
+                            // ✅ FIX: Add sound and vibration for each repeated key press
+                            val service = (context as? AIKeyboardService)
+                            service?.let {
+                                // Play sound if enabled
+                                KeyboardSoundManager.play()
+                                // Trigger vibration if repeated action vibration is enabled
+                                it.triggerRepeatedKeyVibration()
+                            }
                             onKeyCallback?.invoke(key.code, intArrayOf(key.code))
                             deleteRepeatHandler.postDelayed(this, 50L) // Repeat every 50ms
                         }
@@ -3936,11 +4198,17 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             try {
                 accentPopup?.dismiss()
                 accentPopup = null
+                activeAccentKey = null
+                activeAccentOptions = emptyList()
                 accentOptionViews.clear()
                 selectedAccentIndex = -1
             } catch (e: Exception) {
                 Log.e(TAG, "Error dismissing accent popup", e)
             }
+        }
+
+        private fun shouldAutoSelectFirstOption(key: DynamicKey, options: List<String>): Boolean {
+            return instantLongPressSelectFirst
         }
 
         private fun showAccentOptions(key: DynamicKey) {
@@ -3949,6 +4217,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
             // Dismiss any existing popup
             hideAccentPopup()
+            activeAccentKey = key
+            activeAccentOptions = options
 
             val palette = themeManager.getCurrentPalette()
             
@@ -3968,27 +4238,28 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
             // Clear and prepare for new options
             accentOptionViews.clear()
-            selectedAccentIndex = 0 // Pre-select first option
+            val preselectFirst = shouldAutoSelectFirstOption(key, options)
+            selectedAccentIndex = if (preselectFirst) 0 else -1
 
             // Add each option as a button
             options.forEachIndexed { index, option ->
-                val isSelected = index == 0 // First option is pre-selected
                 val optionBackground = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = dpToPx(8).toFloat()
-                    setColor(if (isSelected) palette.specialAccent else palette.keyboardBg)
+                    setColor(palette.keyboardBg)
                 }
                 
                 val optionView = TextView(context).apply {
                     text = option
                     textSize = 20f
                     gravity = Gravity.CENTER
-                    setTextColor(if (isSelected) Color.WHITE else palette.keyText)
+                    setTextColor(palette.keyText)
                     setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
                     minWidth = dpToPx(44)
                     minHeight = dpToPx(44)
                     background = optionBackground
                     
                     setOnClickListener {
+                        updateAccentHighlight(index, force = true)
                         // Insert the selected character
                         val charCode = option.firstOrNull()?.code ?: return@setOnClickListener
                         onKeyCallback?.invoke(charCode, intArrayOf(charCode))
@@ -4005,6 +4276,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     if (index > 0) leftMargin = dpToPx(4)
                 }
                 optionsContainer.addView(optionView, params)
+            }
+
+            if (selectedAccentIndex >= 0) {
+                updateAccentHighlight(selectedAccentIndex, force = true)
+            } else {
+                updateAccentHighlight(-1, force = true)
             }
 
             // Create and show popup

@@ -1,5 +1,8 @@
 package com.example.ai_keyboard
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.Drawable
@@ -13,6 +16,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.PopupWindow
@@ -88,6 +92,16 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var spacebarGestureEnabled = true
     private var tapEffectStyle: String = "ripple"
     private var tapEffectsEnabled: Boolean = true
+    private var previewTapEffectType: String = "ripple"
+    private var previewTapEffectOpacity: Float = 0f
+    private var tapEffectProgress: Float = 0f
+    private var tapEffectRadius: Float = 0f
+    private var tapEffectX: Float = -1f
+    private var tapEffectY: Float = -1f
+    private val tapEffectPaint: Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private var tapEffectAnimator: ValueAnimator? = null
     
     // Adaptive sizing
     private var adaptiveKeyWidth = 0f
@@ -246,7 +260,23 @@ class SwipeKeyboardView @JvmOverloads constructor(
             keyTextPaint = manager.createKeyTextPaint()
             spaceLabelPaint = manager.createSpaceLabelPaint()
         }
+        invalidateAllKeys()
         invalidate()
+    }
+
+    fun updateTextPaints(fontFamily: String, fontScale: Float) {
+        themeManager?.let { manager ->
+            labelScaleMultiplier = fontScale.coerceIn(0.8f, 1.3f)
+            keyTextPaint = manager.createKeyTextPaint()
+            suggestionTextPaint = manager.createSuggestionTextPaint()
+            spaceLabelPaint = manager.createSpaceLabelPaint()
+            android.util.Log.d(
+                "SwipeKeyboardView",
+                "updateTextPaints → family=$fontFamily scale=$labelScaleMultiplier"
+            )
+            invalidateAllKeys()
+            invalidate()
+        }
     }
     
     /**
@@ -296,58 +326,64 @@ class SwipeKeyboardView @JvmOverloads constructor(
      * @param widthPct Percentage of screen width to use (0.6 - 0.9)
      */
     fun setOneHandedMode(enabled: Boolean, side: String = "right", widthPct: Float = 0.75f) {
+        val normalizedSide = if (side.equals("left", ignoreCase = true)) "left" else "right"
+        val clampedPct = widthPct.coerceIn(0.6f, 0.9f)
         oneHandedModeEnabled = enabled
-        oneHandedModeSide = side
-        oneHandedModeWidthPct = widthPct.coerceIn(0.6f, 0.9f)
-        
-        android.util.Log.d("SwipeKeyboardView", 
-            "One-handed mode set to: enabled=$enabled, side=$side, width=${(widthPct * 100).toInt()}%")
-        
-        // Apply layout changes
-        if (enabled) {
-            val screenWidth = context.resources.displayMetrics.widthPixels
-            val targetWidth = (screenWidth * widthPct).toInt()
-            
-            // Use layout params to constrain width
-            layoutParams = layoutParams?.apply {
-                width = targetWidth
-            } ?: android.view.ViewGroup.LayoutParams(targetWidth, 
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-            
-            // Calculate translation to shift keyboard to the correct side
-            val translation = when (side) {
-                "left" -> -((screenWidth - targetWidth) / 2f)
-                "right" -> (screenWidth - targetWidth) / 2f
-                else -> 0f
-            }
-            
-            // Apply translation animation
-            animate()
-                .translationX(translation)
-                .setDuration(200)
-                .start()
-            
-            android.util.Log.d("SwipeKeyboardView", 
-                "Applied one-handed: width=${targetWidth}px, translation=${translation}px")
-        } else {
-            // Reset to full width
-            layoutParams = layoutParams?.apply {
-                width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-            } ?: android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-            
-            // Reset translation
-            animate()
-                .translationX(0f)
-                .setDuration(200)
-                .start()
-            
+        oneHandedModeSide = normalizedSide
+        oneHandedModeWidthPct = clampedPct
+
+        android.util.Log.d(
+            "SwipeKeyboardView",
+            "One-handed mode set to: enabled=$enabled, side=$normalizedSide, width=${(clampedPct * 100).toInt()}%"
+        )
+
+        val params = (layoutParams as? android.view.ViewGroup.MarginLayoutParams)
+            ?: android.view.ViewGroup.MarginLayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+
+        if (!enabled) {
+            params.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            params.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            params.marginStart = 0
+            params.marginEnd = 0
+            layoutParams = params
+            translationX = 0f
+            translationY = 0f
+            requestLayout()
+            invalidate()
             android.util.Log.d("SwipeKeyboardView", "Reset to full-width mode")
+            return
         }
-        
+
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val targetWidth = (screenWidth * clampedPct).toInt()
+        val gutter = (screenWidth - targetWidth).coerceAtLeast(0)
+
+        params.width = targetWidth
+        params.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        when (normalizedSide) {
+            "left" -> {
+                params.marginStart = 0
+                params.marginEnd = gutter
+            }
+            else -> {
+                params.marginStart = gutter
+                params.marginEnd = 0
+            }
+        }
+
+        layoutParams = params
+        translationX = 0f
+        translationY = 0f
         requestLayout()
         invalidate()
+
+        android.util.Log.d(
+            "SwipeKeyboardView",
+            "Applied one-handed: width=${targetWidth}px, marginStart=${params.marginStart}, marginEnd=${params.marginEnd}"
+        )
     }
     
     /**
@@ -440,6 +476,21 @@ class SwipeKeyboardView @JvmOverloads constructor(
     fun setTapEffectStyle(style: String, enabled: Boolean) {
         tapEffectStyle = style
         tapEffectsEnabled = enabled && !style.equals("none", ignoreCase = true)
+    }
+
+    fun applyTapEffect(type: String, opacity: Float) {
+        previewTapEffectType = type
+        previewTapEffectOpacity = opacity.coerceIn(0f, 1f)
+        if (width == 0 || height == 0) {
+            tapEffectX = -1f
+            tapEffectY = -1f
+        } else {
+            if (tapEffectX < 0f || tapEffectY < 0f) {
+                tapEffectX = width / 2f
+                tapEffectY = height / 2f
+            }
+        }
+        startTapEffectAnimation()
     }
     
     /**
@@ -535,6 +586,68 @@ class SwipeKeyboardView @JvmOverloads constructor(
         android.util.Log.d("SwipeKeyboardView", "Emoji key active: $active")
         invalidate()
     }
+
+    private fun startTapEffectAnimation() {
+        tapEffectAnimator?.cancel()
+        if (previewTapEffectOpacity <= 0f) {
+            tapEffectProgress = 0f
+            tapEffectRadius = 0f
+            invalidate()
+            return
+        }
+
+        if (tapEffectX < 0f || tapEffectY < 0f) {
+            tapEffectX = width / 2f
+            tapEffectY = height / 2f
+        }
+
+        tapEffectAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = if (tapEffectStyle.equals("glow", ignoreCase = true)) 360L else 220L
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                tapEffectProgress = animator.animatedValue as Float
+                val maxRadius = (width.coerceAtLeast(height) * 0.65f)
+                tapEffectRadius = maxRadius * tapEffectProgress
+                postInvalidateOnAnimation()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    tapEffectProgress = 0f
+                    tapEffectRadius = 0f
+                    tapEffectX = -1f
+                    tapEffectY = -1f
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun drawTapEffect(canvas: Canvas) {
+        if (tapEffectProgress <= 0f || previewTapEffectOpacity <= 0f) {
+            return
+        }
+
+        val palette = themeManager?.getCurrentPalette()
+        val baseColor = when (previewTapEffectType.lowercase()) {
+            "glow" -> palette?.specialAccent ?: Color.WHITE
+            "sparkles", "sparkle" -> Color.WHITE
+            "wave" -> palette?.keyText ?: Color.WHITE
+            else -> palette?.specialAccent ?: Color.WHITE
+        }
+
+        val alpha = (previewTapEffectOpacity * (1f - tapEffectProgress) * 255).toInt().coerceIn(0, 255)
+        if (alpha <= 0) return
+
+        tapEffectPaint.color = baseColor
+        tapEffectPaint.alpha = alpha
+
+        val cx = if (tapEffectX >= 0f) tapEffectX else width / 2f
+        val cy = if (tapEffectY >= 0f) tapEffectY else height / 2f
+
+        canvas.drawCircle(cx, cy, tapEffectRadius.coerceAtLeast(0f), tapEffectPaint)
+        postInvalidateOnAnimation()
+    }
     
     
     
@@ -566,6 +679,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 // Continue with basic functionality
             }
         }
+        drawTapEffect(canvas)
     }
     
     /**
@@ -904,6 +1018,11 @@ class SwipeKeyboardView @JvmOverloads constructor(
         if (isDynamicLayoutMode) {
             return handleDynamicLayoutTouch(me)
         }
+
+        if (me.action == MotionEvent.ACTION_DOWN) {
+            tapEffectX = me.x
+            tapEffectY = me.y
+        }
         
         return try {
             // Initialize adaptive sizing on first touch
@@ -953,6 +1072,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Handle taps for dynamic keys
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                tapEffectX = event.x
+                tapEffectY = event.y
                 val x = event.x.toInt()
                 val y = event.y.toInt()
                 
@@ -967,6 +1088,14 @@ class SwipeKeyboardView @JvmOverloads constructor(
                     if (!tappedKey.longPressOptions.isNullOrEmpty()) {
                         dynamicLongPressKey = tappedKey
                         dynamicLongPressRunnable = Runnable {
+                            // ✅ FIX: Add sound and vibration to long-press before showing popup
+                            val service = (context as? AIKeyboardService)
+                            service?.let {
+                                // Trigger sound
+                                KeyboardSoundManager.play()
+                                // Trigger vibration with long-press flag
+                                it.triggerLongPressVibration()
+                            }
                             showDynamicAccentOptions(tappedKey)
                         }
                         dynamicLongPressHandler.postDelayed(dynamicLongPressRunnable!!, DYNAMIC_LONG_PRESS_TIMEOUT)

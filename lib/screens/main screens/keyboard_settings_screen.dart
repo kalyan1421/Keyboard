@@ -39,8 +39,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
   String oneHandedSide = 'right';
   double oneHandedModeWidth = 87.0;
   bool landscapeFullScreenInput = true;
-  double keyboardWidth = 100.0;
-  double keyboardHeight = 100.0;
+  double keyboardWidth = 28.0;
+  double keyboardHeight = 28.0;
   double verticalKeySpacing = 5.0;
   double horizontalKeySpacing = 2.0;
   double portraitBottomOffset = 1.0;
@@ -115,8 +115,14 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       oneHandedSide = prefs.getString('keyboard.oneHanded.side') ?? 'right';
       oneHandedModeWidth = (prefs.getDouble('keyboard.oneHanded.widthPct') ?? 0.87) * 100.0;
       landscapeFullScreenInput = prefs.getBool('keyboard.landscapeFullscreen') ?? true;
-      keyboardWidth = (prefs.getDouble('keyboard.scaleX') ?? 1.0) * 100.0;
-      keyboardHeight = (prefs.getDouble('keyboard.scaleY') ?? 1.0) * 100.0;
+      final portraitPercent = prefs.getInt('flutter.keyboard.heightPercentPortrait') ??
+          prefs.getInt('keyboard_height_percent') ??
+          28;
+      keyboardWidth = portraitPercent.toDouble();
+
+      final landscapePercent = prefs.getInt('flutter.keyboard.heightPercentLandscape') ??
+          portraitPercent;
+      keyboardHeight = landscapePercent.toDouble();
       verticalKeySpacing = prefs.getInt('keyboard.keySpacingVdp')?.toDouble() ?? 5.0;
       horizontalKeySpacing = prefs.getInt('keyboard.keySpacingHdp')?.toDouble() ?? 2.0;
       portraitBottomOffset = prefs.getInt('keyboard.bottomOffsetPortraitDp')?.toDouble() ?? 1.0;
@@ -132,16 +138,16 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
       _shiftFeedbackEnabled = prefs.getBool('show_shift_feedback') ?? false;
-      _soundEnabled = prefs.getBool('sound_enabled') ?? false;
+      _soundEnabled = prefs.getBool('sound_enabled') ?? true;
       _personalizedSuggestionsEnabled = prefs.getBool('personalized_enabled') ?? true;
       _autoCorrectEnabled = prefs.getBool('auto_correct') ?? true;  // ✅ Load auto-correct setting
       
       // Advanced feedback settings
       _hapticIntensity = FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2];
-      _soundIntensity = FeedbackIntensity.values[prefs.getInt('sound_intensity') ?? 0];
+      _soundIntensity = FeedbackIntensity.values[prefs.getInt('sound_intensity') ?? 2];
       _visualIntensity = FeedbackIntensity.values[prefs.getInt('visual_intensity') ?? 0];
-      _soundVolume = prefs.getDouble('sound_volume') ?? 0.0;
-      _soundType = prefs.getString('flutter.sound.type') ?? 'silent';
+      _soundVolume = prefs.getDouble('sound_volume') ?? 0.65;
+      _soundType = prefs.getString('flutter.sound.type') ?? 'default';
       _effectType = prefs.getString('flutter.effect.type') ?? 'none';
     });
     
@@ -181,8 +187,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     // Clamp ranges
     portraitFontSize = portraitFontSize.clamp(80.0, 130.0);
     landscapeFontSize = landscapeFontSize.clamp(80.0, 130.0);
-    keyboardWidth = keyboardWidth.clamp(50.0, 150.0);
-    keyboardHeight = keyboardHeight.clamp(50.0, 150.0);
+    keyboardWidth = keyboardWidth.clamp(20.0, 40.0);
+    keyboardHeight = keyboardHeight.clamp(20.0, 40.0);
     verticalKeySpacing = verticalKeySpacing.clamp(0.0, 8.0);
     horizontalKeySpacing = horizontalKeySpacing.clamp(0.0, 8.0);
     longPressDelay = longPressDelay.clamp(150.0, 600.0);
@@ -199,33 +205,79 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     await prefs.setBool('flutter.keyboard.showLanguageOnSpace', displayLanguageOnSpace);
     await prefs.setString('keyboard.utilityKeyAction', utilityKeyAction);
     await prefs.setBool('keyboard.showLanguageOnSpace', displayLanguageOnSpace);
-    // Save font scale with proper flutter prefix for Kotlin to read
-    await prefs.setDouble('keyboard.fontScalePortrait', portraitFontSize / 100.0);
-    await prefs.setDouble('keyboard.fontScaleLandscape', landscapeFontSize / 100.0);
-    await prefs.setDouble('flutter.keyboard.fontScalePortrait', portraitFontSize / 100.0);
-    await prefs.setDouble('flutter.keyboard.fontScaleLandscape', landscapeFontSize / 100.0);
+    await prefs.setBool('keyboard_settings.number_row', numberRow);
+    await prefs.setBool('keyboard_settings.hinted_number_row', hintedNumberRow);
+    await prefs.setBool('keyboard_settings.hinted_symbols', hintedSymbols);
+    await prefs.setBool('keyboard_settings.show_utility_key', showUtilityKey);
+    await prefs.setBool('keyboard_settings.display_language_on_space', displayLanguageOnSpace);
+    await prefs.setBool('flutter.keyboard_settings.number_row', numberRow);
+    await prefs.setBool('flutter.keyboard_settings.hinted_number_row', hintedNumberRow);
+    await prefs.setBool('flutter.keyboard_settings.hinted_symbols', hintedSymbols);
+    await prefs.setBool('flutter.keyboard_settings.show_utility_key', showUtilityKey);
+    await prefs.setBool('flutter.keyboard_settings.display_language_on_space', displayLanguageOnSpace);
+    // Save font scale (Flutter plugin prepends "flutter." automatically)
+    final portraitScale = (portraitFontSize / 100.0);
+    final landscapeScale = (landscapeFontSize / 100.0);
+    await prefs.setDouble('keyboard.fontScalePortrait', portraitScale);
+    await prefs.setDouble('keyboard.fontScaleLandscape', landscapeScale);
+    await prefs.setDouble('keyboard_settings.portrait_font_size', portraitFontSize);
+    await prefs.setDouble('keyboard_settings.landscape_font_size', landscapeFontSize);
+    await prefs.setDouble('flutter.keyboard.fontScalePortrait', portraitScale);
+    await prefs.setDouble('flutter.keyboard.fontScaleLandscape', landscapeScale);
+    await prefs.setDouble('flutter.keyboard_settings.portrait_font_size', portraitFontSize);
+    await prefs.setDouble('flutter.keyboard_settings.landscape_font_size', landscapeFontSize);
     
     await prefs.setBool('keyboard.borderlessKeys', borderlessKeys);
     await prefs.setBool('keyboard.oneHanded.enabled', oneHandedMode);
     await prefs.setString('keyboard.oneHanded.side', oneHandedSide);
     await prefs.setDouble('keyboard.oneHanded.widthPct', oneHandedModeWidth / 100.0);
     await prefs.setBool('keyboard.landscapeFullscreen', landscapeFullScreenInput);
+    await prefs.setBool('flutter.keyboard_settings.borderless_keys', borderlessKeys);
+    await prefs.setBool('flutter.keyboard_settings.one_handed_mode', oneHandedMode);
+    await prefs.setString('flutter.keyboard_settings.one_handed_side', oneHandedSide);
+    await prefs.setDouble('flutter.keyboard_settings.one_handed_mode_width', oneHandedModeWidth);
+    await prefs.setBool('flutter.keyboard_settings.landscape_full_screen_input', landscapeFullScreenInput);
     // ✅ FIX: Save keyboard height with orientation-specific keys
     // Note: keyboardWidth = Portrait height, keyboardHeight = Landscape height (confusing naming in UI)
     await prefs.setDouble('keyboard.scaleX', 1.0); // Keep width at 100%
     await prefs.setDouble('keyboard.scaleY', keyboardWidth / 100.0); // For backward compatibility
+    await prefs.setDouble('keyboard_settings.keyboard_width', keyboardWidth);
+    await prefs.setDouble('keyboard_settings.keyboard_height', keyboardHeight);
     await prefs.setDouble('flutter.keyboard.scaleYPortrait', keyboardWidth / 100.0);
     await prefs.setDouble('flutter.keyboard.scaleYLandscape', keyboardHeight / 100.0);
+    await prefs.setDouble('flutter.keyboard_settings.keyboard_width', keyboardWidth);
+    await prefs.setDouble('flutter.keyboard_settings.keyboard_height', keyboardHeight);
     await prefs.setInt('keyboard.keySpacingVdp', verticalKeySpacing.round());
     await prefs.setInt('keyboard.keySpacingHdp', horizontalKeySpacing.round());
-    // Also save spacing with flutter. prefix
     await prefs.setInt('flutter.keyboard.keySpacingVdp', verticalKeySpacing.round());
     await prefs.setInt('flutter.keyboard.keySpacingHdp', horizontalKeySpacing.round());
+    await prefs.setDouble('keyboard_settings.vertical_key_spacing', verticalKeySpacing);
+    await prefs.setDouble('keyboard_settings.horizontal_key_spacing', horizontalKeySpacing);
+    await prefs.setDouble('flutter.keyboard_settings.vertical_key_spacing', verticalKeySpacing);
+    await prefs.setDouble('flutter.keyboard_settings.horizontal_key_spacing', horizontalKeySpacing);
     await prefs.setInt('keyboard.bottomOffsetPortraitDp', portraitBottomOffset.round());
     await prefs.setInt('keyboard.bottomOffsetLandscapeDp', landscapeBottomOffset.round());
+    await prefs.setInt('flutter.keyboard.bottomOffsetPortraitDp', portraitBottomOffset.round());
+    await prefs.setInt('flutter.keyboard.bottomOffsetLandscapeDp', landscapeBottomOffset.round());
+    await prefs.setInt('flutter.keyboard.bottomOffsetDp', portraitBottomOffset.round());
+    await prefs.setDouble('keyboard_settings.portrait_bottom_offset', portraitBottomOffset);
+    await prefs.setDouble('keyboard_settings.landscape_bottom_offset', landscapeBottomOffset);
+    await prefs.setDouble('flutter.keyboard_settings.portrait_bottom_offset', portraitBottomOffset);
+    await prefs.setDouble('flutter.keyboard_settings.landscape_bottom_offset', landscapeBottomOffset);
+    await prefs.setInt('flutter.keyboard.heightPercentPortrait', keyboardWidth.round());
+    await prefs.setInt('flutter.keyboard.heightPercentLandscape', keyboardHeight.round());
+    await prefs.setInt('flutter.keyboard.heightPercent', keyboardWidth.round());
+    await prefs.setInt('keyboard_height_percent', keyboardWidth.round());
+    await prefs.setBool('keyboard.instantLongPressSelectFirst', true);
+    await prefs.setBool('flutter.keyboard.instantLongPressSelectFirst', true);
     
     await prefs.setBool('keyboard.popupPreview', popupVisibility);
     await prefs.setInt('keyboard.longPressDelayMs', longPressDelay.round());
+    await prefs.setInt('flutter.keyboard.longPressDelayMs', longPressDelay.round());
+    await prefs.setBool('keyboard_settings.popup_visibility', popupVisibility);
+    await prefs.setDouble('keyboard_settings.long_press_delay', longPressDelay);
+    await prefs.setBool('flutter.keyboard_settings.popup_visibility', popupVisibility);
+    await prefs.setDouble('flutter.keyboard_settings.long_press_delay', longPressDelay);
     
     await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
     await prefs.setBool('swipe_typing', _swipeTypingEnabled);
@@ -243,7 +295,9 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     await prefs.setString('flutter.sound.type', _soundType);
     await prefs.setString('flutter.effect.type', _effectType);
     
-    debugPrint('✅ Keyboard settings saved');
+    debugPrint(
+      '✅ Keyboard settings saved (fontScale portrait=${portraitScale.toStringAsFixed(2)}, landscape=${landscapeScale.toStringAsFixed(2)})',
+    );
     
     // Update feedback system
     KeyboardFeedbackSystem.updateSettings(
@@ -252,6 +306,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       visual: _visualIntensity,
       volume: _soundVolume,
     );
+
+    await _applyOneHandedModeNative();
     
     // Send to native keyboard
     await _sendSettingsToKeyboard();
@@ -320,6 +376,22 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       });
     } catch (e) {
       debugPrint('⚠ Error sending settings: $e');
+    }
+  }
+
+  Future<void> _applyOneHandedModeNative() async {
+    final enabled = oneHandedMode && oneHandedSide != 'off';
+    final side = enabled ? oneHandedSide : 'right';
+    final widthFraction = ((oneHandedModeWidth / 100.0).clamp(0.6, 0.9)).toDouble();
+
+    try {
+      await _channel.invokeMethod('setOneHandedMode', {
+        'enabled': enabled,
+        'side': side,
+        'width': widthFraction,
+      });
+    } catch (e) {
+      debugPrint('⚠ Error applying one-handed mode: $e');
     }
   }
   
@@ -1425,8 +1497,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                             ),
                             Slider(
                               value: tempPortrait,
-                              min: 50.0,
-                              max: 150.0,
+                              min: 80.0,
+                              max: 130.0,
                               activeColor: AppColors.secondary,
                               inactiveColor: AppColors.lightGrey,
                               onChanged: (value) {
@@ -1446,8 +1518,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
-                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('80%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('130%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
                           ],
                         ),
                       ),
@@ -1476,8 +1548,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                             ),
                             Slider(
                               value: tempLandscape,
-                              min: 50.0,
-                              max: 150.0,
+                              min: 80.0,
+                              max: 130.0,
                               activeColor: AppColors.secondary,
                               inactiveColor: AppColors.lightGrey,
                               onChanged: (value) {
@@ -1497,8 +1569,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
-                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('80%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('130%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
                           ],
                         ),
                       ),
@@ -1586,8 +1658,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                             ),
                             Slider(
                               value: tempPortrait,
-                              min: 50.0,
-                              max: 150.0,
+                              min: 20.0,
+                              max: 40.0,
                               activeColor: AppColors.secondary,
                               inactiveColor: AppColors.lightGrey,
                               onChanged: (value) {
@@ -1607,8 +1679,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
-                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('20%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('40%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
                           ],
                         ),
                       ),
@@ -1637,8 +1709,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                             ),
                             Slider(
                               value: tempLandscape,
-                              min: 50.0,
-                              max: 150.0,
+                              min: 20.0,
+                              max: 40.0,
                               activeColor: AppColors.secondary,
                               inactiveColor: AppColors.lightGrey,
                               onChanged: (value) {
@@ -1658,8 +1730,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('50%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
-                            Text('150%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('20%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
+                            Text('40%', style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey)),
                           ],
                         ),
                       ),
@@ -1670,8 +1742,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () {
-                    tempPortrait = 100.0;
-                    tempLandscape = 100.0;
+                    tempPortrait = 28.0;
+                    tempLandscape = 28.0;
                     setDialogState(() {});
                   },
                   child: Text('Reset', style: AppTextStyle.bodyMedium.copyWith(color: AppColors.grey)),

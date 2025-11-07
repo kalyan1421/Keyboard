@@ -15,6 +15,7 @@ import 'package:ai_keyboard/widgets/font_picker.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/theme/Custom_theme.dart';
+import 'package:ai_keyboard/widgets/keyboard_snapshot.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// CleverType Theme Editor V2
@@ -39,6 +40,8 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
   final _nameController = TextEditingController();
   final FocusNode _keyboardFocusNode = FocusNode();
   late final List<_EditorTab> _tabs;
+  OverlayEntry? _previewOverlayEntry;
+  KeyboardThemeV2? _overlayTheme;
   static const List<_EffectOption> _effectOptions = [
     _EffectOption(
       id: 'none',
@@ -294,6 +297,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     super.initState();
     // Initialize with provided theme or create new one
     _currentTheme = widget.initialTheme ?? KeyboardThemeV2.createDefault();
+    _overlayTheme = _currentTheme;
     _nameController.text = _currentTheme.name;
     _selectedFontId = _resolveFontOptionId(
       _currentTheme.keys.font.family,
@@ -329,7 +333,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       _EditorTab(
         icon: Icons.emoji_emotions_outlined,
         label: 'Stickers',
-        builder: _buildStickersTab,
+      builder: _buildStickersTab,
       ),
     ];
 
@@ -347,12 +351,18 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _keyboardFocusNode.requestFocus();
+        if (_currentTheme.advanced.livePreview) {
+          _ensurePreviewOverlay();
+        } else {
+          _removePreviewOverlay();
+        }
       }
     });
   }
 
   @override
   void dispose() {
+    _removePreviewOverlay();
     _nameController.dispose();
     _previewController.dispose();
     _keyboardFocusNode.dispose();
@@ -403,6 +413,8 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       );
     });
 
+    _refreshPreviewOverlay(newTheme);
+
     // Animate preview update
     _previewController.reset();
     _previewController.forward();
@@ -425,6 +437,71 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     } catch (e) {
       // Silently fail
     }
+  }
+
+  void _ensurePreviewOverlay() {
+    if (!mounted) return;
+    final overlay = Overlay.of(context);
+    if (overlay == null) {
+      return;
+    }
+
+    if (_previewOverlayEntry == null) {
+      _previewOverlayEntry = OverlayEntry(
+        builder: (context) {
+          final theme = _overlayTheme ?? _currentTheme;
+          final bottomPadding = MediaQuery.of(context).padding.bottom;
+          return Positioned(
+           
+            bottom: 24 + bottomPadding,
+            child: IgnorePointer(
+              ignoring: true,
+              child: Material(
+                color: Colors.transparent,
+                elevation: 12,
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  width: MediaQuery.of(context).size.width,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: KeyboardSnapshot(
+                    theme: theme,
+                    showShadow: false,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      overlay.insert(_previewOverlayEntry!);
+    } else {
+      _previewOverlayEntry!.markNeedsBuild();
+    }
+  }
+
+  void _refreshPreviewOverlay(KeyboardThemeV2 theme) {
+    _overlayTheme = theme;
+    if (!theme.advanced.livePreview) {
+      _removePreviewOverlay();
+      return;
+    }
+    _ensurePreviewOverlay();
+  }
+
+  void _removePreviewOverlay() {
+    _previewOverlayEntry?.remove();
+    _previewOverlayEntry = null;
   }
 
   Future<void> _exportTheme() async {
@@ -1062,12 +1139,54 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
   }
 
   Widget _buildImageTab() {
+    final List<String> imageThemes = [
+      'assets/image_theme/bench.png',
+      'assets/image_theme/circldesign.jpg',
+      'assets/image_theme/perosn_with sunset.png',
+      'assets/image_theme/sun_moon.jpg',
+    ];
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Brightness Control
+          _buildSection('Brightness', [
+            Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: _currentTheme.background.imageOpacity,
+                    min: 0.3,
+                    max: 1.0,
+                    divisions: 14,
+                    label: '${(_currentTheme.background.imageOpacity * 100).round()}%',
+                    activeColor: AppColors.secondary,
+                    onChanged: (value) {
+                      _updateTheme(_currentTheme.copyWith(
+                        background: _currentTheme.background.copyWith(imageOpacity: value),
+                      ));
+                    },
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${(_currentTheme.background.imageOpacity * 100).round()}%',
+                    style: TextStyle(
+                      color: AppColors.secondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ]),
           // Upload Photo Section
           GestureDetector(
             onTap: _uploadCustomImageForTheme,
@@ -1078,35 +1197,55 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey[300]!, width: 2, style: BorderStyle.solid),
               ),
-              child: Column(
+              child: Row(
                 children: [
                   Container(
-                    width: 80,
-                    height: 80,
+                    width: 60,
+                    height: 60,
                     decoration: BoxDecoration(
-                      color: Colors.blue[900],
+                      color: AppColors.secondary,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
-                      Icons.upload_file,
-                      color: Colors.orange,
-                      size: 40,
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 32,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Drag & drop or browse files',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Upload Photo',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Upload High Quality Photo',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Please upload Jpg image, size less than 100KB',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: AppColors.secondary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.add_photo_alternate,
+                      color: Colors.white,
+                      size: 28,
                     ),
                   ),
                 ],
@@ -1116,33 +1255,169 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
           const SizedBox(height: 24),
           
           // Recently Uploaded Section
-        
-          // Brightness Control
-          _buildSection('Brightness', [
-            Row(
-              children: [
-                const Text('Brightness:'),
-                Expanded(
-                  child: Slider(
-                    value: _currentTheme.background.imageOpacity,
-                    min: 0.3,
-                    max: 1.0,
-                    divisions: 14,
-                    label: '${(_currentTheme.background.imageOpacity * 100).round()}%',
-                    onChanged: (value) {
-                      _updateTheme(_currentTheme.copyWith(
-                        background: _currentTheme.background.copyWith(imageOpacity: value),
-                      ));
-                    },
-                  ),
-                ),
-                Text('${(_currentTheme.background.imageOpacity * 100).round()}%'),
-              ],
+          Text(
+            'Recently Uploaded',
+            style: AppTextStyle.titleMedium.copyWith(
+              color: AppColors.black,
+              fontWeight: FontWeight.w600,
             ),
-          ]),
+          ),
+          const SizedBox(height: 12),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.2,
+            ),
+            itemCount: imageThemes.length,
+            itemBuilder: (context, index) {
+              return _buildImageThemeTile(imageThemes[index]);
+            },
+          ),
+          const SizedBox(height: 250),
+        
+          
         ],
       ),
     );
+  }
+
+  Widget _buildImageThemeTile(String imagePath) {
+    // Check if this image is currently selected by checking if the background path contains the image name
+    final imageName = imagePath.split('/').last;
+    final currentImagePath = _currentTheme.background.imagePath ?? '';
+    final isSelected = _currentTheme.background.type == 'image' && 
+                      currentImagePath.contains(imageName.replaceAll('.png', '').replaceAll('.jpg', ''));
+    
+    return GestureDetector(
+      onTap: () => _applyImageTheme(imagePath),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? AppColors.secondary : Colors.grey[300]!,
+            width: isSelected ? 3 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.secondary.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : [],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(
+                imagePath,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[200],
+                    child: const Icon(Icons.image, size: 40, color: Colors.grey),
+                  );
+                },
+              ),
+              if (isSelected)
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withOpacity(0.3),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.check_circle,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _applyImageTheme(String assetPath) async {
+    try {
+      // Copy asset image to local storage so Android keyboard can access it
+      final String localPath = await _copyAssetToLocal(assetPath);
+      
+      // Create proper image theme based on which image was selected
+      KeyboardThemeV2 imageTheme;
+      if (assetPath.contains('bench.png')) {
+        imageTheme = KeyboardThemeV2.createBenchImageTheme(localPath);
+      } else if (assetPath.contains('circldesign.jpg')) {
+        imageTheme = KeyboardThemeV2.createCircleDesignImageTheme(localPath);
+      } else if (assetPath.contains('perosn_with sunset.png')) {
+        imageTheme = KeyboardThemeV2.createSunsetImageTheme(localPath);
+      } else if (assetPath.contains('sun_moon.jpg')) {
+        imageTheme = KeyboardThemeV2.createSunMoonImageTheme(localPath);
+      } else {
+        // Fallback: use generic image theme with white keys
+        imageTheme = KeyboardThemeV2.createBenchImageTheme(localPath);
+      }
+      
+      _updateTheme(imageTheme);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Image theme applied!'),
+            backgroundColor: AppColors.secondary,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to apply image: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<String> _copyAssetToLocal(String assetPath) async {
+    try {
+      // Load the asset as bytes
+      final ByteData data = await rootBundle.load(assetPath);
+      final List<int> bytes = data.buffer.asUint8List();
+      
+      // Get the application documents directory
+      final Directory appDocDir = await getApplicationDocumentsDirectory();
+      final String imagesDir = '${appDocDir.path}/keyboard_images';
+      
+      // Create the directory if it doesn't exist
+      final Directory dir = Directory(imagesDir);
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+      
+      // Extract the file name from the asset path
+      final String fileName = assetPath.split('/').last;
+      final String localPath = '$imagesDir/$fileName';
+      
+      // Write the bytes to the local file
+      final File file = File(localPath);
+      await file.writeAsBytes(bytes);
+      
+      return localPath;
+    } catch (e) {
+      throw Exception('Failed to copy asset to local storage: $e');
+    }
   }
 
   Widget _buildImageThumbnail(int index) {
@@ -1678,20 +1953,28 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                   border: OutlineInputBorder(),
                 ),
                 items: const [
+                  DropdownMenuItem(value: 'default', child: Text('Default')),
                   DropdownMenuItem(value: 'soft', child: Text('Soft Clicks')),
-                  DropdownMenuItem(value: 'mechanical', child: Text('Mechanical')),
                   DropdownMenuItem(value: 'clicky', child: Text('Clicky')),
-                  DropdownMenuItem(value: 'classic', child: Text('Classic')),
+                  DropdownMenuItem(value: 'mechanical', child: Text('Mechanical')),
                   DropdownMenuItem(value: 'typewriter', child: Text('Typewriter')),
                   DropdownMenuItem(value: 'piano', child: Text('Piano Keys')),
                   DropdownMenuItem(value: 'pop', child: Text('Pop Sound')),
                   DropdownMenuItem(value: 'silent', child: Text('Silent')),
+                  DropdownMenuItem(value: 'custom', child: Text('Custom (import)')),
                 ],
-                onChanged: (value) {
+                onChanged: (value) async {
                   if (value != null) {
-                    _updateTheme(_currentTheme.copyWith(
-                      sounds: _currentTheme.sounds.copyWith(pack: value),
-                    ));
+                    if (value == 'custom') {
+                      await _pickCustomSound();
+                    } else {
+                      _updateTheme(_currentTheme.copyWith(
+                        sounds: _currentTheme.sounds.copyWith(
+                          pack: value,
+                          customUris: {},
+                        ),
+                      ));
+                    }
                   }
                 },
               ),
@@ -2135,6 +2418,110 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       },
     );
   }
+
+  String? _customSoundName() {
+    final path = _currentTheme.sounds.customUris['primary'];
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+    final parts = path.split(Platform.pathSeparator);
+    return parts.isNotEmpty ? parts.last : path;
+  }
+
+  Future<void> _pickCustomSound() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['wav', 'mp3', 'ogg', 'm4a'],
+      );
+
+      if (result == null || result.files.single.path == null) {
+        return;
+      }
+
+      final docsDir = await getApplicationDocumentsDirectory();
+      final soundsDir = Directory('${docsDir.path}/theme_sounds');
+      if (!soundsDir.existsSync()) {
+        soundsDir.createSync(recursive: true);
+      }
+
+      final originalName = result.files.single.name;
+      final sanitizedName = originalName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final destPath = '${soundsDir.path}/${DateTime.now().millisecondsSinceEpoch}_$sanitizedName';
+
+      await File(result.files.single.path!).copy(destPath);
+
+      _updateTheme(_currentTheme.copyWith(
+        sounds: _currentTheme.sounds.copyWith(
+          pack: 'custom',
+          customUris: {
+            ..._currentTheme.sounds.customUris,
+            'primary': destPath,
+          },
+        ),
+      ));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Custom sound added')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError('Failed to import sound: $e');
+      }
+    }
+  }
+
+  void _clearCustomSound() {
+    _updateTheme(_currentTheme.copyWith(
+      sounds: _currentTheme.sounds.copyWith(
+        pack: 'default',
+        customUris: {},
+      ),
+    ));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Custom sound removed')),
+      );
+    }
+  }
+
+  Widget _buildCustomSoundPreview() {
+    final fileName = _customSoundName() ?? 'No file selected';
+    final fullPath = _currentTheme.sounds.customUris['primary'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Custom sound: $fileName',
+          style: AppTextStyle.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+        ),
+        if (fullPath != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            fullPath,
+            style: AppTextStyle.bodySmall.copyWith(color: Colors.grey[600]),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _pickCustomSound,
+              icon: const Icon(Icons.library_music),
+              label: const Text('Replace sound'),
+            ),
+            const SizedBox(width: 12),
+            TextButton(
+              onPressed: _clearCustomSound,
+              child: const Text('Remove'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
   Widget _buildSoundTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -2157,12 +2544,20 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                 DropdownMenuItem(value: 'piano', child: Text('Piano Keys')),
                 DropdownMenuItem(value: 'pop', child: Text('Pop Sound')),
                 DropdownMenuItem(value: 'silent', child: Text('Silent')),
+                DropdownMenuItem(value: 'custom', child: Text('Custom (import)')),
               ],
-              onChanged: (value) {
+              onChanged: (value) async {
                 if (value != null) {
-                  _updateTheme(_currentTheme.copyWith(
-                    sounds: _currentTheme.sounds.copyWith(pack: value),
-                  ));
+                  if (value == 'custom') {
+                    await _pickCustomSound();
+                  } else {
+                    _updateTheme(_currentTheme.copyWith(
+                      sounds: _currentTheme.sounds.copyWith(
+                        pack: value,
+                        customUris: {},
+                      ),
+                    ));
+                  }
                 }
               },
             ),
@@ -2188,6 +2583,15 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
                 Text('${(_currentTheme.sounds.volume * 100).round()}%'),
               ],
             ),
+            const SizedBox(height: 16),
+            if (_currentTheme.sounds.pack == 'custom')
+              _buildCustomSoundPreview()
+            else
+              OutlinedButton.icon(
+                onPressed: _pickCustomSound,
+                icon: const Icon(Icons.library_music),
+                label: const Text('Import custom sound'),
+              ),
           ]),
         ],
       ),

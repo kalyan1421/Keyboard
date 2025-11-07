@@ -2,6 +2,7 @@ package com.example.ai_keyboard
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -9,14 +10,18 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.KeyEvent
 import android.view.inputmethod.InputConnection
 import android.widget.*
+import android.text.TextUtils
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.ImageViewCompat
 import androidx.core.content.ContextCompat
 import androidx.annotation.DrawableRes
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
+import android.os.SystemClock
 import com.example.ai_keyboard.themes.PanelTheme
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import com.example.ai_keyboard.utils.LogUtil
@@ -84,6 +89,20 @@ class UnifiedPanelManager(
         val translation: TextView
     )
 
+    private enum class QuickSettingType {
+        ACTION,
+        TOGGLE
+    }
+
+    private data class QuickSettingItem(
+        val id: String,
+        val label: String,
+        @DrawableRes val iconRes: Int,
+        val type: QuickSettingType,
+        var isActive: Boolean = false,
+        val handler: (QuickSettingItem) -> Unit
+    )
+
     private enum class GrammarAction(
         val label: String,
         val description: String,
@@ -128,6 +147,7 @@ class UnifiedPanelManager(
     private var emojiPanelController: EmojiPanelController? = null
     private var emojiPanelView: View? = null
     private var settingsPanelView: View? = null
+    private var emojiSearchModeListener: ((Boolean) -> Unit)? = null
     
     // Services
     private val advancedAIService = AdvancedAIService(context)
@@ -230,6 +250,30 @@ class UnifiedPanelManager(
      */
     fun isPanelVisible(): Boolean {
         return currentPanelType != null
+    }
+    
+    fun isEmojiSearchMode(): Boolean {
+        return emojiPanelController?.isInSearchMode() == true
+    }
+    
+    fun resetEmojiPanelState() {
+        emojiPanelController?.resetToNormalMode()
+    }
+    
+    fun setEmojiSearchModeListener(listener: (Boolean) -> Unit) {
+        emojiSearchModeListener = listener
+    }
+
+    fun appendEmojiSearchCharacter(char: Char) {
+        emojiPanelController?.appendToSearchQuery(char)
+    }
+
+    fun removeEmojiSearchCharacter() {
+        emojiPanelController?.removeLastFromSearchQuery()
+    }
+
+    fun clearEmojiSearch() {
+        emojiPanelController?.clearSearchQuery()
     }
     
     /**
@@ -467,7 +511,9 @@ class UnifiedPanelManager(
                 themeManager,
                 onBackToKeyboard,
                 inputConnectionProvider
-            )
+            ) { active ->
+                emojiSearchModeListener?.invoke(active)
+            }
             val dummyContainer = FrameLayout(context)
             emojiPanelView = emojiPanelController!!.inflate(dummyContainer)
         }
@@ -1579,50 +1625,84 @@ class UnifiedPanelManager(
         val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
         val prefs = context.getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-        
+        val quickSettings = loadQuickSettings(prefs)
         val panelBg = if (themeManager.isImageBackground()) palette.panelSurface else palette.keyboardBg
-        return ScrollView(context).apply {
+
+        val adapter = QuickSettingsAdapter(
+            items = quickSettings,
+            palette = palette,
+            onItemInvoked = { item ->
+                try {
+                    item.handler(item)
+                } catch (e: Exception) {
+                    LogUtil.e(TAG, "Error executing quick setting ${item.id}", e)
+                    Toast.makeText(context, "Action unavailable", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onOrderChanged = { items -> persistQuickSettingsOrder(prefs, items) }
+        )
+
+        val navBarHeight = keyboardHeightManager?.getNavigationBarHeight() ?: 0
+
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
             setBackgroundColor(panelBg)
-            
-            // ✅ Consume all touch events to prevent keyboard keys from being triggered
+            val horizontalPadding = dpToPx(16)
+            val topPadding = dpToPx(16)
+            val bottomPadding = dpToPx(14) + navBarHeight
+            setPadding(horizontalPadding, topPadding, horizontalPadding, bottomPadding)
+            clipToPadding = false
+            clipChildren = false
             isClickable = true
             isFocusable = true
             setOnTouchListener { _, _ -> true }
-            
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT
-                )
-                setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
-                
-                // Header
-                addView(themedTextView("⚙️ Quick Settings", 20f, true).apply {
-                    setPadding(0, 0, 0, dpToPx(24))
-                })
-                
-                // Vibration Toggle
-                addView(createSettingToggle("Vibration", "vibration_enabled", prefs))
-                
-                // Sound Toggle
-                addView(createSettingToggle("Sound", "sound_enabled", prefs))
-                
-                // AI Suggestions Toggle
-                addView(createSettingToggle("AI Suggestions", "ai_suggestions", prefs))
-                
-                // Spacer
-                addView(View(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        dpToPx(24)
-                    )
-                })
-                
-                
-            })
         }
+
+        container.addView(createSettingsPanelToolbar(palette))
+
+        
+
+        val recyclerView = RecyclerView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            overScrollMode = RecyclerView.OVER_SCROLL_NEVER
+            clipToPadding = false
+            setPadding(20, 0, 0, dpToPx(8))
+            layoutManager = GridLayoutManager(context, calculateQuickSettingsSpan())
+            this.adapter = adapter
+        }
+
+        val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.START or ItemTouchHelper.END,
+            0
+        ) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                adapter.swapItems(
+                    viewHolder.bindingAdapterPosition,
+                    target.bindingAdapterPosition
+                )
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                // no-op
+            }
+
+            override fun isLongPressDragEnabled(): Boolean = false
+        })
+        touchHelper.attachToRecyclerView(recyclerView)
+        adapter.setDragStartListener { holder -> touchHelper.startDrag(holder) }
+
+        container.addView(recyclerView)
+        return container
     }
     
     // ========================================
@@ -2150,6 +2230,469 @@ class UnifiedPanelManager(
             )
             outerParams.setMargins(0, 0, 0, dpToPx(8))
             layoutParams = outerParams
+        }
+    }
+
+    private fun createSettingsPanelToolbar(palette: ThemePaletteV2): View {
+        val service = AIKeyboardService.getInstance()
+
+        fun addButton(
+            parent: LinearLayout,
+            @DrawableRes iconRes: Int,
+            withBox: Boolean = false,
+            onClick: () -> Unit
+        ) {
+            val button = ImageButton(context).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(40), dpToPx(40)).apply {
+                    rightMargin = dpToPx(8)
+                }
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
+                background = createToolbarButtonBackground(palette, withBox)
+                setImageResource(iconRes)
+                val tintColor = if (withBox) {
+                    val drawableColor = (background as? GradientDrawable)?.color?.defaultColor
+                        ?: palette.specialAccent
+                    getContrastColor(drawableColor)
+                } else {
+                    getContrastColor(palette.toolbarBg)
+                }
+                ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(tintColor))
+                setOnClickListener { onClick() }
+            }
+            parent.addView(button)
+        }
+
+        val leftGroup = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val rightGroup = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        addButton(leftGroup, R.drawable.keyboard_icon, withBox = true) { onBackToKeyboard() }
+        addButton(leftGroup, R.drawable.voice, withBox = true) {
+            if (service != null) {
+                service.startVoiceInputFromToolbar()
+            } else {
+                showToast("Voice input unavailable")
+            }
+        }
+        addButton(leftGroup, R.drawable.emoji_icon, withBox = true) {
+            openPanelFromToolbar(PanelType.EMOJI)
+        }
+
+        addButton(rightGroup, R.drawable.chatgpt_icon, withBox = true) {
+            openPanelFromToolbar(PanelType.AI_ASSISTANT)
+        }
+        addButton(rightGroup, R.drawable.grammar_icon, withBox = true) {
+            openPanelFromToolbar(PanelType.GRAMMAR)
+        }
+        addButton(rightGroup, R.drawable.tone_icon, withBox = true) {
+            openPanelFromToolbar(PanelType.TONE)
+        }
+
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(0, 0, 0, 0)
+            addView(leftGroup)
+            addView(View(context).apply {
+                layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+            })
+            addView(rightGroup)
+        }
+    }
+
+    private fun createToolbarButtonBackground(
+        palette: ThemePaletteV2,
+        withBox: Boolean
+    ): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = dpToPx(18).toFloat()
+            if (withBox) {
+                setColor(palette.specialAccent)
+            } else {
+                setColor(ColorUtils.setAlphaComponent(palette.keyBg, 160))
+                setStroke(dpToPx(1), ColorUtils.setAlphaComponent(palette.keyBorderColor, 120))
+            }
+        }
+    }
+
+    private fun loadQuickSettings(prefs: SharedPreferences): MutableList<QuickSettingItem> {
+        val defaultsList = createDefaultQuickSettings(prefs)
+        val defaultsMap = LinkedHashMap<String, QuickSettingItem>()
+        defaultsList.forEach { defaultsMap[it.id] = it }
+
+        val stored = prefs.getString("quick_settings_order_v2", null)
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
+
+        if (stored.isEmpty()) {
+            return defaultsList.toMutableList()
+        }
+
+        val ordered = mutableListOf<QuickSettingItem>()
+        stored.forEach { id ->
+            defaultsMap.remove(id)?.let { ordered.add(it) }
+        }
+
+        if (defaultsMap.isNotEmpty()) {
+            ordered.addAll(defaultsMap.values)
+        }
+
+        return if (ordered.isEmpty()) defaultsList.toMutableList() else ordered
+    }
+
+    private fun createDefaultQuickSettings(prefs: SharedPreferences): List<QuickSettingItem> {
+        val service = AIKeyboardService.getInstance()
+        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+
+        val soundFallback = prefs.getBoolean("sound_enabled", true)
+        val vibrationFallback = prefs.getBoolean("vibration_enabled", true)
+        val numberRowFallback = prefs.getBoolean("show_number_row", false)
+        val autoCorrectFallback = prefs.getBoolean("auto_correct", true)
+        val oneHandedFallback = flutterPrefs.getBoolean("flutter.keyboard_settings.one_handed_mode", false)
+
+        return listOf(
+            QuickSettingItem(
+                id = "themes",
+                label = "Themes",
+                iconRes = R.drawable.ic_qs_themes,
+                type = QuickSettingType.ACTION
+            ) {
+                openFlutterRoute("theme_editor")
+            },
+            QuickSettingItem(
+                id = "number_row",
+                label = "Number Row",
+                iconRes = R.drawable.number_123,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isNumberRowEnabled() ?: numberRowFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleNumberRow()
+                    item.isActive = service.isNumberRowEnabled()
+                } else {
+                    val newState = !item.isActive
+                    prefs.edit().putBoolean("show_number_row", newState).apply()
+                    item.isActive = newState
+                }
+            },
+            QuickSettingItem(
+                id = "sound",
+                label = "Sound",
+                iconRes = R.drawable.ic_qs_sound,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isSoundEnabled() ?: soundFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleSound()
+                    item.isActive = service.isSoundEnabled()
+                } else {
+                    val newState = !item.isActive
+                    prefs.edit().putBoolean("sound_enabled", newState).apply()
+                    item.isActive = newState
+                }
+            },
+            QuickSettingItem(
+                id = "vibration",
+                label = "Vibration",
+                iconRes = R.drawable.ic_qs_vibration,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isVibrationEnabled() ?: vibrationFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleVibration()
+                    item.isActive = service.isVibrationEnabled()
+                } else {
+                    val newState = !item.isActive
+                    prefs.edit().putBoolean("vibration_enabled", newState).apply()
+                    item.isActive = newState
+                }
+            },
+            QuickSettingItem(
+                id = "undo",
+                label = "Undo",
+                iconRes = R.drawable.ic_qs_undo,
+                type = QuickSettingType.ACTION
+            ) {
+                performEditorCommand(EditorCommand.UNDO)
+            },
+            QuickSettingItem(
+                id = "redo",
+                label = "Redo",
+                iconRes = R.drawable.ic_qs_redo,
+                type = QuickSettingType.ACTION
+            ) {
+                performEditorCommand(EditorCommand.REDO)
+            },
+            QuickSettingItem(
+                id = "copy",
+                label = "Copy",
+                iconRes = R.drawable.ic_qs_copy,
+                type = QuickSettingType.ACTION
+            ) {
+                performEditorCommand(EditorCommand.COPY)
+            },
+            QuickSettingItem(
+                id = "paste",
+                label = "Paste",
+                iconRes = R.drawable.ic_qs_paste,
+                type = QuickSettingType.ACTION
+            ) {
+                performEditorCommand(EditorCommand.PASTE)
+            },
+            QuickSettingItem(
+                id = "translate",
+                label = "Translator",
+                iconRes = R.drawable.sym_keyboard_globe,
+                type = QuickSettingType.ACTION
+            ) {
+                if (service != null) {
+                    service.showUnifiedPanel(UnifiedPanelManager.PanelType.TRANSLATE)
+                } else {
+                    showToast("Translator not available")
+                }
+            },
+            QuickSettingItem(
+                id = "auto_correct",
+                label = "Auto-Correct",
+                iconRes = R.drawable.ic_qs_spellcheck,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isAutoCorrectEnabled() ?: autoCorrectFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleAutoCorrect()
+                    item.isActive = service.isAutoCorrectEnabled()
+                } else {
+                    val newState = !item.isActive
+                    prefs.edit().putBoolean("auto_correct", newState).apply()
+                    item.isActive = newState
+                }
+            },
+            QuickSettingItem(
+                id = "one_handed",
+                label = "One Handed",
+                iconRes = R.drawable.ic_qs_one_handed,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isOneHandedModeEnabled() ?: oneHandedFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleOneHandedMode()
+                    item.isActive = service.isOneHandedModeEnabled()
+                } else {
+                    val newState = !item.isActive
+                    flutterPrefs.edit().putBoolean("flutter.keyboard_settings.one_handed_mode", newState).apply()
+                    item.isActive = newState
+                }
+            },
+            QuickSettingItem(
+                id = "settings",
+                label = "Settings",
+                iconRes = R.drawable.setting,
+                type = QuickSettingType.ACTION
+            ) {
+                openFlutterRoute("settings_screen")
+            }
+        )
+    }
+
+    private fun persistQuickSettingsOrder(prefs: SharedPreferences, items: List<QuickSettingItem>) {
+        val order = items.joinToString(",") { it.id }
+        prefs.edit().putString("quick_settings_order_v2", order).apply()
+    }
+
+    private fun calculateQuickSettingsSpan(): Int {
+        val availableWidth = context.resources.displayMetrics.widthPixels - dpToPx(32)
+        val itemWidth = dpToPx(88).coerceAtLeast(1)
+        val span = (availableWidth / itemWidth).coerceIn(3, 6)
+        return if (span <= 0) 3 else span
+    }
+
+    private fun openFlutterRoute(route: String? = null) {
+        try {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                route?.let { putExtra("navigate_to", it) }
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            LogUtil.e(TAG, "Unable to open Flutter route: $route", e)
+            showToast("Unable to open app")
+        }
+    }
+
+    private enum class EditorCommand {
+        UNDO,
+        REDO,
+        COPY,
+        PASTE
+    }
+
+    private fun performEditorCommand(command: EditorCommand) {
+        val inputConnection = inputConnectionProvider()
+        if (inputConnection == null) {
+            showToast("No text field active")
+            return
+        }
+        when (command) {
+            EditorCommand.UNDO -> sendKeyCombination(inputConnection, KeyEvent.KEYCODE_Z, KeyEvent.META_CTRL_ON)
+            EditorCommand.REDO -> sendKeyCombination(
+                inputConnection,
+                KeyEvent.KEYCODE_Z,
+                KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON
+            )
+            EditorCommand.COPY -> inputConnection.performContextMenuAction(android.R.id.copy)
+            EditorCommand.PASTE -> inputConnection.performContextMenuAction(android.R.id.paste)
+        }
+    }
+
+    private fun sendKeyCombination(
+        inputConnection: InputConnection,
+        keyCode: Int,
+        metaState: Int
+    ) {
+        val eventTime = SystemClock.uptimeMillis()
+        val down = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0, metaState)
+        val up = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, keyCode, 0, metaState)
+        inputConnection.sendKeyEvent(down)
+        inputConnection.sendKeyEvent(up)
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openPanelFromToolbar(type: PanelType) {
+        val service = AIKeyboardService.getInstance()
+        if (service != null) {
+            service.showUnifiedPanel(type)
+        } else {
+            showToast("Keyboard not available")
+        }
+    }
+
+    private inner class QuickSettingsAdapter(
+        private val items: MutableList<QuickSettingItem>,
+        private val palette: ThemePaletteV2,
+        private val onItemInvoked: (QuickSettingItem) -> Unit,
+        private val onOrderChanged: (List<QuickSettingItem>) -> Unit
+    ) : RecyclerView.Adapter<QuickSettingsAdapter.QuickSettingViewHolder>() {
+
+        private var dragStartListener: ((RecyclerView.ViewHolder) -> Unit)? = null
+
+        fun setDragStartListener(listener: (RecyclerView.ViewHolder) -> Unit) {
+            dragStartListener = listener
+        }
+
+        fun swapItems(from: Int, to: Int) {
+            if (from == to) return
+            val moved = items.removeAt(from)
+            items.add(to, moved)
+            notifyItemMoved(from, to)
+            onOrderChanged(items)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): QuickSettingViewHolder {
+            val context = parent.context
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    val spacing = dpToPx(12)
+                    bottomMargin = spacing
+                }
+            }
+
+            val iconSize = dpToPx(48)
+            val iconView = ImageView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+            }
+            container.addView(iconView)
+
+            val labelView = TextView(context).apply {
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(0, dpToPx(8), 0, 0)
+                setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 220))
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }
+            container.addView(labelView)
+
+            return QuickSettingViewHolder(container, iconView, labelView)
+        }
+
+        override fun onBindViewHolder(holder: QuickSettingViewHolder, position: Int) {
+            val item = items[position]
+            holder.bind(item)
+            holder.itemView.setOnClickListener {
+                onItemInvoked(item)
+                if (item.type == QuickSettingType.TOGGLE) {
+                    val adapterPosition = holder.bindingAdapterPosition
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        notifyItemChanged(adapterPosition)
+                    }
+                }
+            }
+            holder.itemView.setOnLongClickListener {
+                dragStartListener?.invoke(holder)
+                true
+            }
+        }
+
+        override fun getItemCount(): Int = items.size
+
+        inner class QuickSettingViewHolder(
+            itemView: View,
+            private val iconView: ImageView,
+            private val labelView: TextView
+        ) : RecyclerView.ViewHolder(itemView) {
+
+            fun bind(item: QuickSettingItem) {
+                labelView.text = item.label
+
+                iconView.setImageResource(item.iconRes)
+
+                val baseColor = ColorUtils.blendARGB(
+                    palette.keyBg,
+                    palette.keyboardBg,
+                    0.18f
+                )
+                val activeColor = palette.specialAccent
+
+                val backgroundColor = if (item.type == QuickSettingType.TOGGLE && item.isActive) {
+                    activeColor
+                } else {
+                    baseColor
+                }
+
+                iconView.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(backgroundColor)
+                }
+
+                val tintColor = if (item.type == QuickSettingType.TOGGLE && item.isActive) {
+                    getContrastColor(activeColor)
+                } else {
+                    palette.keyText
+                }
+                ImageViewCompat.setImageTintList(iconView, ColorStateList.valueOf(tintColor))
+            }
         }
     }
     

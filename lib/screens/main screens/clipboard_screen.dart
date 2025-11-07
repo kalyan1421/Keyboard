@@ -336,6 +336,8 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
 
             const SizedBox(height: 12),
 
+            // Sync Actions
+            _buildSyncActions(),
 
             const SizedBox(height: 32),
 
@@ -486,6 +488,102 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildSyncActions() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.lightGrey,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Sync Actions',
+            style: AppTextStyle.titleMedium.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+         
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _syncFromCloud,
+              icon: Icon(Icons.cloud_download, size: 18),
+              label: Text('Sync from Cloud'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Future<void> _syncFromSystem() async {
+    try {
+      final success = await ClipboardService.syncFromSystem();
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Synced from system clipboard')),
+        );
+        _loadClipboardItems();
+      }
+    } catch (e) {
+      debugPrint('Error syncing from system: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Failed to sync from system')),
+        );
+      }
+    }
+  }
+  
+  Future<void> _syncToCloud() async {
+    try {
+      final success = await ClipboardService.syncToCloud();
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('☁️ Synced to Kvīve Cloud')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error syncing to cloud: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Failed to sync to cloud')),
+        );
+      }
+    }
+  }
+  
+  Future<void> _syncFromCloud() async {
+    try {
+      final success = await ClipboardService.syncFromCloud();
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('☁️ Synced from Kvīve Cloud')),
+        );
+        _loadClipboardItems();
+      }
+    } catch (e) {
+      debugPrint('Error syncing from cloud: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Failed to sync from cloud')),
+        );
+      }
+    }
   }
 
   Widget _buildSectionTitle(String title) {
