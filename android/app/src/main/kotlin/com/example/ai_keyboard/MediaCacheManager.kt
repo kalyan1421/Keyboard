@@ -4,11 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
 import android.util.LruCache
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import org.json.JSONArray
+
 
 /**
  * Comprehensive media cache manager for optimizing performance
@@ -129,9 +130,15 @@ class MediaCacheManager(private val context: Context) {
     
     private fun cleanupEmojiUsageData() {
         try {
-            val database = EmojiDatabase(context)
-            database.cleanupOldUsageData(MAX_EMOJI_CACHE)
-            Log.d(TAG, "Cleaned up emoji usage data")
+            val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+            val history = loadEmojiHistory(prefs)
+            
+            while (history.size > MAX_EMOJI_CACHE) {
+                history.removeAt(history.lastIndex)
+            }
+            
+            saveEmojiHistory(prefs, history)
+            Log.d(TAG, "Trimmed emoji history to ${history.size} entries")
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning emoji usage data", e)
         }
@@ -193,9 +200,9 @@ class MediaCacheManager(private val context: Context) {
                 // Clear memory cache
                 memoryCache.evictAll()
                 
-                // Clear database caches
-                val emojiDb = EmojiDatabase(context)
-                emojiDb.cleanupOldUsageData(0) // Clear all usage data
+                // Clear emoji usage history stored in SharedPreferences
+                val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+                saveEmojiHistory(prefs, mutableListOf())
                 
                 Log.d(TAG, "All caches cleared")
             } catch (e: Exception) {
@@ -212,9 +219,12 @@ class MediaCacheManager(private val context: Context) {
             try {
                 Log.d(TAG, "Preloading frequent content")
                 
-                // Preload frequently used emojis
-                val emojiDb = EmojiDatabase(context)
-                val frequentEmojis = emojiDb.getFrequentlyUsedEmojis(20)
+                // Preload frequently used emojis from shared preferences or fall back to popular list
+                val prefs = context.getSharedPreferences("emoji_preferences", Context.MODE_PRIVATE)
+                val frequentEmojis = loadEmojiHistory(prefs).take(20).ifEmpty {
+                    EmojiRepository.ensureLoaded(context)
+                    EmojiRepository.getPopular(20, context).map { it.char }
+                }
                 
                 // Preload recent stickers
                 val stickerManager = StickerManager(context)
@@ -260,6 +270,29 @@ class MediaCacheManager(private val context: Context) {
                 preloadFrequentContent()
             }
         }
+    }
+
+    private fun loadEmojiHistory(prefs: android.content.SharedPreferences): MutableList<String> {
+        val historyJson = prefs.getString("emoji_history", "[]") ?: "[]"
+        val historyArray = try {
+            JSONArray(historyJson)
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        val history = mutableListOf<String>()
+        for (i in 0 until historyArray.length()) {
+            val emoji = historyArray.optString(i)
+            if (!emoji.isNullOrEmpty()) {
+                history.add(emoji)
+            }
+        }
+        return history
+    }
+
+    private fun saveEmojiHistory(prefs: android.content.SharedPreferences, history: List<String>) {
+        val array = JSONArray()
+        history.forEach { array.put(it) }
+        prefs.edit().putString("emoji_history", array.toString()).apply()
     }
 }
 

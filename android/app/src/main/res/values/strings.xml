@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Kvive</string>
+    <string name="app_name">Kvive - Ai Writing Keyboard</string>
     <string name="ime_name">Kvive Keyboard</string>
     <string name="ime_description">Smart AI-powered keyboard with intelligent suggestions</string>
     
@@ -37,6 +37,14 @@
     <string name="voice_input_not_available">Voice input not available</string>
     <string name="voice_input_listening">Listening...</string>
     <string name="voice_input_error">Unable to start voice input</string>
+    <string name="voice_input_permission_required">Microphone permission required for voice input</string>
+    <string name="voice_input_permission_granted">Microphone permission granted</string>
+    <string name="voice_input_prompt_title">Try saying something</string>
+    <string name="voice_input_prompt_subtitle">We\'ll turn your speech into text</string>
+    <string name="voice_input_error_no_match">Didn\'t catch that. Try again.</string>
+    <string name="voice_input_error_timeout">Still listening... try speaking again.</string>
+    <string name="voice_input_error_retry">Restarting voice input...</string>
+    <string name="voice_input_error_network">Network issue. Check your connection.</string>
     <string name="keyboard_not_enabled">Please enable Kvive Keyboard in system settings</string>
     <string name="keyboard_not_active">Please select Kvive Keyboard as your input method</string>
     
@@ -58,6 +66,7 @@
     <string name="toolbar_settings">Keyboard settings</string>
     <string name="toolbar_voice">Voice input</string>
     <string name="toolbar_emoji">Emoji panel</string>
+    <string name="toolbar_clipboard">Clipboard history</string>
     <string name="toolbar_ai_assistant">AI assistant</string>
     <string name="toolbar_grammar">Grammar tools</string>
     <string name="toolbar_tone">Tone editor</string>
@@ -75,4 +84,8 @@
     <string name="translation_error">Translation unavailable (%1$s)</string>
     <string name="keyboard_button_back">Back to keyboard</string>
     <string name="panel_result_pending">Results will appear here…</string>
+    
+    <!-- One-handed controls -->
+    <string name="one_hand_expand">Expand keyboard to full width</string>
+    <string name="one_hand_switch_side">Move keyboard to other side</string>
 </resources>

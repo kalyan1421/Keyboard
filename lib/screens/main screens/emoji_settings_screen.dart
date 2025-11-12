@@ -4,6 +4,7 @@ import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'emoji_skin_tone_screen.dart';
+import 'dart:async';
 
 class EmojiSettingsScreen extends StatefulWidget {
   const EmojiSettingsScreen({super.key});
@@ -17,6 +18,8 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
   
   double emojiHistoryMaxSize = 30.0;
   bool _isLoading = true;
+  Timer? _saveDebounceTimer;
+  bool _hasShownSnackbar = false;
 
   @override
   void initState() {
@@ -37,7 +40,7 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
     }
   }
 
-  Future<void> _saveEmojiSettings() async {
+  Future<void> _saveEmojiSettings({bool showSnackbar = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble('emoji_history_max_size', emojiHistoryMaxSize);
@@ -56,7 +59,9 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
         print('⚠️ Error calling updateEmojiSettings MethodChannel: $e');
       }
       
-      if (mounted) {
+      // Only show snackbar once when explicitly requested
+      if (mounted && showSnackbar && !_hasShownSnackbar) {
+        _hasShownSnackbar = true;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Emoji settings saved'),
@@ -75,6 +80,13 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
         );
       }
     }
+  }
+  
+  void _debouncedSave({bool showSnackbar = false}) {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _saveEmojiSettings(showSnackbar: showSnackbar);
+    });
   }
 
   @override
@@ -100,7 +112,9 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
 
     return WillPopScope(
       onWillPop: () async {
-        await _saveEmojiSettings();
+        // Cancel any pending saves and do final save without snackbar
+        _saveDebounceTimer?.cancel();
+        await _saveEmojiSettings(showSnackbar: false);
         return true;
       },
       child: _buildContent(),
@@ -171,8 +185,8 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
               value: emojiHistoryMaxSize,
               onChanged: (value) {
                 setState(() => emojiHistoryMaxSize = value);
-                // Auto-save on change
-                _saveEmojiSettings();
+                // Debounced save - only saves after user stops moving slider
+                _debouncedSave(showSnackbar: true);
               },
               min: 10.0,
               max: 100.0,
@@ -186,7 +200,9 @@ class _EmojiSettingsScreenState extends State<EmojiSettingsScreen> {
   
   @override
   void dispose() {
-    _saveEmojiSettings();
+    // Cancel any pending saves and do final save without snackbar
+    _saveDebounceTimer?.cancel();
+    _saveEmojiSettings(showSnackbar: false);
     super.dispose();
   }
 

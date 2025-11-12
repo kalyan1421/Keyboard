@@ -2,8 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
+
+import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
 import 'package:ai_keyboard/services/keyboard_cloud_sync.dart';
 
@@ -22,13 +23,21 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
   Timer? _saveDebounceTimer;
   Timer? _notifyDebounceTimer;
   
-  // Suggestion Settings
-  bool displaySuggestions = true; // Default to true
-  String displayMode = '3'; // Default to 3 columns (only 3 or 4 allowed)
-  bool clearPrimaryClipAffects = true;
+  // Suggestion & correction settings
+  bool displaySuggestions = true;
+  double displayModeCount = 3;
+  double historySize = 20;
+  bool autoCorrectionEnabled = true;
+  bool clipboardSuggestionsEnabled = true;
+  double clipboardWindowSec = 60;
+  bool dictionaryEnabled = true;
+  bool autoFillSuggestionEnabled = true;
+  bool autoCapitalizationEnabled = true;
+  bool rememberCapsState = false;
+  bool doubleSpacePeriodEnabled = true;
 
-  // Internal Settings
-  bool internalClipboard = true;
+  // Clipboard sync / internal settings
+  bool clearPrimaryClipAffects = true;
   bool syncFromSystem = true;
   bool syncToFivive = true;
 
@@ -49,15 +58,54 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      displaySuggestions = prefs.getBool('display_suggestions') ?? true; // Default true
-      displayMode = prefs.getString('display_mode') ?? '3'; // Default 3 columns
-      // Ensure only '3' or '4' are allowed
-      if (displayMode != '3' && displayMode != '4') {
-        displayMode = '3';
-      }
-      clearPrimaryClipAffects = prefs.getBool('clear_primary_clip_affects') ?? true;
-      
-      internalClipboard = prefs.getBool('internal_clipboard') ?? true;
+      displaySuggestions = prefs.getBool('display_suggestions') ?? true;
+
+      final savedDisplayMode =
+          prefs.getString('display_mode') ?? prefs.getString('displayMode') ?? '3';
+      final parsedDisplayMode = double.tryParse(savedDisplayMode) ?? 3;
+      displayModeCount = parsedDisplayMode.clamp(3, 4).toDouble();
+
+      final rawHistorySize = prefs.getDouble('history_size') ??
+          prefs.getInt('history_size')?.toDouble() ??
+          prefs.getInt('clipboard_history_items')?.toDouble() ??
+          20.0;
+      historySize = rawHistorySize.clamp(1, 100).toDouble();
+
+      autoCorrectionEnabled = prefs.getBool('auto_correction') ??
+          prefs.getBool('autocorrect') ??
+          true;
+
+      clipboardSuggestionsEnabled = prefs.getBool('clipboard_suggestions') ??
+          prefs.getBool('internal_clipboard') ??
+          prefs.getBool('clipboardSuggestions') ??
+          true;
+
+      final rawWindowSec = (prefs.getInt('clipboard_window_sec') ??
+              prefs.getDouble('clipboard_window_sec')?.round() ??
+              60)
+          .toDouble();
+      clipboardWindowSec = rawWindowSec.clamp(0, 600);
+
+      dictionaryEnabled = prefs.getBool('dictionary_enabled') ??
+          prefs.getBool('dictionaryEnabled') ??
+          true;
+
+      autoFillSuggestionEnabled = prefs.getBool('auto_fill_suggestion') ??
+          prefs.getBool('autoFillSuggestion') ??
+          true;
+
+      autoCapitalizationEnabled = prefs.getBool('auto_capitalization') ??
+          prefs.getBool('autoCapitalization') ??
+          true;
+
+      rememberCapsState = prefs.getBool('remember_caps_state') ?? false;
+
+      doubleSpacePeriodEnabled = prefs.getBool('double_space_period') ??
+          prefs.getBool('doubleSpacePeriod') ??
+          true;
+
+      clearPrimaryClipAffects =
+          prefs.getBool('clear_primary_clip_affects') ?? true;
       syncFromSystem = prefs.getBool('sync_from_system') ?? true;
       syncToFivive = prefs.getBool('sync_to_fivive') ?? true;
     });
@@ -84,10 +132,35 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
     
     // Save all settings
     await prefs.setBool('display_suggestions', displaySuggestions);
-    await prefs.setString('display_mode', displayMode);
+    await prefs.setString('display_mode', displayModeCount.toInt().toString());
+    await prefs.setString('displayMode', displayModeCount.toInt().toString());
+    await prefs.setDouble('history_size', historySize);
+    await prefs.setInt('clipboard_history_items', historySize.toInt());
+
+    await prefs.setBool('auto_correction', autoCorrectionEnabled);
+    await prefs.setBool('autocorrect', autoCorrectionEnabled);
+
+    await prefs.setBool('clipboard_suggestions', clipboardSuggestionsEnabled);
+    await prefs.setBool('internal_clipboard', clipboardSuggestionsEnabled);
+    await prefs.setBool('clipboardSuggestions', clipboardSuggestionsEnabled);
+
+    await prefs.setInt('clipboard_window_sec', clipboardWindowSec.toInt());
+
+    await prefs.setBool('dictionary_enabled', dictionaryEnabled);
+    await prefs.setBool('dictionaryEnabled', dictionaryEnabled);
+
+    await prefs.setBool('auto_fill_suggestion', autoFillSuggestionEnabled);
+    await prefs.setBool('autoFillSuggestion', autoFillSuggestionEnabled);
+
+    await prefs.setBool('auto_capitalization', autoCapitalizationEnabled);
+    await prefs.setBool('autoCapitalization', autoCapitalizationEnabled);
+
+    await prefs.setBool('remember_caps_state', rememberCapsState);
+
+    await prefs.setBool('double_space_period', doubleSpacePeriodEnabled);
+    await prefs.setBool('doubleSpacePeriod', doubleSpacePeriodEnabled);
+
     await prefs.setBool('clear_primary_clip_affects', clearPrimaryClipAffects);
-    
-    await prefs.setBool('internal_clipboard', internalClipboard);
     await prefs.setBool('sync_from_system', syncFromSystem);
     await prefs.setBool('sync_to_fivive', syncToFivive);
     
@@ -108,12 +181,18 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
     try {
       await KeyboardCloudSync.upsert({
         'displaySuggestions': displaySuggestions,
-        'displayMode': displayMode,
+        'displayMode': displayModeCount.toInt(),
+        'autoCorrection': autoCorrectionEnabled,
         'clipboardSuggestions': {
-          'enabled': internalClipboard,
-          'windowSec': 60,
-          'historyItems': 20, // Fixed at 20 items
+          'enabled': clipboardSuggestionsEnabled,
+          'windowSec': clipboardWindowSec.toInt(),
+          'historyItems': historySize.toInt(),
         },
+        'dictionaryEnabled': dictionaryEnabled,
+        'autoFillSuggestion': autoFillSuggestionEnabled,
+        'autoCapitalization': autoCapitalizationEnabled,
+        'doubleSpacePeriod': doubleSpacePeriodEnabled,
+        'rememberCapsState': rememberCapsState,
       });
       debugPrint('✅ Typing & Suggestion settings synced to Firebase');
     } catch (e) {
@@ -127,9 +206,22 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
     try {
       await _channel.invokeMethod('updateSettings', {
         'displaySuggestions': displaySuggestions,
-        'displayMode': displayMode,
-        'clipboardHistorySize': 20, // Fixed at 20 items
-        'internalClipboard': internalClipboard,
+        'displayMode': displayModeCount.toInt().toString(),
+        'display_mode': displayModeCount.toInt().toString(),
+        'displayModeCount': displayModeCount.toInt(),
+        'clipboardHistorySize': historySize.toInt(),
+        'historySize': historySize.toInt(),
+        'clipboardWindowSec': clipboardWindowSec.toInt(),
+        'clipboardSuggestions': clipboardSuggestionsEnabled,
+        'clipboardSuggestionsEnabled': clipboardSuggestionsEnabled,
+        'internalClipboard': clipboardSuggestionsEnabled,
+        'autoCorrection': autoCorrectionEnabled,
+        'autocorrect': autoCorrectionEnabled,
+        'dictionaryEnabled': dictionaryEnabled,
+        'autoFillSuggestion': autoFillSuggestionEnabled,
+        'autoCapitalization': autoCapitalizationEnabled,
+        'rememberCapsState': rememberCapsState,
+        'doubleSpacePeriod': doubleSpacePeriodEnabled,
         'syncFromSystem': syncFromSystem,
         'syncToFivive': syncToFivive,
         'clearPrimaryClipAffects': clearPrimaryClipAffects,
@@ -240,11 +332,9 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
           children: [
             const SizedBox(height: 8),
 
-            // Suggestion Section
             _buildSectionTitle('Suggestion'),
             const SizedBox(height: 16),
 
-            // Display suggestions
             _buildToggleSetting(
               title: 'Display suggestions',
               description: displaySuggestions ? 'Enabled' : 'Disabled',
@@ -257,12 +347,152 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
 
             const SizedBox(height: 12),
 
-            // Display mode (only 3 or 4 suggestions)
-            _buildDisplayModeCard(),
+            _buildSliderTile(
+              title: 'Display mode',
+              subtitle: '${displayModeCount.toInt()} suggestions',
+              value: displayModeCount,
+              min: 3,
+              max: 4,
+              divisions: 1,
+              leadingLabel: 'Suggestions',
+              valueFormatter: (v) => '${v.toInt()}',
+              onChanged: (value) {
+                final nextValue = value.round().clamp(3, 4).toDouble();
+                setState(() => displayModeCount = nextValue);
+                _saveSettings();
+              },
+            ),
 
             const SizedBox(height: 12),
 
-            // Clear primary clip affects
+            _buildSliderTile(
+              title: 'History Size',
+              subtitle: '${historySize.toInt()} items',
+              value: historySize,
+              min: 10,
+              max: 50,
+              divisions: 8,
+              leadingLabel: 'Items',
+              valueFormatter: (v) => '${v.toInt()}',
+              onChanged: (value) {
+                final rounded = (value / 5).round() * 5;
+                setState(() => historySize = rounded.clamp(10, 50).toDouble());
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildToggleSetting(
+              title: 'Auto Correction',
+              description: autoCorrectionEnabled ? 'Enabled' : 'Disabled',
+              value: autoCorrectionEnabled,
+              onChanged: (value) {
+                setState(() => autoCorrectionEnabled = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildToggleSetting(
+              title: 'Clipboard content suggestion',
+              description: clipboardSuggestionsEnabled ? 'Enabled' : 'Disabled',
+              value: clipboardSuggestionsEnabled,
+              onChanged: (value) {
+                setState(() => clipboardSuggestionsEnabled = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildToggleSetting(
+              title: 'Dictionary',
+              description: dictionaryEnabled ? 'Enabled' : 'Disabled',
+              value: dictionaryEnabled,
+              onChanged: (value) {
+                setState(() => dictionaryEnabled = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildSliderTile(
+              title: 'Limit clipboard suggestion to',
+              subtitle: _clipboardWindowSubtitle(),
+              value: clipboardWindowSec,
+              min: 0,
+              max: 300,
+              divisions: 30,
+              leadingLabel: 'Time',
+              valueFormatter: _formatClipboardWindowValue,
+              onChanged: (value) {
+                final rounded = (value / 10).round() * 10;
+                setState(
+                  () => clipboardWindowSec = rounded.clamp(0, 300).toDouble(),
+                );
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildToggleSetting(
+              title: 'Auto fill suggestion',
+              description: autoFillSuggestionEnabled ? 'Enabled' : 'Disabled',
+              value: autoFillSuggestionEnabled,
+              onChanged: (value) {
+                setState(() => autoFillSuggestionEnabled = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 32),
+
+            _buildSectionTitle('Corrections'),
+            const SizedBox(height: 16),
+
+            _buildToggleSetting(
+              title: 'Auto capitalization',
+              description: autoCapitalizationEnabled ? 'Enabled' : 'Disabled',
+              value: autoCapitalizationEnabled,
+              onChanged: (value) {
+                setState(() => autoCapitalizationEnabled = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildToggleSetting(
+              title: 'Remember caps lock state',
+              description: rememberCapsState ? 'Enabled' : 'Disabled',
+              value: rememberCapsState,
+              onChanged: (value) {
+                setState(() => rememberCapsState = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            _buildToggleSetting(
+              title: 'Double space period',
+              description: doubleSpacePeriodEnabled ? 'Enabled' : 'Disabled',
+              value: doubleSpacePeriodEnabled,
+              onChanged: (value) {
+                setState(() => doubleSpacePeriodEnabled = value);
+                _saveSettings();
+              },
+            ),
+
+            const SizedBox(height: 32),
+
+            _buildSectionTitle('Clipboard Sync'),
+            const SizedBox(height: 16),
+
             _buildToggleSetting(
               title: 'Clear primary clip affects ...',
               description: clearPrimaryClipAffects ? 'Enabled' : 'Disabled',
@@ -273,26 +503,8 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
               },
             ),
 
-            const SizedBox(height: 32),
-
-            // Internal Settings Section
-            _buildSectionTitle('Internal Settings'),
-            const SizedBox(height: 16),
-
-            // Internal Clipboard
-            _buildToggleSetting(
-              title: 'Internal Clipboard',
-              description: internalClipboard ? 'Enabled' : 'Disabled',
-              value: internalClipboard,
-              onChanged: (value) {
-                setState(() => internalClipboard = value);
-                _saveSettings();
-              },
-            ),
-
             const SizedBox(height: 12),
 
-            // Sync from system
             _buildToggleSetting(
               title: 'Sync from system',
               description: 'Sync from system clipboard',
@@ -305,7 +517,6 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
 
             const SizedBox(height: 12),
 
-            // Sync to fivive
             _buildToggleSetting(
               title: 'Sync to fivive',
               description: 'Sync to fivive clipboard',
@@ -378,63 +589,20 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
     );
   }
 
-  Widget _buildDisplayModeCard() {
-    // Display text based on mode value (only 3 or 4)
-    String modeText = displayMode == '4' ? '4 Suggestions' : '3 Suggestions';
-    
-    return GestureDetector(
-      onTap: () {
-        _showDisplayModeDialog();
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.lightGrey,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Display mode',
-                    style: AppTextStyle.titleLarge.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    modeText,
-                    style: AppTextStyle.bodySmall.copyWith(
-                      color: AppColors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, color: AppColors.grey, size: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSliderSetting({
+  Widget _buildSliderTile({
     required String title,
-    required double portraitValue,
-    double? landscapeValue,
-    required ValueChanged<double> onPortraitChanged,
-    ValueChanged<double>? onLandscapeChanged,
+    required String subtitle,
+    required double value,
     required double min,
     required double max,
-    required String unit,
-    String portraitLabel = 'Portrait',
-    String? landscapeLabel,
-    bool showLandscape = true,
+    required ValueChanged<double> onChanged,
+    int? divisions,
+    String? leadingLabel,
+    String Function(double)? valueFormatter,
   }) {
+    final formatter = valueFormatter ?? (v) => v.toStringAsFixed(0);
+    final sliderValue = value.clamp(min, max).toDouble();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -447,38 +615,46 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
           Text(
             title,
             style: AppTextStyle.titleLarge.copyWith(
-              color: AppColors.black,
+              color: AppColors.primary,
               fontWeight: FontWeight.w800,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: AppTextStyle.bodySmall.copyWith(
+              color: AppColors.grey,
+            ),
+          ),
           const SizedBox(height: 12),
-          // Portrait Slider
           Row(
             children: [
-              SizedBox(
-                width: 80,
-                child: Text(
-                  portraitLabel,
-                  style: AppTextStyle.bodyMedium.copyWith(
-                    color: AppColors.grey,
+              if (leadingLabel != null)
+                SizedBox(
+                  width: 80,
+                  child: Text(
+                    leadingLabel,
+                    style: AppTextStyle.bodyMedium.copyWith(
+                      color: AppColors.grey,
+                    ),
                   ),
                 ),
-              ),
               Expanded(
                 child: Slider(
-                  thumbColor: AppColors.white,
-                  value: portraitValue,
+                  value: sliderValue,
                   min: min,
                   max: max,
-                  onChanged: onPortraitChanged,
+                  divisions: divisions,
+                  onChanged: onChanged,
                   activeColor: AppColors.secondary,
                   inactiveColor: AppColors.white,
+                  thumbColor: AppColors.white,
                 ),
               ),
               SizedBox(
-                width: 50,
+                width: 60,
                 child: Text(
-                  '${portraitValue.toInt()}$unit',
+                  formatter(sliderValue),
                   style: AppTextStyle.bodyMedium.copyWith(
                     color: AppColors.black,
                     fontWeight: FontWeight.w600,
@@ -488,219 +664,27 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
               ),
             ],
           ),
-          // Landscape Slider (if enabled)
-          if (showLandscape &&
-              landscapeValue != null &&
-              onLandscapeChanged != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                SizedBox(
-                  width: 80,
-                  child: Text(
-                    landscapeLabel ?? 'Landscape',
-                    style: AppTextStyle.bodyMedium.copyWith(
-                      color: AppColors.grey,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Slider(
-                    thumbColor: AppColors.white,
-                    value: landscapeValue,
-                    min: min,
-                    max: max,
-                    onChanged: onLandscapeChanged,
-                    activeColor: AppColors.secondary,
-                    inactiveColor: AppColors.white,
-                  ),
-                ),
-                SizedBox(
-                  width: 50,
-                  child: Text(
-                    '${landscapeValue.toInt()}$unit',
-                    style: AppTextStyle.bodySmall.copyWith(
-                      color: AppColors.black,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    textAlign: TextAlign.right,
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
   }
 
-  void _showDisplayModeDialog() {
-    String tempDisplayMode = displayMode; // Temporary selection
-    
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Dialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppColors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header
-                    Text(
-                      'Display Mode',
-                      style: AppTextStyle.titleLarge.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Select number of suggestions to display',
-                      style: AppTextStyle.bodySmall.copyWith(
-                        color: AppColors.grey,
-                      ),
-                    ),
-                    Divider(color: AppColors.lightGrey, thickness: 1),
-                    // Mode Options (only 3 or 4 suggestions)
-                    _buildSimpleModeOptionInDialog('3', '3 Suggestions', tempDisplayMode, (value) {
-                      setDialogState(() {
-                        tempDisplayMode = value;
-                      });
-                    }),
-                    const SizedBox(height: 12),
-                    _buildSimpleModeOptionInDialog('4', '4 Suggestions', tempDisplayMode, (value) {
-                      setDialogState(() {
-                        tempDisplayMode = value;
-                      });
-                    }),
-
-                    const SizedBox(height: 20),
-
-                    // Apply Button
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.lightGrey,
-                              foregroundColor: AppColors.primary,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(32),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: Text(
-                              'Cancel',
-                              style: AppTextStyle.buttonSecondary.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              setState(() {
-                                displayMode = tempDisplayMode;
-                              });
-                              _saveSettings();
-                              Navigator.of(context).pop();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.secondary,
-                              foregroundColor: AppColors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(32),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: Text(
-                              'Apply',
-                              style: AppTextStyle.buttonSecondary.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
+  String _formatClipboardWindowValue(double value) {
+    if (value <= 0) {
+      return 'Off';
+    }
+    if (value % 60 == 0) {
+      final minutes = (value / 60).round();
+      return minutes == 1 ? '1m' : '${minutes}m';
+    }
+    return '${value.toInt()}s';
   }
 
-  Widget _buildSimpleModeOptionInDialog(
-    String value,
-    String title,
-    String currentValue,
-    Function(String) onChanged,
-  ) {
-    bool isSelected = currentValue == value;
-
-    return GestureDetector(
-      onTap: () {
-        onChanged(value);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.secondary.withOpacity(0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? AppColors.secondary : AppColors.lightGrey,
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            // Radio Button
-            Radio<String>(
-              value: value,
-              groupValue: currentValue,
-              onChanged: (String? newValue) {
-                if (newValue != null) {
-                  onChanged(newValue);
-                }
-              },
-              activeColor: AppColors.secondary,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            const SizedBox(width: 8),
-
-            // Content
-            Expanded(
-              child: Text(
-                title,
-                style: AppTextStyle.titleMedium.copyWith(
-                  color: isSelected ? AppColors.secondary : AppColors.primary,
-                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  String _clipboardWindowSubtitle() {
+    final formatted = _formatClipboardWindowValue(clipboardWindowSec);
+    if (formatted == 'Off') {
+      return 'Clipboard suggestions never expire';
+    }
+    return 'Items copied within the last $formatted';
   }
 }

@@ -27,6 +27,16 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
   
   // Track active features (Popular tab)
   final Set<String> _activeFeatures = {'humanise', 'reply'};
+  static const List<String> _featureKeys = [
+    'humanise',
+    'reply',
+    'continue_writing',
+    'facebook_post',
+    'instagram_caption',
+    'phrase_to_emoji',
+    'summary',
+  ];
+  final Set<String> _processingFeatures = <String>{};
   
   // Custom prompts (Custom Assistance tab)
   List<Map<String, dynamic>> _customPrompts = [];
@@ -62,17 +72,19 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      final features = ['humanise', 'reply', 'continue_writing', 'facebook_post', 
-                       'instagram_caption', 'phrase_to_emoji', 'summary'];
-      
       final loadedFeatures = <String>{};
-      for (String feature in features) {
+      var hasStoredPreference = false;
+
+      for (String feature in _featureKeys) {
+        if (prefs.containsKey('flutter.ai_writing_$feature')) {
+          hasStoredPreference = true;
+        }
         if (prefs.getBool('flutter.ai_writing_$feature') ?? false) {
           loadedFeatures.add(feature);
         }
       }
       
-      if (loadedFeatures.isEmpty) {
+      if (loadedFeatures.isEmpty && !hasStoredPreference) {
         loadedFeatures.addAll(['humanise', 'reply']);
       }
       
@@ -148,7 +160,8 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
           ),
         ],
       ),
-      body: Column(
+      body: SafeArea(
+        child: Column(
         children: [
           // Tab Bar
           Container(
@@ -184,7 +197,7 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 
@@ -254,6 +267,7 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
     required String description,
   }) {
     final bool isActive = _activeFeatures.contains(id);
+    final bool isProcessing = _processingFeatures.contains(id);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -312,7 +326,7 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
 
           // Action Button
           GestureDetector(
-            onTap: () => _toggleFeature(id),
+            onTap: isProcessing ? null : () => _onFeatureTap(id),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
@@ -326,19 +340,32 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    isActive ? Icons.remove : Icons.add,
-                    color: isActive ? Colors.green : AppColors.secondary,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    isActive ? 'Remove' : 'Add',
-                    style: AppTextStyle.bodySmall.copyWith(
-                      color: isActive ? Colors.green : AppColors.secondary,
-                      fontWeight: FontWeight.w600,
+                  if (isProcessing)
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isActive ? Colors.green : AppColors.secondary,
+                        ),
+                      ),
                     ),
-                  ),
+                  if (!isProcessing) ...[
+                    Icon(
+                      isActive ? Icons.remove : Icons.add,
+                      color: isActive ? Colors.green : AppColors.secondary,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isActive ? 'Remove' : 'Add',
+                      style: AppTextStyle.bodySmall.copyWith(
+                        color: isActive ? Colors.green : AppColors.secondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -354,10 +381,18 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
       return const Center(child: CircularProgressIndicator());
     }
 
+    final featureTitles = _featureKeys
+        .map((feature) => _formatFeatureName(feature).toLowerCase())
+        .toSet();
+    final visiblePrompts = _customPrompts.where((prompt) {
+      final title = (prompt['title'] ?? '').toString().trim().toLowerCase();
+      return title.isNotEmpty && !featureTitles.contains(title);
+    }).toList();
+
     return Column(
       children: [
         Expanded(
-          child: _customPrompts.isEmpty
+          child: visiblePrompts.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -378,9 +413,9 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
                 )
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _customPrompts.length,
+                  itemCount: visiblePrompts.length,
                   itemBuilder: (context, index) {
-                    final prompt = _customPrompts[index];
+                    final prompt = visiblePrompts[index];
                     return _buildCustomPromptCard(
                       title: prompt['title'] ?? 'Custom',
                       description: prompt['prompt'] ?? '',
@@ -547,7 +582,8 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
             ),
             centerTitle: false,
           ),
-          body: Padding(
+          body: SafeArea(
+            child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -657,7 +693,7 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
                 ),
               ],
             ),
-          ),
+          )),
         ),
       ),
     );
@@ -746,7 +782,7 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
   Future<void> _saveCustomAssistance(String name, String prompt) async {
     try {
       // Save to local (keyboard)
-      await promptChannel.invokeMethod('savePrompt', {
+      await promptChannel.invokeMethod('addPrompt', {
         'category': 'assistant',
         'title': name,
         'prompt': prompt,
@@ -794,7 +830,7 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
   Future<void> _deleteCustomPrompt(String title) async {
     try {
       // Delete from local (keyboard)
-      await promptChannel.invokeMethod('deletePrompt', {
+      await promptChannel.invokeMethod('removePrompt', {
         'category': 'assistant',
         'title': title,
       });
@@ -834,15 +870,63 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
     }
   }
 
-  void _toggleFeature(String featureId) async {
-    setState(() {
-      if (_activeFeatures.contains(featureId)) {
-        _activeFeatures.remove(featureId);
-      } else {
-        _activeFeatures.add(featureId);
-      }
-    });
+  Future<void> _onFeatureTap(String featureId) async {
+    if (_processingFeatures.contains(featureId)) return;
     
+    final bool isAdded = _activeFeatures.contains(featureId);
+    final String method = isAdded ? 'removePrompt' : 'addPrompt';
+    final String title = _formatFeatureName(featureId);
+    final String prompt = _getPromptForFeature(featureId);
+
+    setState(() {
+      _processingFeatures.add(featureId);
+    });
+
+    var shouldToggleState = false;
+    try {
+      await promptChannel.invokeMethod(method, {
+        'category': 'assistant',
+        'title': title,
+        'prompt': prompt,
+      });
+      shouldToggleState = true;
+    } on PlatformException catch (e) {
+      final isDeleteMiss = isAdded && e.code == 'DELETE_ERROR';
+      if (!isDeleteMiss) {
+        debugPrint('Error toggling feature $featureId: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Error: ${e.message ?? e.code}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      debugPrint('Feature $featureId not found in storage; treating delete as noop.');
+      shouldToggleState = true;
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (shouldToggleState) {
+            if (isAdded) {
+              _activeFeatures.remove(featureId);
+            } else {
+              _activeFeatures.add(featureId);
+            }
+          }
+          _processingFeatures.remove(featureId);
+        });
+      }
+    }
+
+    if (!shouldToggleState) {
+      return;
+    }
+
+    await Future.delayed(const Duration(milliseconds: 250));
+
     await _saveAIWritingFeatures();
   }
   
@@ -850,24 +934,9 @@ class _AIWritingAssistanceScreenState extends State<AIWritingAssistanceScreen> w
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      final features = ['humanise', 'reply', 'continue_writing', 'facebook_post', 
-                       'instagram_caption', 'phrase_to_emoji', 'summary'];
-      
       // Save each feature state
-      for (String feature in features) {
+      for (String feature in _featureKeys) {
         await prefs.setBool('flutter.ai_writing_$feature', _activeFeatures.contains(feature));
-      }
-      
-      // Save active features as assistant prompts for keyboard
-      for (String feature in _activeFeatures) {
-        final prompt = _getPromptForFeature(feature);
-        if (prompt.isNotEmpty) {
-          await promptChannel.invokeMethod('savePrompt', {
-            'category': 'assistant',
-            'title': _formatFeatureName(feature),
-            'prompt': prompt,
-          });
-        }
       }
       
       // Save to Firebase if logged in

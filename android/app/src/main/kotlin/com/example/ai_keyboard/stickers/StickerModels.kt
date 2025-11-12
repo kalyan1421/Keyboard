@@ -19,7 +19,8 @@ data class StickerPack(
     val installProgress: Int = 0,
     val description: String = "",
     val featured: Boolean = false,
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val storagePath: String? = null
 ) {
     
     /**
@@ -38,6 +39,7 @@ data class StickerPack(
         put("description", description)
         put("featured", featured)
         put("tags", JSONArray(tags))
+        put("storagePath", storagePath ?: "")
     }
 
     companion object {
@@ -45,10 +47,8 @@ data class StickerPack(
          * Create from JSON cache
          */
         fun fromJson(obj: JSONObject): StickerPack {
-            val tags = obj.optJSONArray("tags")?.let { arr -> 
-                (0 until arr.length()).map { arr.getString(it) } 
-            } ?: emptyList()
-            
+            val tags = obj.optJSONArray("tags").toStringList()
+
             return StickerPack(
                 id = obj.getString("id"),
                 name = obj.getString("name"),
@@ -61,7 +61,8 @@ data class StickerPack(
                 installProgress = obj.optInt("installProgress", 0),
                 description = obj.optString("description", ""),
                 featured = obj.optBoolean("featured", false),
-                tags = tags
+                tags = tags,
+                storagePath = obj.optString("storagePath").takeIf { it.isNotEmpty() }
             )
         }
 
@@ -84,7 +85,8 @@ data class StickerPack(
                 installProgress = (doc.get("installProgress") as? Long)?.toInt() ?: 0,
                 description = doc.getString("description") ?: "",
                 featured = doc.getBoolean("featured") ?: false,
-                tags = tags
+                tags = tags,
+                storagePath = doc.getString("storagePath")
             )
         }
 
@@ -105,6 +107,34 @@ data class StickerPack(
                 stickerCount = stickerCount
             )
         }
+
+        /**
+         * Create from Firebase Storage pack.json manifest
+         */
+        fun fromManifest(
+            packId: String,
+            manifest: JSONObject,
+            thumbnailUrl: String,
+            storagePath: String?
+        ): StickerPack {
+            return StickerPack(
+                id = packId,
+                name = manifest.optString("name", packId),
+                author = manifest.optString("author", "Kvīve Studio"),
+                thumbnailUrl = thumbnailUrl,
+                category = manifest.optString("category", "general"),
+                version = manifest.optString("version", "1.0"),
+                stickerCount = manifest.optJSONArray("stickers")?.length()
+                    ?: manifest.optInt("stickerCount", 0),
+                isInstalled = manifest.optBoolean("isInstalled", false),
+                installProgress = manifest.optInt("installProgress", 0),
+                description = manifest.optString("description", ""),
+                featured = manifest.optBoolean("featured", false),
+                tags = manifest.optJSONArray("tags").toStringList(),
+                storagePath = storagePath
+            )
+        }
+
     }
 }
 
@@ -123,7 +153,8 @@ data class StickerData(
     val lastUsed: Long = 0L,
     val fileSize: Long = 0L,
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    val storagePath: String? = null
 ) {
 
     /**
@@ -142,6 +173,7 @@ data class StickerData(
         put("fileSize", fileSize)
         put("width", width)
         put("height", height)
+        put("storagePath", storagePath ?: "")
     }
 
     companion object {
@@ -149,13 +181,8 @@ data class StickerData(
          * Create from JSON cache
          */
         fun fromJson(obj: JSONObject): StickerData {
-            val tags = obj.optJSONArray("tags")?.let { arr ->
-                (0 until arr.length()).map { arr.getString(it) }
-            } ?: emptyList()
-            
-            val emojis = obj.optJSONArray("emojis")?.let { arr ->
-                (0 until arr.length()).map { arr.getString(it) }
-            } ?: emptyList()
+            val tags = obj.optJSONArray("tags").toStringList()
+            val emojis = obj.optJSONArray("emojis").toStringList()
 
             return StickerData(
                 id = obj.getString("id"),
@@ -169,7 +196,8 @@ data class StickerData(
                 lastUsed = obj.optLong("lastUsed", 0L),
                 fileSize = obj.optLong("fileSize", 0L),
                 width = obj.optInt("width", 0),
-                height = obj.optInt("height", 0)
+                height = obj.optInt("height", 0),
+                storagePath = obj.optString("storagePath").takeIf { it.isNotEmpty() }
             )
         }
 
@@ -194,7 +222,8 @@ data class StickerData(
                 lastUsed = doc.get("lastUsed") as? Long ?: 0L,
                 fileSize = doc.get("fileSize") as? Long ?: 0L,
                 width = (doc.get("width") as? Long)?.toInt() ?: 0,
-                height = (doc.get("height") as? Long)?.toInt() ?: 0
+                height = (doc.get("height") as? Long)?.toInt() ?: 0,
+                storagePath = doc.getString("storagePath")
             )
         }
 
@@ -202,13 +231,8 @@ data class StickerData(
          * Convert from legacy assets format
          */
         fun fromLegacyJson(obj: JSONObject, packId: String): StickerData {
-            val tags = obj.optJSONArray("tags")?.let { arr ->
-                (0 until arr.length()).map { arr.getString(it) }
-            } ?: emptyList()
-            
-            val emojis = obj.optJSONArray("emojis")?.let { arr ->
-                (0 until arr.length()).map { arr.getString(it) }
-            } ?: emptyList()
+            val tags = obj.optJSONArray("tags").toStringList()
+            val emojis = obj.optJSONArray("emojis").toStringList()
 
             // Handle legacy 'file' field vs 'imageUrl'
             val imageUrl = obj.optString("imageUrl").takeIf { it.isNotEmpty() }
@@ -220,6 +244,31 @@ data class StickerData(
                 imageUrl = imageUrl,
                 tags = tags,
                 emojis = emojis
+            )
+        }
+
+        /**
+         * Create from Firebase Storage pack manifest
+         */
+        fun fromManifest(
+            packId: String,
+            stickerObj: JSONObject,
+            imageUrl: String,
+            storagePath: String?
+        ): StickerData {
+            return StickerData(
+                id = stickerObj.optString("id")
+                    .takeIf { it.isNotEmpty() }
+                    ?: stickerObj.optString("file")
+                    ?: "${packId}_${System.currentTimeMillis()}",
+                packId = packId,
+                imageUrl = imageUrl,
+                tags = stickerObj.optJSONArray("tags").toStringList(),
+                emojis = stickerObj.optJSONArray("emojis").toStringList(),
+                width = stickerObj.optInt("width", 0),
+                height = stickerObj.optInt("height", 0),
+                fileSize = stickerObj.optLong("fileSize", 0L),
+                storagePath = storagePath
             )
         }
     }
@@ -266,3 +315,14 @@ enum class StickerCategory(val displayName: String) {
     }
 }
 
+private fun JSONArray?.toStringList(): List<String> {
+    if (this == null) return emptyList()
+    val list = mutableListOf<String>()
+    for (i in 0 until length()) {
+        val value = optString(i)
+        if (!value.isNullOrEmpty()) {
+            list.add(value)
+        }
+    }
+    return list
+}

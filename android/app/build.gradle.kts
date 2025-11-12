@@ -80,4 +80,10 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+
+    // Offline speech recognition
+    implementation("com.alphacephei:vosk-android:0.3.38") {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }

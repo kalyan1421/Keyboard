@@ -133,6 +133,7 @@ class UnifiedAI {
     AIToneType? tone,
     AIProcessingFeature? feature,
     bool stream = false,
+    String? customPrompt,
   }) async {
     try {
       debugPrint('🧠 UnifiedAI: Processing text (mode: ${mode.value}, stream: $stream)');
@@ -146,6 +147,9 @@ class UnifiedAI {
       // Add optional parameters
       if (tone != null) args['tone'] = tone.value;
       if (feature != null) args['feature'] = feature.value;
+      if (customPrompt != null && customPrompt.trim().isNotEmpty) {
+        args['customPrompt'] = customPrompt;
+      }
 
       final result = await _channel.invokeMethod('processAIText', args);
       final aiResult = AIResult.fromMap(Map<String, dynamic>.from(result));
@@ -214,6 +218,7 @@ class UnifiedAI {
       text: text,
       mode: AIMode.custom,
       stream: stream,
+      customPrompt: prompt,
     );
   }
 
@@ -221,11 +226,13 @@ class UnifiedAI {
   static Future<AIResult> rewriteText({
     required String text,
     bool stream = false,
+    String? prompt,
   }) async {
     return processText(
       text: text,
       mode: AIMode.rewrite,
       stream: stream,
+      customPrompt: prompt,
     );
   }
 

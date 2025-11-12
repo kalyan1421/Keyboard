@@ -8,16 +8,7 @@
     android:background="@color/kb_text_primary">
 
     <!-- Header -->
-    <TextView
-        android:id="@+id/settings_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Quick Settings"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:textColor="@color/kb_text_primary"
-        android:paddingBottom="12dp"
-        android:gravity="center"/>
+    
 
     <!-- Sound Toggle -->
     <LinearLayout

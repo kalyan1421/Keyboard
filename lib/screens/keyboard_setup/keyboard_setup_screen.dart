@@ -1,3 +1,5 @@
+import 'package:ai_keyboard/screens/legal/privacy_policy_screen.dart';
+import 'package:ai_keyboard/screens/legal/terms_of_use_screen.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
@@ -5,6 +7,7 @@ import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -613,7 +616,16 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
                             style: TextStyle(
                               color: AppColors.secondary,
                               fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const PrivacyPolicyScreen(),
+                                  ),
+                                );
+                              },
                           ),
                           TextSpan(
                             text: ' and ',
@@ -623,11 +635,20 @@ class _KeyboardSetupScreenState extends State<KeyboardSetupScreen>
                             ),
                           ),
                           TextSpan(
-                            text: 'Term of Use Agreement',
+                            text: 'Terms of Use',
                             style: TextStyle(
                               color: AppColors.secondary,
                               fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const TermsOfUseScreen(),
+                                  ),
+                                );
+                              },
                           ),
                         ],
                       ),

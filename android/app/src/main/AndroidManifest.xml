@@ -1,6 +1,9 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:ignore="BluetoothPermission" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     
     <!-- Image cropping permissions -->
@@ -12,10 +15,11 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     
     <application
-        android:label="Kvive"
+        android:label="Kvive - Ai Writing Keyboard"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:enableOnBackInvokedCallback="true">
+        android:enableOnBackInvokedCallback="true"
+        android:extractNativeLibs="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,6 +49,14 @@
             android:screenOrientation="portrait"
             android:theme="@style/UCropTheme"
             android:exported="false" />
+        
+        <activity
+            android:name=".VoiceInputActivity"
+            android:permission="android.permission.BIND_SPEECH_RECOGNITION_SERVICE"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@style/VoiceInputTheme" />
             
         <!-- AI Keyboard Service -->
         <service android:name=".AIKeyboardService"

@@ -6,6 +6,13 @@
     <!-- Transparent fallbacks -->
     <color name="transparent">#00000000</color>
     
+    <!-- Voice input overlay -->
+    <color name="voice_input_background">#121212</color>
+    <color name="voice_input_button_bg">#FFFFFFFF</color>
+    <color name="voice_input_button_bg_active">#FFF3E0</color>
+    <color name="voice_input_mic_default">#FF9800</color>
+    <color name="voice_input_mic_active">#FFC107</color>
+    
     <!-- System colors that cannot be themed -->
     <color name="system_error">#F44336</color>
     <color name="system_success">#4CAF50</color>
@@ -25,6 +32,13 @@
     <color name="kb_text_secondary">#B0B0B0</color>
     <color name="kb_icon_tint">#E0E0E0</color>
     
+    <!-- One-handed mode -->
+    <color name="one_hand_panel_bg">#FF1F2126</color>
+    <color name="one_hand_panel_icon">#FFFFFFFF</color>
+    <color name="one_hand_panel_icon_dim">#B3FFFFFF</color>
+    <color name="one_hand_panel_ripple">#33FFFFFF</color>
+    
     <!-- Note: All keyboard colors are now managed by ThemeManager V2 -->
     <!-- Remove hardcoded theme colors to prevent conflicts -->
+    <color name="ic_launcher_background">#FFFFFF</color>
 </resources>

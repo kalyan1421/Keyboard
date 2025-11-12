@@ -1,6 +1,7 @@
 package com.example.ai_keyboard
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
 import org.json.JSONArray
@@ -27,6 +28,7 @@ object PromptManager {
     private const val KEY_PROMPT_CATEGORY = "prompt_category"
     
     private lateinit var prefs: SharedPreferences
+    private lateinit var appContext: Context
     private var initialized = false
     private const val SEED_VERSION_KEY = "prompt_seed_version"
     private const val CURRENT_SEED_VERSION = 1
@@ -63,11 +65,12 @@ object PromptManager {
      */
     fun init(context: Context) {
         try {
-            prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            appContext = context.applicationContext
+            prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             initialized = true
             
             // Migrate old single prompt if exists
-            migrateOldPrompts(context)
+            migrateOldPrompts(appContext)
             
             Log.d(TAG, "✅ PromptManager v2 initialized")
         } catch (e: Exception) {
@@ -92,6 +95,7 @@ object PromptManager {
                 
                 // Clear old storage
                 oldPrefs.edit().clear().apply()
+                prefs.edit().remove(KEY_CUSTOM_PROMPT).apply()
             }
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Error during migration (non-critical)", e)
@@ -135,6 +139,7 @@ object PromptManager {
             }
             
             prefs.edit().putString(key, promptArray.toString()).apply()
+            notifyPromptsUpdated()
             
             Log.d(TAG, "✅ Prompt saved [$category]: '$title' (${prompt.length} chars)")
             true
@@ -206,6 +211,13 @@ object PromptManager {
      * Delete prompt by title from a category
      */
     fun deletePrompt(category: String, title: String): Boolean {
+        return removePrompt(category, title)
+    }
+
+    /**
+     * Remove prompt by title from a category (alias for deletePrompt with broadcast)
+     */
+    fun removePrompt(category: String, title: String): Boolean {
         if (!initialized) {
             Log.w(TAG, "❌ PromptManager not initialized")
             return false
@@ -232,6 +244,7 @@ object PromptManager {
             if (found) {
                 prefs.edit().putString(key, newArray.toString()).apply()
                 Log.d(TAG, "🗑️ Deleted prompt: '$title' from [$category]")
+                notifyPromptsUpdated()
             } else {
                 Log.w(TAG, "⚠️ Prompt not found for deletion: '$title' in [$category]")
             }
@@ -367,5 +380,20 @@ object PromptManager {
      */
     fun hasAnyPrompts(): Boolean {
         return getTotalPromptCount() > 0
+    }
+
+    private fun notifyPromptsUpdated() {
+        if (!::appContext.isInitialized) {
+            Log.w(TAG, "⚠️ App context unavailable; skipping prompts broadcast")
+            return
+        }
+
+        try {
+            val intent = Intent("com.example.ai_keyboard.PROMPTS_UPDATED")
+            appContext.sendBroadcast(intent)
+            Log.d(TAG, "📢 Broadcasted PROMPTS_UPDATED")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error broadcasting prompt update", e)
+        }
     }
 }

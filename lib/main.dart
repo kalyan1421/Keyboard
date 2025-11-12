@@ -23,7 +23,7 @@ import 'services/keyboard_settings_bootstrapper.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/main%20screens/mainscreen.dart';
-import 'screens/main screens/keyboard_settings_screen.dart';
+import 'screens/main screens/keyboard_settings.dart';
 import 'theme/theme_editor_v2.dart';
 import 'screens/main screens/emoji_settings_screen.dart';
 import 'screens/main screens/dictionary_screen.dart';

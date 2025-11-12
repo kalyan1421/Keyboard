@@ -7,17 +7,18 @@ import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/rate_app_modal.dart';
 import 'package:ai_keyboard/screens/main%20screens/notification_screen.dart';
+import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'package:ai_keyboard/services/firebase_auth_service.dart';
 import 'package:flutter/services.dart';
-import 'package:android_intent_plus/android_intent.dart';
 
 class mainscreen extends StatefulWidget {
+  final int initialIndex;
   
-  const mainscreen({super.key});
+  const mainscreen({super.key, this.initialIndex = 0});
 
 
   @override
@@ -51,6 +52,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    selectedIndex = widget.initialIndex;
     _loadUserInfo();
     _checkKeyboardStatus();
     _startKeyboardStatusChecking();
@@ -77,7 +79,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
       });
     } else {
       setState(() {
-        _userName = 'Hi';
+        _userName = 'James Canes';
       });
     }
   }
@@ -114,48 +116,13 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   }
 
   Future<void> _openKeyboardSettings() async {
-    try {
-      // First try to open the input method picker
-      final result = await platform.invokeMethod('openInputMethodPicker');
-      print('Input method picker result: $result');
-    } catch (e) {
-      print('Error opening input method picker: $e');
-      // Fallback: show a dialog with instructions to enable keyboard
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Enable Keyboard'),
-            content: const Text(
-              'Please enable Kvive keyboard:\n\n'
-              '1. Go to Settings\n'
-              '2. Select System > Languages & input\n'
-              '3. Tap Virtual keyboard > Manage keyboards\n'
-              '4. Enable Kvive\n'
-              '5. Come back and tap this banner again to select it',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  // Try to open settings as a backup
-                  if (Theme.of(context).platform == TargetPlatform.android) {
-                    const intent = AndroidIntent(
-                      action: 'android.settings.INPUT_METHOD_SETTINGS',
-                    );
-                    intent.launch();
-                  }
-                },
-                child: const Text('Open Settings'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const KeyboardSetupScreen()),
+    );
+    if (mounted) {
+      _checkKeyboardStatus();
     }
   }
 
@@ -176,8 +143,10 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
 
     final prefs = await SharedPreferences.getInstance();
     final hasShownRateModal = prefs.getBool('has_shown_rate_modal') ?? false;
+    final launchCount = (prefs.getInt('app_launch_count') ?? 0) + 1;
+    await prefs.setInt('app_launch_count', launchCount);
 
-    if (!hasShownRateModal) {
+    if (!hasShownRateModal && launchCount >= 3) {
       // Wait for the screen to be fully loaded
       await Future.delayed(const Duration(seconds: 2));
 
@@ -210,6 +179,20 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final mediaSize = MediaQuery.of(context).size;
+    final shortestSide = mediaSize.shortestSide;
+    final double scaleFactor = (shortestSide / 375).clamp(0.85, 1.25).toDouble();
+    final appBarIconSize = (32 * scaleFactor).clamp(24.0, 36.0);
+    final navHeight =
+        (mediaSize.height * 0.14).clamp(78.0, mediaSize.height * 0.18).toDouble();
+    final navRadius = (20 * scaleFactor).clamp(16.0, 26.0);
+    final navIconSize = (24 * scaleFactor).clamp(20.0, 32.0);
+    final warningPadding = (16 * scaleFactor).clamp(12.0, 20.0);
+    final warningVerticalPadding = (12 * scaleFactor).clamp(8.0, 16.0);
+    final fabHeight = (56 * scaleFactor).clamp(48.0, 76.0);
+    final fabWidthDelta = (120 * scaleFactor).clamp(90.0, 160.0);
+    final fabTextWidth = (100 * scaleFactor).clamp(80.0, 140.0);
+
     return Scaffold(
       appBar: AppBar(
         surfaceTintColor: selectedIndex == 0
@@ -238,7 +221,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
               children: [
                 Icon(
                   Icons.notifications_outlined,
-                  size: 32,
+                  size: appBarIconSize,
                   color: selectedIndex == 0 ? AppColors.black : AppColors.white,
                 ),
                 if (hasNotification)
@@ -270,29 +253,32 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
                 onTap: _openKeyboardSettings,
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  padding: EdgeInsets.symmetric(
+                    vertical: warningVerticalPadding,
+                    horizontal: warningPadding,
+                  ),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.warning_rounded,
                         color: Colors.white,
-                        size: 20,
+                        size: (20 * scaleFactor).clamp(16.0, 26.0),
                       ),
-                      const SizedBox(width: 12),
-                      const Expanded(
+                      SizedBox(width: (12 * scaleFactor).clamp(8.0, 16.0)),
+                      Expanded(
                         child: Text(
                           'Keyboard not selected. Click here to Enable',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 14,
+                            fontSize: (14 * scaleFactor).clamp(12.0, 18.0),
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
-                      const Icon(
+                      Icon(
                         Icons.arrow_forward_ios,
                         color: Colors.white,
-                        size: 16,
+                        size: (16 * scaleFactor).clamp(12.0, 20.0),
                       ),
                     ],
                   ),
@@ -310,15 +296,15 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
               animation: _fabAnimation!,
               builder: (context, child) {
                 return Container(
-                  height: 56,
+                  height: fabHeight,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 500),
                         curve: Curves.easeInOut,
-                        width: 56 + (_fabAnimation!.value * 120),
-                        height: 56,
+                        width: fabHeight + (_fabAnimation!.value * fabWidthDelta),
+                        height: fabHeight,
                         decoration: BoxDecoration(
                           color: AppColors.secondary,
                           borderRadius: BorderRadius.circular(12),
@@ -369,7 +355,7 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
                                         milliseconds: 500,
                                       ),
                                       curve: Curves.easeInOut,
-                                      width: _fabAnimation!.value * 100,
+                                      width: _fabAnimation!.value * fabTextWidth,
                                       child: const Center(
                                         child: Text(
                                           'Try Keyboard',
@@ -406,12 +392,12 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
       
         
       Container(
-        height: MediaQuery.of(context).size.height * 0.13,
+        height: navHeight,
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
+            topLeft: Radius.circular(navRadius),
+            topRight: Radius.circular(navRadius),
           ),
           boxShadow: [
             BoxShadow(
@@ -438,6 +424,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
             BottomNavigationBarItem(
               icon: SvgPicture.asset(
                 AppIcons.home,
+                width: navIconSize,
+                height: navIconSize,
                 colorFilter: ColorFilter.mode(
                   selectedIndex == 0 ? AppColors.secondary : AppColors.grey,
                   BlendMode.srcIn,
@@ -448,6 +436,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
             BottomNavigationBarItem(
               icon: SvgPicture.asset(
                 AppIcons.theme,
+                width: navIconSize,
+                height: navIconSize,
                 colorFilter: ColorFilter.mode(
                   selectedIndex == 1 ? AppColors.secondary : AppColors.grey,
                   BlendMode.srcIn,
@@ -458,6 +448,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
             BottomNavigationBarItem(
               icon: SvgPicture.asset(
                 AppIcons.settings,
+                width: navIconSize,
+                height: navIconSize,
                 colorFilter: ColorFilter.mode(
                   selectedIndex == 2 ? AppColors.secondary : AppColors.grey,
                   BlendMode.srcIn,
@@ -468,6 +460,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
             BottomNavigationBarItem(
               icon: SvgPicture.asset(
                 AppIcons.profile,
+                width: navIconSize,
+                height: navIconSize,
                 colorFilter: ColorFilter.mode(
                   selectedIndex == 3 ? AppColors.secondary : AppColors.grey,
                   BlendMode.srcIn,

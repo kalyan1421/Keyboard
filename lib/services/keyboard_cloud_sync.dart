@@ -103,7 +103,7 @@ class KeyboardCloudSync {
   static Map<String, dynamic> _getDefaultSettings() {
     return {
       "version": 1,
-      "theme": "default",
+      "theme": "default_theme",
       "popupEnabled": false, // ✅ Popup preview OFF by default
       "aiSuggestions": true,
       "autocorrect": true,
@@ -116,8 +116,10 @@ class KeyboardCloudSync {
       },
       "dictionaryEnabled": true, // ✅ Dictionary ON by default
       "autoCapitalization": true,
+      "autoFillSuggestion": true,
+      "rememberCapsState": false,
       "doubleSpacePeriod": true,
-      "soundEnabled": true,
+      "soundEnabled": false, // ✅ Sound OFF by default
       "soundVolume": 0.5,
       "vibrationEnabled": true,
       "vibrationMs": 50,
@@ -144,19 +146,25 @@ class KeyboardCloudSync {
     
     await prefs.setBool('dictionaryEnabled', data['dictionaryEnabled'] ?? true);
     await prefs.setBool('autoCapitalization', data['autoCapitalization'] ?? true);
+    final autoFill = data['autoFillSuggestion'] ?? true;
+    final rememberCaps = data['rememberCapsState'] ?? false;
+    await prefs.setBool('autoFillSuggestion', autoFill);
+    await prefs.setBool('auto_fill_suggestion', autoFill);
+    await prefs.setBool('rememberCapsState', rememberCaps);
+    await prefs.setBool('remember_caps_state', rememberCaps);
     await prefs.setBool('doubleSpacePeriod', data['doubleSpacePeriod'] ?? true);
-    await prefs.setBool('sound_enabled', data['soundEnabled'] ?? true);
+    await prefs.setBool('sound_enabled', data['soundEnabled'] ?? false);
     await prefs.setDouble('sound_volume', (data['soundVolume'] ?? 0.5).toDouble());
     await prefs.setBool('vibration_enabled', data['vibrationEnabled'] ?? true);
     await prefs.setInt('vibration_ms', data['vibrationMs'] ?? 50);
-    await prefs.setString('theme', data['theme'] ?? 'default');
+    await prefs.setString('theme', data['theme'] ?? 'default_theme');
     
     debugPrint('$_tag: ✓ Settings persisted to SharedPreferences');
     
     // Notify native keyboard via MethodChannel
     try {
       await _channel.invokeMethod('updateSettings', {
-        'theme': data['theme'] ?? 'default',
+        'theme': data['theme'] ?? 'default_theme',
         'popupEnabled': data['popupEnabled'] ?? false,
         'aiSuggestions': data['aiSuggestions'] ?? true,
         'autocorrect': data['autocorrect'] ?? true,
@@ -167,8 +175,10 @@ class KeyboardCloudSync {
         'clipboardHistoryItems': clipboardSettings['historyItems'] ?? 20,
         'dictionaryEnabled': data['dictionaryEnabled'] ?? true,
         'autoCapitalization': data['autoCapitalization'] ?? true,
+        'autoFillSuggestion': data['autoFillSuggestion'] ?? true,
+        'rememberCapsState': data['rememberCapsState'] ?? false,
         'doubleSpacePeriod': data['doubleSpacePeriod'] ?? true,
-        'soundEnabled': data['soundEnabled'] ?? true,
+        'soundEnabled': data['soundEnabled'] ?? false,
         'soundVolume': (data['soundVolume'] ?? 0.5).toDouble(),
         'vibrationEnabled': data['vibrationEnabled'] ?? true,
         'vibrationMs': data['vibrationMs'] ?? 50,
@@ -227,4 +237,3 @@ class KeyboardCloudSync {
     }
   }
 }
-

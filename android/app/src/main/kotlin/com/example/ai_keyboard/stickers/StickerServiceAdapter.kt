@@ -57,10 +57,10 @@ class StickerServiceAdapter(private val context: Context) {
         }
     }
 
-    suspend fun getAvailablePacks(): List<StickerPack> {
+    suspend fun getAvailablePacks(forceRefresh: Boolean = false): List<StickerPack> {
         return withContext(Dispatchers.IO) {
             try {
-                stickerRepository.getStickerPacks(forceRefresh = false)
+                stickerRepository.getStickerPacks(forceRefresh)
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting available packs", e)
                 emptyList()

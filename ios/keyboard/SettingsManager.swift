@@ -35,7 +35,7 @@ class SettingsManager {
     // MARK: - Settings Properties
     
     var keyboardTheme: String {
-        get { userDefaults?.string(forKey: "keyboard_theme") ?? "default" }
+        get { userDefaults?.string(forKey: "keyboard_theme") ?? "default_theme" }
         set {
             userDefaults?.set(newValue, forKey: "keyboard_theme")
             userDefaults?.synchronize()

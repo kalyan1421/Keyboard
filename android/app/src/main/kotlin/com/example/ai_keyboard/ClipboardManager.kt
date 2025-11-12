@@ -2,8 +2,13 @@ package com.example.ai_keyboard
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.util.AttributeSet
 import android.util.Log
 import android.util.TypedValue
@@ -12,13 +17,45 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.core.content.ContextCompat
+import android.Manifest
 import com.example.ai_keyboard.managers.BaseManager
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+
+private fun SharedPreferences.getFloatCompat(key: String, defaultValue: Float): Float {
+    val raw = all[key] ?: return defaultValue
+    return when (raw) {
+        is Float -> raw
+        is Double -> raw.toFloat()
+        is Int -> raw.toFloat()
+        is Long -> raw.toFloat()
+        is String -> decodeFlutterDouble(raw)?.toFloat()
+            ?: raw.toFloatOrNull()
+            ?: defaultValue
+        else -> defaultValue
+    }
+}
+
+private fun decodeFlutterDouble(raw: String): Double? {
+    val prefixes = listOf(
+        "This is the prefix for double.",
+        "This is the prefix for Double.",
+        "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBkb3VibGUu",
+        "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBEb3VibGUu"
+    )
+    prefixes.forEach { prefix ->
+        if (raw.startsWith(prefix)) {
+            return raw.removePrefix(prefix).toDoubleOrNull()
+        }
+    }
+    return null
+}
 
 /**
  * 🎯 UNIFIED CLIPBOARD MANAGER - ALL-IN-ONE FILE
@@ -122,7 +159,7 @@ data class ClipboardItem(
 class ClipboardHistoryManager(context: Context) : BaseManager(context) {
     
     companion object {
-        private const val TAG = "ClipboardHistoryMgr"
+        private const val TAG = "[Clipboard]"
         private const val KEY_HISTORY = "history_items"
         private const val KEY_TEMPLATES = "template_items"
         private const val KEY_CLIPBOARD_ENABLED = "clipboard_enabled"
@@ -144,8 +181,16 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
     private var maxHistorySize = DEFAULT_MAX_HISTORY_SIZE
     private var autoExpiryEnabled = true
     private var expiryDurationMinutes = DEFAULT_EXPIRY_DURATION_MINUTES
+    private var vibratePermissionWarningLogged = false
     
     private val listeners = mutableListOf<ClipboardHistoryListener>()
+    
+    // Firebase for cloud sync
+    private val firestore = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
+    
+    // Vibrator for copy feedback
+    private val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
     
     interface ClipboardHistoryListener {
         fun onHistoryUpdated(items: List<ClipboardItem>)
@@ -156,7 +201,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         try {
             // Only capture if clipboard is enabled
             if (!enabled) {
-                logW("Clipboard is disabled, skipping capture")
+                Log.d(TAG, "⚠️ Clipboard is disabled, skipping capture")
                 return@OnPrimaryClipChangedListener
             }
             
@@ -165,30 +210,201 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                 val text = clip.getItemAt(0).text?.toString()
                 if (!text.isNullOrBlank()) {
                     addClipboardItem(text)
+                    showCopyEffect(text)
                 }
             }
         } catch (e: Exception) {
-            logE("Error handling clipboard change", e)
+            Log.e(TAG, "❌ Error handling clipboard change", e)
         }
     }
     
     override fun initialize() {
-        logW("Initializing ClipboardHistoryManager")
+        Log.d(TAG, "🚀 Initializing ClipboardHistoryManager")
         loadSettings()
         loadHistoryFromPrefs()
         loadTemplatesFromPrefs()
         clipboardManager.addPrimaryClipChangedListener(clipboardChangeListener)
         cleanupExpiredItems()
-        logW("ClipboardHistoryManager initialized with ${historyItems.size} history items")
+        Log.d(TAG, "✅ ClipboardHistoryManager initialized with ${historyItems.size} history items")
     }
     
     fun cleanup() {
         try {
             clipboardManager.removePrimaryClipChangedListener(clipboardChangeListener)
             listeners.clear()
-            logW("ClipboardHistoryManager cleaned up")
+            Log.d(TAG, "✅ ClipboardHistoryManager cleaned up")
         } catch (e: Exception) {
-            logE("Error during cleanup", e)
+            Log.e(TAG, "❌ Error during cleanup", e)
+        }
+    }
+    
+    private fun hasVibratePermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.VIBRATE
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Show visual and haptic feedback when text is copied
+     */
+    private fun showCopyEffect(text: String) {
+        try {
+            // Vibrate for 50ms if permission granted
+            vibrator?.let {
+                if (hasVibratePermission()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        it.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        it.vibrate(50)
+                    }
+                } else if (!vibratePermissionWarningLogged) {
+                    vibratePermissionWarningLogged = true
+                    Log.w(TAG, "VIBRATE permission missing; skipping clipboard haptics")
+                }
+            }
+            
+            // Log the copy action
+            val preview = if (text.length > 30) "${text.take(30)}..." else text
+            Log.d(TAG, "✅ Copied to Kvīve Clipboard: $preview")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error showing copy effect", e)
+        }
+    }
+    
+    /**
+     * Manually sync from system clipboard
+     */
+    fun syncFromSystemClipboard() {
+        try {
+            val clip = clipboardManager.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val text = clip.getItemAt(0).text?.toString()
+                if (!text.isNullOrBlank()) {
+                    // Check if not already in history
+                    if (historyItems.isEmpty() || historyItems[0].text != text.trim()) {
+                        addClipboardItem(text)
+                        Log.d(TAG, "✅ Synced from system clipboard: ${text.take(30)}...")
+                    } else {
+                        Log.d(TAG, "⚠️ Skipped duplicate from system clipboard")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error syncing from system clipboard", e)
+        }
+    }
+    
+    /**
+     * Sync clipboard history to Firestore (Kvīve Cloud)
+     */
+    fun syncToCloud() {
+        try {
+            val user = auth.currentUser
+            if (user == null || user.isAnonymous) {
+                Log.d(TAG, "⚠️ Cloud sync skipped: User not authenticated")
+                return
+            }
+            
+            val userId = user.uid
+            val clipboardCollection = firestore.collection("users")
+                .document(userId)
+                .collection("clipboard")
+            
+            // Upload recent non-template items (last 20)
+            val itemsToSync = historyItems.filter { !it.isTemplate }.take(20)
+            
+            itemsToSync.forEach { item ->
+                val data = hashMapOf(
+                    "text" to item.text,
+                    "timestamp" to item.timestamp,
+                    "isPinned" to item.isPinned,
+                    "id" to item.id
+                )
+                
+                clipboardCollection.document(item.id)
+                    .set(data)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "☁️ Synced item to cloud: ${item.getPreview(30)}")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ Failed to sync item to cloud", e)
+                    }
+            }
+            
+            Log.d(TAG, "☁️ Cloud sync initiated for ${itemsToSync.size} items")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error syncing to cloud", e)
+        }
+    }
+    
+    /**
+     * Sync clipboard history from Firestore (Kvīve Cloud)
+     */
+    fun syncFromCloud() {
+        try {
+            val user = auth.currentUser
+            if (user == null || user.isAnonymous) {
+                Log.d(TAG, "⚠️ Cloud sync skipped: User not authenticated")
+                return
+            }
+            
+            val userId = user.uid
+            firestore.collection("users")
+                .document(userId)
+                .collection("clipboard")
+                .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(50)
+                .get()
+                .addOnSuccessListener { documents ->
+                    var syncedCount = 0
+                    for (document in documents) {
+                        try {
+                            val text = document.getString("text") ?: continue
+                            val timestamp = document.getLong("timestamp") ?: System.currentTimeMillis()
+                            val isPinned = document.getBoolean("isPinned") ?: false
+                            val id = document.getString("id") ?: document.id
+                            
+                            // Check if item already exists
+                            val exists = historyItems.any { it.id == id }
+                            if (!exists) {
+                                val item = ClipboardItem(
+                                    id = id,
+                                    text = text,
+                                    timestamp = timestamp,
+                                    isPinned = isPinned
+                                )
+                                historyItems.add(item)
+                                syncedCount++
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error parsing cloud item", e)
+                        }
+                    }
+                    
+                    if (syncedCount > 0) {
+                        // Sort by timestamp
+                        historyItems.sortByDescending { it.timestamp }
+                        // Trim to max size
+                        while (historyItems.size > maxHistorySize) {
+                            historyItems.removeAt(historyItems.size - 1)
+                        }
+                        saveHistoryToPrefs()
+                        notifyHistoryUpdated()
+                        Log.d(TAG, "☁️ Synced $syncedCount items from cloud")
+                    } else {
+                        Log.d(TAG, "☁️ No new items to sync from cloud")
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "❌ Failed to sync from cloud", e)
+                }
+                
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error syncing from cloud", e)
         }
     }
     
@@ -198,7 +414,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             if (trimmedText.isEmpty()) return
             
             if (historyItems.isNotEmpty() && historyItems[0].text == trimmedText) {
-                logW("Skipping duplicate clipboard item")
+                Log.d(TAG, "⚠️ Skipped duplicate")
                 return
             }
             
@@ -207,15 +423,15 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             
             while (historyItems.size > maxHistorySize) {
                 val removed = historyItems.removeAt(historyItems.size - 1)
-                logW("Removed old clipboard item: ${removed.getPreview()}")
+                Log.d(TAG, "🗑️ Removed old item: ${removed.getPreview()}")
             }
             
             saveHistoryToPrefs()
             notifyHistoryUpdated()
             notifyNewItem(newItem)
-            logW("Added clipboard item: ${newItem.getPreview()}")
+            Log.d(TAG, "✅ Saved: ${newItem.getPreview()}")
         } catch (e: Exception) {
-            logE("Error adding clipboard item", e)
+            Log.e(TAG, "❌ Error adding item", e)
         }
     }
     
@@ -259,7 +475,8 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             historyItems[index] = updatedItem
             saveHistoryToPrefs()
             notifyHistoryUpdated()
-            logW("Toggled pin for item: ${updatedItem.getPreview()} -> pinned: ${updatedItem.isPinned}")
+            val pinIcon = if (updatedItem.isPinned) "📌" else "📍"
+            Log.d(TAG, "$pinIcon Toggled pin: ${updatedItem.getPreview()}")
             return updatedItem.isPinned
         }
         return false
@@ -273,10 +490,20 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             if (historyRemoved) saveHistoryToPrefs()
             if (templateRemoved) saveTemplatesToPrefs()
             notifyHistoryUpdated()
-            logW("Deleted clipboard item: $itemId")
+            Log.d(TAG, "🗑️ Deleted item: $itemId")
             return true
         }
         return false
+    }
+    
+    fun clearNonPinnedItems(): Boolean {
+        val removable = historyItems.filter { !it.isPinned && !it.isTemplate }
+        if (removable.isEmpty()) return false
+        removable.forEach { historyItems.remove(it) }
+        saveHistoryToPrefs()
+        notifyHistoryUpdated()
+        Log.d(TAG, "🧹 Cleared ${removable.size} non-pinned clipboard items")
+        return true
     }
     
     fun addTemplate(text: String, category: String? = null): ClipboardItem {
@@ -284,7 +511,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         templateItems.add(template)
         saveTemplatesToPrefs()
         notifyHistoryUpdated()
-        logW("Added template: ${template.getPreview()}")
+        Log.d(TAG, "📝 Added template: ${template.getPreview()}")
         return template
     }
     
@@ -312,7 +539,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             notifyHistoryUpdated()
         }
         
-        logW("Updated settings: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
+        Log.d(TAG, "⚙️ Updated settings: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
     }
     
     fun isEnabled(): Boolean = enabled
@@ -328,7 +555,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         if (historyItems.size != initialSize) {
             saveHistoryToPrefs()
             notifyHistoryUpdated()
-            logW("Cleaned up ${initialSize - historyItems.size} expired items")
+            Log.d(TAG, "🧹 Cleaned up ${initialSize - historyItems.size} expired items")
         }
     }
     
@@ -353,7 +580,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         maxHistorySize = prefs.getInt(KEY_MAX_HISTORY_SIZE, DEFAULT_MAX_HISTORY_SIZE)
         autoExpiryEnabled = prefs.getBoolean(KEY_AUTO_EXPIRY_ENABLED, true)
         expiryDurationMinutes = prefs.getLong(KEY_EXPIRY_DURATION_MINUTES, DEFAULT_EXPIRY_DURATION_MINUTES)
-        logW("Settings loaded: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
+        Log.d(TAG, "⚙️ Settings loaded: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
     }
     
     private fun saveSettings() {
@@ -363,7 +590,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             .putBoolean(KEY_AUTO_EXPIRY_ENABLED, autoExpiryEnabled)
             .putLong(KEY_EXPIRY_DURATION_MINUTES, expiryDurationMinutes)
             .commit()
-        logW("Settings saved: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
+        Log.d(TAG, "💾 Settings saved: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
     }
     
     private fun loadHistoryFromPrefs() {
@@ -376,10 +603,10 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                     val item = ClipboardItem.fromJson(jsonArray.getJSONObject(i))
                     historyItems.add(item)
                 }
-                logW("Loaded ${historyItems.size} history items")
+                Log.d(TAG, "✅ Loaded ${historyItems.size} history items")
             }
         } catch (e: Exception) {
-            logE("Error loading history", e)
+            Log.e(TAG, "❌ Error loading history", e)
         }
     }
     
@@ -390,7 +617,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             prefs.edit().putString(KEY_HISTORY, jsonArray.toString()).commit()
             syncToFlutterPrefs()
         } catch (e: Exception) {
-            logE("Error saving history", e)
+            Log.e(TAG, "❌ Error saving history", e)
         }
     }
     
@@ -400,9 +627,9 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             val jsonArray = JSONArray()
             historyItems.forEach { item -> jsonArray.put(item.toJson()) }
             flutterPrefs.edit().putString("flutter.clipboard_items", jsonArray.toString()).commit()
-            logW("Synced ${historyItems.size} items to Flutter")
+            Log.d(TAG, "🔄 Synced ${historyItems.size} items to Flutter")
         } catch (e: Exception) {
-            logE("Error syncing to Flutter", e)
+            Log.e(TAG, "❌ Error syncing to Flutter", e)
         }
     }
     
@@ -422,7 +649,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                         flutterItems.add(item)
                     }
                 } catch (e: Exception) {
-                    logW("Failed to parse item at index $i")
+                    Log.w(TAG, "⚠️ Failed to parse item at index $i")
                 }
             }
             
@@ -435,13 +662,13 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                 }
             }
             
-            logW("Loaded ${flutterItems.size} items from Flutter")
+            Log.d(TAG, "📲 Loaded ${flutterItems.size} items from Flutter")
             if (flutterItems.isNotEmpty()) {
                 saveHistoryToPrefs()
             }
             notifyHistoryUpdated()
         } catch (e: Exception) {
-            logE("Error loading from Flutter", e)
+            Log.e(TAG, "❌ Error loading from Flutter", e)
         }
     }
     
@@ -455,10 +682,10 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
                     val item = ClipboardItem.fromJson(jsonArray.getJSONObject(i))
                     templateItems.add(item)
                 }
-                logW("Loaded ${templateItems.size} templates")
+                Log.d(TAG, "📝 Loaded ${templateItems.size} templates")
             }
         } catch (e: Exception) {
-            logE("Error loading templates", e)
+            Log.e(TAG, "❌ Error loading templates", e)
         }
     }
     
@@ -468,7 +695,7 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
             templateItems.forEach { item -> jsonArray.put(item.toJson()) }
             prefs.edit().putString(KEY_TEMPLATES, jsonArray.toString()).commit()
         } catch (e: Exception) {
-            logE("Error saving templates", e)
+            Log.e(TAG, "❌ Error saving templates", e)
         }
     }
 }
@@ -1018,6 +1245,21 @@ class UnifiedClipboardManager(
                     result.success(settings)
                 }
                 
+                "syncFromSystem" -> {
+                    historyManager.syncFromSystemClipboard()
+                    result.success(true)
+                }
+                
+                "syncToCloud" -> {
+                    historyManager.syncToCloud()
+                    result.success(true)
+                }
+                
+                "syncFromCloud" -> {
+                    historyManager.syncFromCloud()
+                    result.success(true)
+                }
+                
                 else -> {
                     result.notImplemented()
                 }
@@ -1088,12 +1330,15 @@ class UnifiedClipboardManager(
         return deleted
     }
     
-    fun clearNonPinnedItems() {
-        val items = historyManager.getHistoryItems()
-        items.filter { !it.isPinned && !it.isTemplate }.forEach { item ->
-            historyManager.deleteItem(item.id)
+    fun clearNonPinnedItems(): Boolean {
+        val toRemove = historyManager.getHistoryItems().filter { !it.isPinned && !it.isTemplate }
+        if (toRemove.isEmpty()) {
+            Log.d(TAG, "No clipboard items to clear")
+            return false
         }
-        Log.d(TAG, "Cleared all non-pinned clipboard items")
+        toRemove.forEach { historyManager.deleteItem(it.id) }
+        Log.d(TAG, "Cleared ${toRemove.size} non-pinned clipboard items")
+        return true
     }
     
     private fun onItemSelected(item: ClipboardItem) {
@@ -1123,8 +1368,8 @@ class UnifiedClipboardManager(
         syncToFivive = prefs.getBoolean("flutter.sync_to_fivive", true)
         clipboardSuggestionEnabled = prefs.getBoolean("flutter.clipboard_suggestion_enabled", true)
         
-        val cleanOldHistoryMinutes = prefs.getFloat("flutter.clean_old_history_minutes", 0f).toLong()
-        val historySize = prefs.getFloat("flutter.history_size", 20f).toInt()
+        val cleanOldHistoryMinutes = prefs.getFloatCompat("flutter.clean_old_history_minutes", 0f).toLong()
+        val historySize = prefs.getFloatCompat("flutter.history_size", 20f).toInt()
         
         historyManager.updateSettings(
             maxHistorySize = historySize,
@@ -1173,8 +1418,8 @@ class UnifiedClipboardManager(
             putBoolean("flutter.sync_from_system", syncFromSystem)
             putBoolean("flutter.sync_to_fivive", syncToFivive)
             putBoolean("flutter.clipboard_suggestion_enabled", clipboardSuggestionEnabled)
-            putFloat("flutter.clean_old_history_minutes", cleanOldHistoryMinutes.toFloat())
-            putFloat("flutter.history_size", maxHistorySize.toFloat())
+            putString("flutter.clean_old_history_minutes", cleanOldHistoryMinutes.toString())
+            putString("flutter.history_size", maxHistorySize.toString())
         }.apply()
         
         Log.d(TAG, "✅ Settings updated and synced: $settings")
@@ -1234,4 +1479,3 @@ class UnifiedClipboardManager(
         }
     }
 }
-

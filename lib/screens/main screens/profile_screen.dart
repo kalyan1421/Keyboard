@@ -5,7 +5,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'info_app_screen.dart';
 import 'package:ai_keyboard/services/firebase_auth_service.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
-
+import 'package:ai_keyboard/screens/main screens/home_screen.dart';
+import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -88,7 +89,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 title: 'Theme',
                 subtitle: 'Edit or change theme',
                 icon: AppIcons.theme_color,
-                onTap: () {},
+                onTap: () {
+                   Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const mainscreen(initialIndex: 1),
+      ),
+    );
+                },
                 isSvgIcon: false,
               ),
               const SizedBox(height: 12),

@@ -1,7 +1,6 @@
 package com.example.ai_keyboard
 
 import android.util.Log
-import com.example.ai_keyboard.utils.LogUtil
 
 /**
  * Emoji suggestion engine that suggests emojis based on typed words
@@ -182,7 +181,8 @@ object EmojiSuggestionEngine {
      * Get trending/popular emoji suggestions
      */
     fun getTrendingEmojis(): List<String> {
-        return EmojiCollection.popularEmojis.take(8)
+        val context = AIKeyboardService.getInstance()?.applicationContext
+        return EmojiRepository.getPopular(8, context).map { it.char }
     }
     
     /**
@@ -205,9 +205,10 @@ object EmojiSuggestionEngine {
             }
         }
         
-        // If no results, use EmojiCollection search
+        // If no results, fall back to repository search dataset
         if (results.isEmpty()) {
-            results.addAll(EmojiCollection.searchEmojis(query))
+            val context = AIKeyboardService.getInstance()?.applicationContext
+            results.addAll(EmojiRepository.search(query, 20, context).map { it.char })
         }
         
         return results.take(10).toList()

@@ -5,10 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/keyboard_cloud_sync.dart';
-import '../main.dart';
 import 'package:ai_keyboard/screens/onboarding/onboarding_view.dart';
-import 'package:ai_keyboard/screens/login/mobile_login_screen.dart';
-import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 import 'package:ai_keyboard/screens/keyboard_setup/keyboard_setup_screen.dart';
 
@@ -33,6 +30,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     super.initState();
     _checkFirstLaunch();
     _listenToAuthChanges();
+    _checkKeyboardStatus();
   }
   
   /// Listen to auth changes to start/stop cloud sync
@@ -98,10 +96,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
     try {
       print('🔵 [AuthWrapper] Checking keyboard setup status...');
       final enabled = await platform.invokeMethod<bool>('isKeyboardEnabled') ?? false;
-      final active = await platform.invokeMethod<bool>('isKeyboardActive') ?? false;
       
-      final isSetup = enabled && active;
-      print('🔵 [AuthWrapper] Keyboard - Enabled: $enabled, Active: $active, Setup: $isSetup');
+      // Only check if keyboard is ADDED to system (enabled in settings)
+      // Not checking if it's the active input method
+      final isSetup = enabled;
+      print('🔵 [AuthWrapper] Keyboard - Added to system: $enabled, Setup complete: $isSetup');
       
       if (mounted) {
         setState(() {
@@ -137,11 +136,30 @@ class _AuthWrapperState extends State<AuthWrapper> {
       );
     }
 
-  // If it's first launch, show onboarding screen first
-  if (_isFirstLaunch!) {
-    print('🔵 [AuthWrapper] Showing onboarding screen for first launch');
-    return const OnboardingView();
-  }
+    // If it's first launch, show onboarding screen first
+    if (_isFirstLaunch!) {
+      print('🔵 [AuthWrapper] Showing onboarding screen for first launch');
+      return const OnboardingView();
+    }
+
+    if (_isKeyboardSetup == null) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Checking keyboard setup...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_isKeyboardSetup!) {
+      return const KeyboardSetupScreen();
+    }
 
     // For subsequent launches, check authentication status
     return StreamBuilder<User?>(

@@ -1011,7 +1011,7 @@ class ThemeManager(context: Context) : BaseManager(context) {
     // Font cache for performance
     private val fontCache = mutableMapOf<String, Typeface>()
     
-    private fun createTypeface(family: String, bold: Boolean, italic: Boolean): Typeface {
+    internal fun createTypeface(family: String, bold: Boolean, italic: Boolean): Typeface {
         val cacheKey = "${family}_${bold}_${italic}"
         
         // Return cached font if available

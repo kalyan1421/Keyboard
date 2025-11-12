@@ -281,7 +281,8 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: SafeArea(
+      child: Column(
         children: [
           // Chat Messages
           Expanded(
@@ -302,7 +303,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _buildInputField(),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildMessageBubble(ChatMessage message) {

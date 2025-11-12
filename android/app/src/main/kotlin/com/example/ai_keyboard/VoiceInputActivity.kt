@@ -133,7 +133,7 @@ class VoiceInputActivity : Activity() {
             permissionRequested = false
             val rationale = ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.RECORD_AUDIO)
             if (!rationale) {
-                Toast.makeText(this, getString(R.string.voice_input_permission_required), Toast.LENGTH_LONG).show()
+                // Toast removed - permission error logged only
                 val intent = Intent(
                     android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     android.net.Uri.fromParts("package", packageName, null)
@@ -236,7 +236,7 @@ class VoiceInputActivity : Activity() {
                 }, 800) // 800ms pause before auto-restart
             }, 100)
         } else {
-            Toast.makeText(this, getString(R.string.voice_input_error), Toast.LENGTH_SHORT).show()
+            // Toast removed - voice input error logged only
             finish()
             overridePendingTransition(0, 0)
         }

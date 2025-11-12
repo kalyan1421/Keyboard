@@ -38,9 +38,9 @@ class ClipboardService {
         final Map<String, dynamic> itemData = Map<String, dynamic>.from(call.arguments);
         print('📋 New clipboard item: ${itemData['text']}');
         final item = ClipboardItemData(
-          id: '', // Will be assigned by Kotlin
-          text: itemData['text'] as String,
-          timestamp: itemData['timestamp'] as int,
+          id: (itemData['id'] as String?) ?? '',
+          text: itemData['text'] as String? ?? '',
+          timestamp: _parseTimestamp(itemData['timestamp']),
           isPinned: false,
           isOTP: itemData['isOTP'] as bool? ?? false,
         );
@@ -61,9 +61,15 @@ class ClipboardService {
       
       if (result == null) return [];
       
-      return result.map((jsonStr) {
-        final json = jsonDecode(jsonStr as String);
-        return ClipboardItemData.fromJson(json);
+      return result.map<ClipboardItemData>((payload) {
+        if (payload is String) {
+          final json = jsonDecode(payload) as Map<String, dynamic>;
+          return ClipboardItemData.fromJson(json);
+        } else if (payload is Map) {
+          return ClipboardItemData.fromJson(Map<String, dynamic>.from(payload as Map));
+        } else {
+          throw StateError('Unsupported clipboard payload: ${payload.runtimeType}');
+        }
       }).toList();
     } catch (e) {
       print('❌ Error getting clipboard history: $e');
@@ -131,6 +137,39 @@ class ClipboardService {
     }
   }
   
+  /// Sync from system clipboard
+  static Future<bool> syncFromSystem() async {
+    try {
+      final bool? result = await _channel.invokeMethod('syncFromSystem');
+      return result ?? false;
+    } catch (e) {
+      print('❌ Error syncing from system: $e');
+      return false;
+    }
+  }
+  
+  /// Sync clipboard to Kvīve Cloud (Firestore)
+  static Future<bool> syncToCloud() async {
+    try {
+      final bool? result = await _channel.invokeMethod('syncToCloud');
+      return result ?? false;
+    } catch (e) {
+      print('❌ Error syncing to cloud: $e');
+      return false;
+    }
+  }
+  
+  /// Sync clipboard from Kvīve Cloud (Firestore)
+  static Future<bool> syncFromCloud() async {
+    try {
+      final bool? result = await _channel.invokeMethod('syncFromCloud');
+      return result ?? false;
+    } catch (e) {
+      print('❌ Error syncing from cloud: $e');
+      return false;
+    }
+  }
+  
   /// Dispose resources
   static void dispose() {
     _historyController.close();
@@ -160,13 +199,13 @@ class ClipboardItemData {
   
   factory ClipboardItemData.fromJson(Map<String, dynamic> json) {
     return ClipboardItemData(
-      id: json['id'] as String,
-      text: json['text'] as String,
-      timestamp: json['timestamp'] as int,
+      id: json['id'] as String? ?? '',
+      text: json['text'] as String? ?? '',
+      timestamp: _parseTimestamp(json['timestamp']),
       isPinned: json['isPinned'] as bool? ?? false,
       isTemplate: json['isTemplate'] as bool? ?? false,
       category: json['category'] as String?,
-      isOTP: false, // Will be calculated
+      isOTP: json['isOTP'] as bool? ?? false,
     );
   }
   
@@ -178,6 +217,7 @@ class ClipboardItemData {
       'isPinned': isPinned,
       'isTemplate': isTemplate,
       'category': category,
+      'isOTP': isOTP,
     };
   }
   
@@ -200,3 +240,9 @@ class ClipboardItemData {
   }
 }
 
+int _parseTimestamp(dynamic value) {
+  if (value is int) return value;
+  if (value is double) return value.toInt();
+  if (value is String) return int.tryParse(value) ?? DateTime.now().millisecondsSinceEpoch;
+  return DateTime.now().millisecondsSinceEpoch;
+}

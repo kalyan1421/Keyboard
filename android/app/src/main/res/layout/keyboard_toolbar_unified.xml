@@ -41,11 +41,22 @@
             android:id="@+id/button_toolbar_emoji"
             android:layout_width="@dimen/toolbar_button_size"
             android:layout_height="@dimen/toolbar_button_size"
+            android:layout_marginEnd="6dp"
             android:background="@android:color/transparent"
             android:contentDescription="@string/toolbar_emoji"
             android:padding="@dimen/toolbar_button_padding"
             android:scaleType="fitCenter"
             android:src="@drawable/emoji_icon" />
+
+        <ImageButton
+            android:id="@+id/button_toolbar_clipboard"
+            android:layout_width="@dimen/toolbar_button_size"
+            android:layout_height="@dimen/toolbar_button_size"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/toolbar_clipboard"
+            android:padding="@dimen/toolbar_button_padding"
+            android:scaleType="fitCenter"
+            android:src="@drawable/clipboard" />
     </LinearLayout>
 
     <View

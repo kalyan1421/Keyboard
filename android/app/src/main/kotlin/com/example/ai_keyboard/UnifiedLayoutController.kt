@@ -258,7 +258,7 @@ class UnifiedLayoutController(
         val config = LanguageConfigs.getLanguageConfig(language)
         val displayName = config?.let { "${it.flag} ${it.nativeName}" } ?: language.uppercase()
         
-        Toast.makeText(context, "Language: $displayName", Toast.LENGTH_SHORT).show()
+        // Toast removed - language switch logged only
     }
     
     /**

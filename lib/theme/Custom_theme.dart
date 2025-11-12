@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'theme_v2.dart';
@@ -37,6 +38,7 @@ class ThemeEditorScreenV2 extends StatefulWidget {
 class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     with TickerProviderStateMixin {
   late KeyboardThemeV2 _currentTheme;
+  final _themeNotifier = ValueNotifier<KeyboardThemeV2?>(null);
   final _nameController = TextEditingController();
   final FocusNode _keyboardFocusNode = FocusNode();
   late final List<_EditorTab> _tabs;
@@ -163,7 +165,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       themeFamily: 'SansSerif',
       previewStyleBuilder: (selected) => GoogleFonts.nunito(
         fontSize: selected ? 24 : 22,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w600,
       ),
     ),
     _FontOption(
@@ -185,7 +187,6 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
         fontSize: selected ? 26 : 24,
         fontWeight: FontWeight.w600,
       ),
-      italic: true,
     ),
     _FontOption(
       id: 'font_modern',
@@ -194,9 +195,8 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       themeFamily: 'Roboto',
       previewStyleBuilder: (selected) => GoogleFonts.robotoCondensed(
         fontSize: selected ? 24 : 22,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w600,
       ),
-      bold: true,
     ),
     _FontOption(
       id: 'font_mono',
@@ -229,54 +229,192 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       ),
     ),
     _FontOption(
-      id: 'font_italic',
-      displayName: 'Italic',
-      previewText: 'Aa',
-      themeFamily: 'Roboto',
-      previewStyleBuilder: (selected) => GoogleFonts.roboto(
-        fontSize: selected ? 24 : 22,
-        fontStyle: FontStyle.italic,
-        fontWeight: FontWeight.w500,
-      ),
-      italic: true,
-    ),
-    _FontOption(
       id: 'font_noto',
       displayName: 'Noto',
       previewText: 'Aa',
       themeFamily: 'NotoSans-VariableFont_wdth,wght.ttf',
       previewStyleBuilder: (selected) => GoogleFonts.notoSans(
         fontSize: selected ? 24 : 22,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w600,
       ),
     ),
     _FontOption(
-      id: 'font_devanagari',
-      displayName: 'Hindi',
-      previewText: 'अआ',
-      themeFamily: 'NotoSansDevanagari-Regular.ttf',
-      previewStyleBuilder: (selected) => GoogleFonts.notoSansDevanagari(
+      id: 'font_open_sans',
+      displayName: 'Open Sans',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.openSans(
         fontSize: selected ? 24 : 22,
         fontWeight: FontWeight.w600,
       ),
     ),
     _FontOption(
-      id: 'font_tamil',
-      displayName: 'Tamil',
-      previewText: 'அஆ',
-      themeFamily: 'NotoSansTamil-Regular.ttf',
-      previewStyleBuilder: (selected) => GoogleFonts.notoSansTamil(
+      id: 'font_lato',
+      displayName: 'Lato',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.lato(
         fontSize: selected ? 24 : 22,
         fontWeight: FontWeight.w600,
       ),
     ),
     _FontOption(
-      id: 'font_telugu',
-      displayName: 'Telugu',
-      previewText: 'అఆ',
-      themeFamily: 'NotoSansTelugu-Regular.ttf',
-      previewStyleBuilder: (selected) => GoogleFonts.notoSansTelugu(
+      id: 'font_poppins',
+      displayName: 'Poppins',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.poppins(
         fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_montserrat',
+      displayName: 'Montserrat',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.montserrat(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_raleway',
+      displayName: 'Raleway',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.raleway(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_ubuntu',
+      displayName: 'Ubuntu',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.ubuntu(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_oswald',
+      displayName: 'Oswald',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.oswald(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_inter',
+      displayName: 'Inter',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.inter(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_source_sans',
+      displayName: 'Source Sans',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.sourceSans3(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_work_sans',
+      displayName: 'Work Sans',
+      previewText: 'Aa',
+      themeFamily: 'SansSerif',
+      previewStyleBuilder: (selected) => GoogleFonts.workSans(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_merriweather',
+      displayName: 'Merriweather',
+      previewText: 'Aa',
+      themeFamily: 'Serif',
+      previewStyleBuilder: (selected) => GoogleFonts.merriweather(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_lora',
+      displayName: 'Lora',
+      previewText: 'Aa',
+      themeFamily: 'Serif',
+      previewStyleBuilder: (selected) => GoogleFonts.lora(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_pt_serif',
+      displayName: 'PT Serif',
+      previewText: 'Aa',
+      themeFamily: 'Serif',
+      previewStyleBuilder: (selected) => GoogleFonts.ptSerif(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_pacifico',
+      displayName: 'Pacifico',
+      previewText: 'Aa',
+      themeFamily: 'Cursive',
+      previewStyleBuilder: (selected) => GoogleFonts.pacifico(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w400,
+      ),
+    ),
+    _FontOption(
+      id: 'font_lobster',
+      displayName: 'Lobster',
+      previewText: 'Aa',
+      themeFamily: 'Cursive',
+      previewStyleBuilder: (selected) => GoogleFonts.lobster(
+        fontSize: selected ? 24 : 22,
+        fontWeight: FontWeight.w400,
+      ),
+    ),
+    _FontOption(
+      id: 'font_caveat',
+      displayName: 'Caveat',
+      previewText: 'Aa',
+      themeFamily: 'Cursive',
+      previewStyleBuilder: (selected) => GoogleFonts.caveat(
+        fontSize: selected ? 26 : 24,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_jetbrains_mono',
+      displayName: 'JetBrains Mono',
+      previewText: 'Aa',
+      themeFamily: 'RobotoMono',
+      previewStyleBuilder: (selected) => GoogleFonts.jetBrainsMono(
+        fontSize: selected ? 22 : 20,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    _FontOption(
+      id: 'font_source_code',
+      displayName: 'Source Code',
+      previewText: 'Aa',
+      themeFamily: 'RobotoMono',
+      previewStyleBuilder: (selected) => GoogleFonts.sourceCodePro(
+        fontSize: selected ? 22 : 20,
         fontWeight: FontWeight.w600,
       ),
     ),
@@ -285,10 +423,14 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
   static const String _customFontId = 'font_custom';
   
   late String _selectedFontId;
+  String? _selectedSound;
   
   // Animation controllers for live preview
   late AnimationController _previewController;
   late Animation<double> _previewAnimation;
+  
+  // Method channel for keyboard sound
+  static const MethodChannel _soundChannel = MethodChannel('keyboard.sound');
 
   int _currentTabIndex = 0;
 
@@ -297,13 +439,14 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     super.initState();
     // Initialize with provided theme or create new one
     _currentTheme = widget.initialTheme ?? KeyboardThemeV2.createDefault();
+    _themeNotifier.value = _currentTheme;
     _overlayTheme = _currentTheme;
     _nameController.text = _currentTheme.name;
     _selectedFontId = _resolveFontOptionId(
       _currentTheme.keys.font.family,
-      _currentTheme.keys.font.bold,
-      _currentTheme.keys.font.italic,
     );
+    // Load selected sound from preferences
+    _loadSelectedSound();
     _tabs = [
       _EditorTab(
         icon: Icons.camera_alt_outlined,
@@ -365,6 +508,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     _removePreviewOverlay();
     _nameController.dispose();
     _previewController.dispose();
+    _themeNotifier.dispose();
     _keyboardFocusNode.dispose();
     super.dispose();
   }
@@ -375,12 +519,23 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       return;
     }
 
+    // Convert font option ID back to themeFamily for Android compatibility
+    final fontFamily = _currentTheme.keys.font.family;
+    final androidFontFamily = fontFamily.startsWith('font_') 
+        ? _getThemeFamilyForFontOptionId(fontFamily)
+        : fontFamily;
+
     // Force toolbar and suggestions to inherit from keys (CleverType style)
     final updatedTheme = _currentTheme.copyWith(
       name: _nameController.text.trim(),
       id: _currentTheme.id.isEmpty ? 'custom_${DateTime.now().millisecondsSinceEpoch}' : _currentTheme.id,
       toolbar: _currentTheme.toolbar.copyWith(inheritFromKeys: true),
       suggestions: _currentTheme.suggestions.copyWith(inheritFromKeys: true),
+      keys: _currentTheme.keys.copyWith(
+        font: _currentTheme.keys.font.copyWith(
+          family: androidFontFamily, // Convert to themeFamily for Android
+        ),
+      ),
     );
 
     try {
@@ -408,10 +563,11 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       _currentTheme = newTheme;
       _selectedFontId = _resolveFontOptionId(
         newTheme.keys.font.family,
-        newTheme.keys.font.bold,
-        newTheme.keys.font.italic,
       );
     });
+
+    // Notify theme notifier to trigger preview rebuild
+    _themeNotifier.value = newTheme;
 
     _refreshPreviewOverlay(newTheme);
 
@@ -452,34 +608,16 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
           final theme = _overlayTheme ?? _currentTheme;
           final bottomPadding = MediaQuery.of(context).padding.bottom;
           return Positioned(
-           
-            bottom: 24 + bottomPadding,
-            child: IgnorePointer(
-              ignoring: true,
-              child: Material(
-                color: Colors.transparent,
-                elevation: 12,
-                borderRadius: BorderRadius.circular(18),
-                child: Container(
-                  width: MediaQuery.of(context).size.width,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 16,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: KeyboardSnapshot(
-                    theme: theme,
-                    showShadow: false,
-                  ),
-                ),
-              ),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _RealKeyboardWidget(
+              key: ValueKey('keyboard_preview_${theme.id}_${theme.keys.font.family}'),
+              theme: theme,
+              onThemeChanged: (newTheme) {
+                // Apply theme when it changes
+                ThemeManagerV2.saveThemeV2(newTheme);
+              },
             ),
           );
         },
@@ -714,44 +852,242 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
   }
 
   Widget _buildBottomKeyboardPreview() {
+    // Use theme-aware preview methods to ensure proper font rendering
+    final theme = _currentTheme;
     return Container(
       decoration: BoxDecoration(
-        color: _currentTheme.background.color ?? Colors.grey[900],
+        color: theme.background.color ?? Colors.grey[900],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildPreviewToolbar(),
-          _buildPreviewSuggestions(),
-          _buildPreviewKeyboard(),
+          _buildPreviewToolbarForTheme(theme),
+          _buildPreviewSuggestionsForTheme(theme),
+          _buildPreviewKeyboardForTheme(theme),
         ],
       ),
     );
   }
 
   Widget _buildLivePreview() {
+    // Use AnimatedBuilder with both animation and theme notifier to ensure rebuilds
     return AnimatedBuilder(
-      animation: _previewAnimation,
+      animation: Listenable.merge([_previewAnimation, _themeNotifier]),
       builder: (context, child) {
+        // Use current theme from notifier or fallback to _currentTheme
+        final theme = _themeNotifier.value ?? _currentTheme;
         return Transform.scale(
           scale: 0.7 + (0.3 * _previewAnimation.value),
           child: Container(
             margin: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _currentTheme.background.color ?? Colors.grey[900],
+              color: theme.background.color ?? Colors.grey[900],
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildPreviewToolbar(),
-                _buildPreviewSuggestions(),
-                _buildPreviewKeyboard(),
+                _buildPreviewToolbarForTheme(theme),
+                _buildPreviewSuggestionsForTheme(theme),
+                _buildPreviewKeyboardForTheme(theme),
               ],
             ),
           ),
         );
       },
+    );
+  }
+  
+  Widget _buildPreviewToolbarForTheme(KeyboardThemeV2 theme) {
+    final toolbarBg = theme.toolbar.inheritFromKeys 
+        ? theme.keys.bg 
+        : theme.toolbar.bg;
+    final toolbarIcon = theme.toolbar.inheritFromKeys 
+        ? theme.keys.text 
+        : theme.toolbar.icon;
+
+    return Container(
+      height: theme.toolbar.heightDp * 0.8,
+      decoration: BoxDecoration(
+        color: toolbarBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          Icon(Icons.mic, color: toolbarIcon, size: 16),
+          Icon(Icons.emoji_emotions, color: theme.toolbar.activeAccent, size: 16),
+          Icon(Icons.gif_box, color: toolbarIcon, size: 16),
+          Icon(Icons.more_horiz, color: toolbarIcon, size: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewSuggestionsForTheme(KeyboardThemeV2 theme) {
+    final suggestionBg = theme.suggestions.inheritFromKeys 
+        ? theme.keys.bg 
+        : theme.suggestions.bg;
+    final suggestionText = theme.suggestions.inheritFromKeys 
+        ? theme.keys.text 
+        : theme.suggestions.text;
+
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      color: suggestionBg,
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: theme.suggestions.chip.bg,
+                borderRadius: BorderRadius.circular(theme.suggestions.chip.radius / 2),
+              ),
+              child: Center(
+                child: Text(
+                  'hello',
+                  style: getTextStyleForFontOptionId(
+                    theme.suggestions.font.family,
+                    10,
+                    theme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
+                  ).copyWith(
+                    color: theme.suggestions.chip.text,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: theme.suggestions.chip.bg,
+                borderRadius: BorderRadius.circular(theme.suggestions.chip.radius / 2),
+              ),
+              child: Center(
+                child: Text(
+                  'world',
+                  style: getTextStyleForFontOptionId(
+                    theme.suggestions.font.family,
+                    10,
+                    theme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
+                  ).copyWith(
+                    color: theme.suggestions.chip.text,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: theme.suggestions.chip.bg,
+                borderRadius: BorderRadius.circular(theme.suggestions.chip.radius / 2),
+              ),
+              child: Center(
+                child: Text(
+                  'test',
+                  style: getTextStyleForFontOptionId(
+                    theme.suggestions.font.family,
+                    10,
+                    theme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
+                  ).copyWith(
+                    color: theme.suggestions.chip.text,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewKeyboardForTheme(KeyboardThemeV2 theme) {
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          // First row
+          Row(
+            children: 'QWERTYUIOP'.split('').map((letter) => _buildPreviewKeyForTheme(letter, false, theme)).toList(),
+          ),
+          const SizedBox(height: 2),
+          // Second row
+          Row(
+            children: [
+              ...('ASDFGHJKL'.split('').map((letter) => _buildPreviewKeyForTheme(letter, false, theme))),
+              _buildPreviewKeyForTheme('⌫', true, theme),
+            ],
+          ),
+          const SizedBox(height: 2),
+          // Third row
+          Row(
+            children: [
+              _buildPreviewKeyForTheme('⇧', true, theme),
+              ...('ZXCVBNM'.split('').map((letter) => _buildPreviewKeyForTheme(letter, false, theme))),
+              _buildPreviewKeyForTheme('⏎', theme.specialKeys.useAccentForEnter, theme),
+            ],
+          ),
+          const SizedBox(height: 2),
+          // Space row
+          Row(
+            children: [
+              _buildPreviewKeyForTheme('123', false, theme),
+              Expanded(child: _buildPreviewKeyForTheme('space', false, theme, isWide: true)),
+              _buildPreviewKeyForTheme('🌐', theme.specialKeys.applyTo.contains('globe'), theme),
+              _buildPreviewKeyForTheme('😀', theme.specialKeys.applyTo.contains('emoji'), theme),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewKeyForTheme(String text, bool isSpecial, KeyboardThemeV2 theme, {bool isWide = false}) {
+    final keyColor = isSpecial 
+        ? theme.specialKeys.accent 
+        : theme.keys.bg;
+    final textColor = isSpecial 
+        ? Colors.white 
+        : theme.keys.text;
+
+    return Expanded(
+      flex: isWide ? 4 : 1,
+      child: Container(
+        height: 24,
+        margin: const EdgeInsets.all(0.5),
+        decoration: BoxDecoration(
+          color: keyColor,
+          borderRadius: BorderRadius.circular(theme.keys.radius / 3),
+          border: theme.keys.border.enabled 
+              ? Border.all(color: theme.keys.border.color, width: 0.5)
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 3,
+              spreadRadius: 0,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            text,
+            style: getTextStyleForFontOptionId(
+              theme.keys.font.family,
+              8,
+              theme.keys.font.bold ? FontWeight.bold : FontWeight.normal,
+            ).copyWith(
+              color: text == 'space' ? theme.specialKeys.spaceLabelColor : textColor,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -805,11 +1141,12 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
               child: Center(
                 child: Text(
                   'hello',
-                  style: TextStyle(
+                  style: getTextStyleForFontOptionId(
+                    _currentTheme.suggestions.font.family,
+                    10,
+                    _currentTheme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
+                  ).copyWith(
                     color: _currentTheme.suggestions.chip.text,
-                    fontSize: 10,
-                    fontFamily: _currentTheme.suggestions.font.family,
-                    fontWeight: _currentTheme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
               ),
@@ -825,11 +1162,12 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
               child: Center(
                 child: Text(
                   'world',
-                  style: TextStyle(
+                  style: getTextStyleForFontOptionId(
+                    _currentTheme.suggestions.font.family,
+                    10,
+                    _currentTheme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
+                  ).copyWith(
                     color: _currentTheme.suggestions.chip.text,
-                    fontSize: 10,
-                    fontFamily: _currentTheme.suggestions.font.family,
-                    fontWeight: _currentTheme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
               ),
@@ -845,11 +1183,12 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
               child: Center(
                 child: Text(
                   'test',
-                  style: TextStyle(
+                  style: getTextStyleForFontOptionId(
+                    _currentTheme.suggestions.font.family,
+                    10,
+                    _currentTheme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
+                  ).copyWith(
                     color: _currentTheme.suggestions.chip.text,
-                    fontSize: 10,
-                    fontFamily: _currentTheme.suggestions.font.family,
-                    fontWeight: _currentTheme.suggestions.font.bold ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
               ),
@@ -932,11 +1271,12 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
         child: Center(
           child: Text(
             text,
-            style: TextStyle(
+            style: _getTextStyleForFontOptionId(
+              _currentTheme.keys.font.family,
+              8,
+              _currentTheme.keys.font.bold ? FontWeight.bold : FontWeight.normal,
+            ).copyWith(
               color: text == 'space' ? _currentTheme.specialKeys.spaceLabelColor : textColor,
-              fontSize: 8,
-              fontFamily: _currentTheme.keys.font.family,
-              fontWeight: _currentTheme.keys.font.bold ? FontWeight.bold : FontWeight.normal,
             ),
           ),
         ),
@@ -1140,6 +1480,10 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
 
   Widget _buildImageTab() {
     final List<String> imageThemes = [
+      'assets/image_theme/Sky1.jpg',
+      'assets/image_theme/Sky2.jpg',
+      'assets/image_theme/Sky3.jpg',
+      'assets/image_theme/Sky4.jpg',
       'assets/image_theme/bench.png',
       'assets/image_theme/circldesign.jpg',
       'assets/image_theme/perosn_with sunset.png',
@@ -2068,9 +2412,16 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     );
   }
 
-  String _resolveFontOptionId(String family, bool bold, bool italic) {
+  String _resolveFontOptionId(String family) {
+    // First, check if the family is already a font option ID (for new selections)
     for (final option in _fontOptions) {
-      if (option.themeFamily == family && option.bold == bold && option.italic == italic) {
+      if (option.id == family) {
+        return option.id;
+      }
+    }
+    // Fall back to themeFamily matching (for backward compatibility)
+    for (final option in _fontOptions) {
+      if (option.themeFamily == family) {
         return option.id;
       }
     }
@@ -2208,22 +2559,11 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
               return _buildFontOptionTile(option, isSelected);
             },
           ),
-          if (_selectedFontId == _customFontId) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Custom font combo active — adjust Bold/Italic to return to a preset or keep your unique look.',
-              style: AppTextStyle.bodySmall.copyWith(
-                color: AppColors.grey,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
           const SizedBox(height: 24),
           _buildSection('Fine-tune Font', [
             _buildFontSizeControl(),
-            const SizedBox(height: 12),
-            _buildFontStyleChips(),
           ]),
+           const SizedBox(height: 124),
         ],
       ),
     );
@@ -2284,31 +2624,68 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
             ],
           ),
           const SizedBox(height: 6),
-          SizedBox(
-            width: 68,
-            child: Text(
-              option.displayName,
-              style: AppTextStyle.bodySmall.copyWith(
-                color: isSelected ? AppColors.secondary : AppColors.grey,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              ),
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          // SizedBox(
+          //   width: 68,
+          //   child: Text(
+          //     option.displayName,
+          //     style: AppTextStyle.bodySmall.copyWith(
+          //       color: isSelected ? AppColors.secondary : AppColors.grey,
+          //       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          //     ),
+          //     maxLines: 1,
+          //     textAlign: TextAlign.center,
+          //     overflow: TextOverflow.ellipsis,
+          //   ),
+          // ),
         ],
       ),
     );
   }
 
+  /// Get themeFamily for a font option ID (for Android compatibility)
+  String _getThemeFamilyForFontOptionId(String fontOptionId) {
+    for (final option in _fontOptions) {
+      if (option.id == fontOptionId) {
+        return option.themeFamily;
+      }
+    }
+    // Fallback for custom fonts or unknown IDs
+    return fontOptionId.startsWith('font_') ? 'Roboto' : fontOptionId;
+  }
+
+  /// Get TextStyle for a font option ID (for Flutter preview rendering)
+  static TextStyle getTextStyleForFontOptionId(String fontOptionId, double fontSize, FontWeight fontWeight) {
+    for (final option in _fontOptions) {
+      if (option.id == fontOptionId) {
+        // Use the previewStyleBuilder to get the correct Google Font
+        final baseStyle = option.previewStyleBuilder(false);
+        return baseStyle.copyWith(
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+        );
+      }
+    }
+    // Fallback to Roboto if font option not found
+    return GoogleFonts.roboto(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+    );
+  }
+
+  /// Instance method wrapper for convenience
+  TextStyle _getTextStyleForFontOptionId(String fontOptionId, double fontSize, FontWeight fontWeight) {
+    return getTextStyleForFontOptionId(fontOptionId, fontSize, fontWeight);
+  }
+
   void _selectFontOption(_FontOption option) {
+    // Store the font option ID instead of themeFamily to ensure unique identification
+    // This allows proper selection indicator display in Flutter UI
     _updateTheme(_currentTheme.copyWith(
       keys: _currentTheme.keys.copyWith(
         font: _currentTheme.keys.font.copyWith(
-          family: option.themeFamily,
-          bold: option.bold,
-          italic: option.italic,
+          family: option.id, // Store unique font option ID for Flutter UI
+          bold: false,
+          italic: false,
         ),
       ),
     ));
@@ -2354,41 +2731,6 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     );
   }
 
-  Widget _buildFontStyleChips() {
-    final isBold = _currentTheme.keys.font.bold;
-    final isItalic = _currentTheme.keys.font.italic;
-    return Wrap(
-      spacing: 12,
-      children: [
-        FilterChip(
-          label: const Text('Bold'),
-          selected: isBold,
-          selectedColor: AppColors.secondary.withOpacity(0.18),
-          checkmarkColor: AppColors.secondary,
-          onSelected: (selected) {
-            _updateTheme(_currentTheme.copyWith(
-              keys: _currentTheme.keys.copyWith(
-                font: _currentTheme.keys.font.copyWith(bold: selected),
-              ),
-            ));
-          },
-        ),
-        FilterChip(
-          label: const Text('Italic'),
-          selected: isItalic,
-          selectedColor: AppColors.secondary.withOpacity(0.18),
-          checkmarkColor: AppColors.secondary,
-          onSelected: (selected) {
-            _updateTheme(_currentTheme.copyWith(
-              keys: _currentTheme.keys.copyWith(
-                font: _currentTheme.keys.font.copyWith(italic: selected),
-              ),
-            ));
-          },
-        ),
-      ],
-    );
-  }
 
   void _showFullFontPicker() {
     showModalBottomSheet(
@@ -2523,79 +2865,94 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     );
   }
   Widget _buildSoundTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSection('Sound Pack', [
-            DropdownButtonFormField<String>(
-              value: _currentTheme.sounds.pack,
-              decoration: const InputDecoration(
-                labelText: 'Sound Pack',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'default', child: Text('Default')),
-                DropdownMenuItem(value: 'soft', child: Text('Soft Clicks')),
-                DropdownMenuItem(value: 'clicky', child: Text('Clicky')),
-                DropdownMenuItem(value: 'mechanical', child: Text('Mechanical')),
-                DropdownMenuItem(value: 'typewriter', child: Text('Typewriter')),
-                DropdownMenuItem(value: 'piano', child: Text('Piano Keys')),
-                DropdownMenuItem(value: 'pop', child: Text('Pop Sound')),
-                DropdownMenuItem(value: 'silent', child: Text('Silent')),
-                DropdownMenuItem(value: 'custom', child: Text('Custom (import)')),
-              ],
-              onChanged: (value) async {
-                if (value != null) {
-                  if (value == 'custom') {
-                    await _pickCustomSound();
-                  } else {
-                    _updateTheme(_currentTheme.copyWith(
-                      sounds: _currentTheme.sounds.copyWith(
-                        pack: value,
-                        customUris: {},
-                      ),
-                    ));
-                  }
-                }
-              },
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Volume:'),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Slider(
-                    value: _currentTheme.sounds.volume,
-                    min: 0.0,
-                    max: 1.0,
-                    divisions: 10,
-                    label: '${(_currentTheme.sounds.volume * 100).round()}%',
-                    onChanged: (value) {
-                      _updateTheme(_currentTheme.copyWith(
-                        sounds: _currentTheme.sounds.copyWith(volume: value),
-                      ));
-                    },
-                  ),
-                ),
-                Text('${(_currentTheme.sounds.volume * 100).round()}%'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (_currentTheme.sounds.pack == 'custom')
-              _buildCustomSoundPreview()
-            else
-              OutlinedButton.icon(
-                onPressed: _pickCustomSound,
-                icon: const Icon(Icons.library_music),
-                label: const Text('Import custom sound'),
-              ),
-          ]),
-        ],
+    final sounds = [
+      {'icon': Icons.music_note, 'name': 'Click Classic', 'file': 'click.mp3'},
+      {'icon': Icons.music_video, 'name': 'Water Drop', 'file': 'water_drop.mp3'},
+      {'icon': Icons.volume_up, 'name': 'Pop', 'file': 'ball.mp3'},
+      {'icon': Icons.circle, 'name': 'Soft Tap', 'file': 'key_press.wav'},
+      {'icon': Icons.favorite, 'name': 'Heart Beat', 'file': 'heartbeat.mp3'},
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1,
       ),
+      itemCount: sounds.length,
+      itemBuilder: (context, index) {
+        final sound = sounds[index];
+        final isSelected = _selectedSound == sound['file'];
+
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedSound = sound['file'] as String;
+            });
+            _setKeyboardSound(sound['file'] as String);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: isSelected ? Colors.blue.shade100 : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected ? Colors.blue : Colors.grey.shade300,
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  sound['icon'] as IconData,
+                  size: 32,
+                  color: isSelected ? Colors.blue : Colors.black54,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  sound['name'] as String,
+                  style: const TextStyle(fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  Future<void> _loadSelectedSound() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _selectedSound = prefs.getString('selected_sound') ?? 'click.mp3';
+    } catch (e) {
+      _selectedSound = 'click.mp3';
+    }
+  }
+
+  Future<void> _setKeyboardSound(String file) async {
+    try {
+      // Save to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('selected_sound', file);
+      
+      // Call native method
+      await _soundChannel.invokeMethod('setKeyboardSound', {'file': file});
+    } catch (e) {
+      debugPrint('Error setting keyboard sound: $e');
+    }
   }
 
   Widget _buildAdaptiveTab() {
@@ -3169,4 +3526,185 @@ class BackgroundImage {
     required this.imageUrl,
     required this.icon,
   });
+}
+
+/// Real functional keyboard widget that shows the actual system keyboard
+class _RealKeyboardWidget extends StatefulWidget {
+  final KeyboardThemeV2 theme;
+  final ValueChanged<KeyboardThemeV2> onThemeChanged;
+
+  const _RealKeyboardWidget({
+    super.key,
+    required this.theme,
+    required this.onThemeChanged,
+  });
+
+  @override
+  State<_RealKeyboardWidget> createState() => _RealKeyboardWidgetState();
+}
+
+class _RealKeyboardWidgetState extends State<_RealKeyboardWidget> {
+  late TextEditingController _textController;
+  late FocusNode _focusNode;
+  bool _keyboardVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController();
+    _focusNode = FocusNode();
+    
+    // Apply theme immediately
+    _applyTheme();
+    
+    // Auto-focus to show keyboard
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+        setState(() {
+          _keyboardVisible = true;
+        });
+      }
+    });
+    
+    _focusNode.addListener(() {
+      setState(() {
+        _keyboardVisible = _focusNode.hasFocus;
+      });
+    });
+  }
+
+  @override
+  void didUpdateWidget(_RealKeyboardWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.theme != widget.theme || 
+        oldWidget.theme.keys.font.family != widget.theme.keys.font.family) {
+      // Force rebuild when theme or font changes
+      if (mounted) {
+        setState(() {});
+      }
+      _applyTheme();
+    }
+  }
+
+  Future<void> _applyTheme() async {
+    try {
+      // Convert font option ID back to themeFamily for Android compatibility
+      final fontFamily = widget.theme.keys.font.family;
+      String androidFontFamily = fontFamily;
+      if (fontFamily.startsWith('font_')) {
+        // Look up themeFamily for font option ID
+        for (final option in _ThemeEditorScreenV2State._fontOptions) {
+          if (option.id == fontFamily) {
+            androidFontFamily = option.themeFamily;
+            break;
+          }
+        }
+        // Fallback if not found
+        if (androidFontFamily == fontFamily) {
+          androidFontFamily = 'Roboto';
+        }
+      }
+      
+      // Force inheritance for seamless experience
+      final seamlessTheme = widget.theme.copyWith(
+        toolbar: widget.theme.toolbar.copyWith(inheritFromKeys: true),
+        suggestions: widget.theme.suggestions.copyWith(inheritFromKeys: true),
+        keys: widget.theme.keys.copyWith(
+          font: widget.theme.keys.font.copyWith(
+            family: androidFontFamily, // Convert to themeFamily for Android
+          ),
+        ),
+      );
+      await ThemeManagerV2.saveThemeV2(seamlessTheme);
+      widget.onThemeChanged(seamlessTheme);
+      
+      // Force widget rebuild to show updated theme
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Error applying theme: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: widget.theme.background.color ?? Colors.grey[900],
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Input field to trigger keyboard
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: widget.theme.keys.bg,
+                border: Border(
+                  top: BorderSide(
+                    color: widget.theme.keys.border.enabled 
+                        ? widget.theme.keys.border.color 
+                        : Colors.transparent,
+                    width: widget.theme.keys.border.widthDp,
+                  ),
+                ),
+              ),
+              child: TextField(
+                controller: _textController,
+                focusNode: _focusNode,
+                autofocus: true,
+                style: _ThemeEditorScreenV2State.getTextStyleForFontOptionId(
+                  widget.theme.keys.font.family,
+                  widget.theme.keys.font.sizeSp,
+                  widget.theme.keys.font.bold 
+                      ? FontWeight.bold 
+                      : FontWeight.normal,
+                ).copyWith(
+                  color: widget.theme.keys.text,
+                  fontStyle: widget.theme.keys.font.italic 
+                      ? FontStyle.italic 
+                      : FontStyle.normal,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Try your keyboard here...',
+                  hintStyle: _ThemeEditorScreenV2State.getTextStyleForFontOptionId(
+                    widget.theme.keys.font.family,
+                    widget.theme.keys.font.sizeSp,
+                    widget.theme.keys.font.bold 
+                        ? FontWeight.bold 
+                        : FontWeight.normal,
+                  ).copyWith(
+                    color: widget.theme.keys.text.withOpacity(0.5),
+                    fontStyle: widget.theme.keys.font.italic 
+                        ? FontStyle.italic 
+                        : FontStyle.normal,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+                maxLines: null,
+                textCapitalization: TextCapitalization.sentences,
+              ),
+            ),
+            // Spacer to push keyboard to bottom
+            if (!_keyboardVisible)
+              SizedBox(
+                height: MediaQuery.of(context).viewInsets.bottom > 0 
+                    ? 0 
+                    : 300, // Approximate keyboard height when not visible
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

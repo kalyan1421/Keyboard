@@ -161,6 +161,8 @@ class _ChooseBaseThemeScreenState extends State<ChooseBaseThemeScreen> {
                 ),
               ),
             ),
+
+            const SizedBox(height: 250),
           ],
         ),
       ),

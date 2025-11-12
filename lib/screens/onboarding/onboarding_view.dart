@@ -1,5 +1,4 @@
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
-import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 
@@ -14,57 +13,38 @@ class _OnboardingViewState extends State<OnboardingView> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   bool _userInteracted = false;
-  int _animationLoopCount = 0;
   bool _isAdvancing = false;
+  int _animationLoopCount = 0;
 
   final List<OnboardingPageData> _pages = [
     OnboardingPageData(
-      title: 'Welcome to Kvive',
+      title: 'Welcome to Kvīve',
       description:
-          'Transform your typing with AI-powered smart suggestions, effortless corrections, and more! Ready to type smarter?',
+          'Transform your typing with AI-powered smart suggestions, effortless corrections, and more!',
       animationPath: 'assets/animations/onboarding1.json',
     ),
     OnboardingPageData(
       title: 'Smart AI Assistance',
       description:
-          'Experience intelligent autocorrect, predictive text, and personalized suggestions that learn from your typing style.',
+          'Experience intelligent autocorrect, predictive text, and personalized suggestions that learn from you.',
       animationPath: 'assets/animations/onboarding2.json',
     ),
     OnboardingPageData(
-      title: 'Customize Your Experience',
+      title: 'Ai Rewriting',
       description:
-          'Choose from beautiful themes, adjust settings, and make the keyboard truly yours. Let\'s get started!',
+          'Rewrite any sentence in your perfect style. AI refines your words for clarity, tone, and impact.',
       animationPath: 'assets/animations/onboarding3.json',
     ),
   ];
 
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
   void _onAnimationComplete() {
-    print('_onAnimationComplete called. UserInteracted: $_userInteracted, AnimationLoopCount: $_animationLoopCount');
-    
-    // Don't auto-advance if user has interacted or already advancing
     if (_userInteracted || _isAdvancing) return;
-    
     _animationLoopCount++;
-    
-    // Auto-advance after 2 animation loops
     if (_animationLoopCount >= 2) {
-      print('Auto-advancing to next page after $_animationLoopCount loops');
-      setState(() {
-        _isAdvancing = true; // Prevent further animation repeats
-      });
-      _animationLoopCount = 0; // Reset for next page
-      
-      // Delay before advancing (longer than repeat delay to ensure clean transition)
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (mounted && !_userInteracted) {
-          _nextPage();
-        }
+      _animationLoopCount = 0;
+      _isAdvancing = true;
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && !_userInteracted) _nextPage();
       });
     }
   }
@@ -72,14 +52,14 @@ class _OnboardingViewState extends State<OnboardingView> {
   void _markUserInteraction() {
     setState(() {
       _userInteracted = true;
-      _isAdvancing = false; // Cancel auto-advance if user interacts
+      _isAdvancing = false;
     });
   }
 
   void _nextPage() {
     if (_currentPage < _pages.length - 1) {
       _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: 600),
         curve: Curves.easeInOut,
       );
     } else {
@@ -89,227 +69,172 @@ class _OnboardingViewState extends State<OnboardingView> {
 
   void _navigateToHome() {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const LoginIllustraionScreen()),
+      MaterialPageRoute(builder: (_) => const LoginIllustraionScreen()),
     );
   }
 
   void _onPageChanged(int page) {
-    print('Page changed to: $page');
     setState(() {
       _currentPage = page;
-      _animationLoopCount = 0; // Reset loop count for new page
-      _userInteracted = false; // Reset interaction flag for new page
-      _isAdvancing = false; // Reset advancing flag for new page
-    });
-    
-    // Small delay to ensure page is fully settled before resetting animation state
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) {
-        setState(() {});
-      }
+      _animationLoopCount = 0;
+      _userInteracted = false;
+      _isAdvancing = false;
     });
   }
+
+  Widget _buildHeader() => Padding(
+        padding: const EdgeInsets.only(top: 40.0),
+        child: Center(
+          child: Text(
+            'Kvīve',
+            style: const TextStyle(
+              color: Color(0xFFFF9900),
+              fontSize: 36,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF1A233B),
-      body: SafeArea(
-        child: Column(
+      body: GestureDetector(
+        onTap: _markUserInteraction,
+        onPanDown: (_) => _markUserInteraction(),
+        onHorizontalDragStart: (_) => _markUserInteraction(),
+        child: Stack(
           children: [
-            // Common Header
-            _buildHeader(),
-            const SizedBox(height: 20),
-
-            // PageView with all onboarding pages
-            Expanded(
-              child: GestureDetector(
-                onPanDown: (_) => _markUserInteraction(),
-                onHorizontalDragStart: (_) => _markUserInteraction(),
-                child: PageView.builder(
-                  controller: _pageController,
-                  onPageChanged: _onPageChanged,
-                  itemCount: _pages.length,
-                  itemBuilder: (context, index) {
-                    return _OnboardingPage(
-                      data: _pages[index],
-                      onAnimationComplete: _onAnimationComplete,
-                      isCurrentPage: index == _currentPage,
-                      isAdvancing: _isAdvancing,
-                    );
-                  },
-                ),
+            /// PageView area
+            PageView.builder(
+              controller: _pageController,
+              onPageChanged: _onPageChanged,
+              itemCount: _pages.length,
+              physics: const ClampingScrollPhysics(),
+              itemBuilder: (context, i) => _OnboardingPage(
+                data: _pages[i],
+                onAnimationComplete: _onAnimationComplete,
+                isCurrentPage: i == _currentPage,
+                isAdvancing: _isAdvancing,
+                onNextPressed: () {
+                  if (i == _pages.length - 1) {
+                    _navigateToHome();
+                  } else {
+                    _markUserInteraction();
+                    _nextPage();
+                  }
+                },
               ),
             ),
 
-            const SizedBox(height: 40),
+            /// Kvive header
+            Positioned(top: 10, left: 0, right: 0, child: _buildHeader()),
 
-            // Common Footer with navigation buttons
-            Padding(padding: const EdgeInsets.all(16.0), child: _buildFooter()),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 16.0),
-      child: Text(
-        'Kvive',
-        style: AppTextStyle.displaySmall.copyWith(
-          color: const Color(0xFFFF9900),
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFooter() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _pages[_currentPage].title,
-          style: AppTextStyle.headlineLarge.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 28,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          _pages[_currentPage].description,
-          style: AppTextStyle.bodyMedium.copyWith(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 40),
-        Row(
-          children: [
-            // Skip Button
-            OutlinedButton(
-              style: ButtonStyle(
-                shape: WidgetStatePropertyAll(
-                  RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: const BorderSide(color: Color(0xFFFF9900), width: 1),
-                  ),
-                ),
-                padding: const WidgetStatePropertyAll(
-                  EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
-                backgroundColor: const WidgetStatePropertyAll(
-                  Colors.transparent,
-                ),
-                foregroundColor: const WidgetStatePropertyAll(Colors.white),
-              ),
-              onPressed: _navigateToHome,
-              child: Text(
-                'Skip',
-                style: AppTextStyle.buttonPrimary.copyWith(
-                  color: Colors.white,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            const Spacer(),
-
-            // Page Indicators
-            Row(
-              children: List.generate(
-                _pages.length,
-                (index) => Container(
-                  width: 8,
-                  height: 8,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: _currentPage == index
-                        ? const Color(0xFFFF9900)
-                        : Colors.grey.shade400,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ),
-            const Spacer(),
-
-            // Show button on last page, swipe hint on other pages
-            if (_currentPage == _pages.length - 1)
-              // Continue button for the last page
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF9900),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  elevation: 0,
-                ),
-                onPressed: _navigateToHome,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Continue',
-                      style: AppTextStyle.buttonPrimary.copyWith(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+            /// Footer (Skip + dots)
+            Positioned(
+              bottom: 40,
+              left: 24,
+              right: 24,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (_currentPage < _pages.length - 1)
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side:
+                            const BorderSide(color: Color(0xFFFF9900), width: 0.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 25, vertical: 10),
+                      ),
+                      onPressed: _navigateToHome,
+                      child: const Text(
+                        'Skip',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 70),
+                  Row(
+                    children: List.generate(
+                      _pages.length,
+                      (i) => AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        width: _currentPage == i ? 20 : 8,
+                        height: 8,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        decoration: BoxDecoration(
+                          color: _currentPage == i
+                              ? const Color(0xFFFF9900)
+                              : Colors.grey.shade600,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.arrow_forward, size: 20),
-                  ],
+                  ),
+                   GestureDetector(
+                  onTap: _nextPage,
+                  child: Container(
+                    width: 70,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: const Color(0xFFFF9900),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.keyboard_arrow_right,
+                      color: Colors.white,
+                      size: 40,
+                    ),
+                  ),
                 ),
-              )
-            else
-              // Swipe hint text for other pages
-              Text(
-                'Swipe →',
-                style: AppTextStyle.bodyMedium.copyWith(
-                  color: const Color(0xFFFF9900),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
+              
+                ],
               ),
+            ),
           ],
         ),
-      ],
+      ),
     );
   }
 }
 
-// Onboarding page data model
 class OnboardingPageData {
-  final String title;
-  final String description;
-  final String animationPath;
-
-  OnboardingPageData({
+  final String title, description, animationPath;
+  const OnboardingPageData({
     required this.title,
     required this.description,
     required this.animationPath,
   });
 }
 
-// Individual onboarding page widget
 class _OnboardingPage extends StatefulWidget {
   final OnboardingPageData data;
   final VoidCallback onAnimationComplete;
-  final bool isCurrentPage;
-  final bool isAdvancing;
+  final bool isCurrentPage, isAdvancing;
+  final VoidCallback onNextPressed;
 
   const _OnboardingPage({
     required this.data,
     required this.onAnimationComplete,
     required this.isCurrentPage,
     required this.isAdvancing,
+    required this.onNextPressed,
   });
 
   @override
@@ -318,100 +243,93 @@ class _OnboardingPage extends StatefulWidget {
 
 class _OnboardingPageState extends State<_OnboardingPage>
     with TickerProviderStateMixin {
-  AnimationController? _lottieController;
+  AnimationController? _controller;
 
   @override
   void dispose() {
-    _lottieController?.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Lottie.asset(
-        widget.data.animationPath,
-        fit: BoxFit.contain,
-        repeat: false, // We'll handle repeat manually
-        onLoaded: (composition) {
-          if (!mounted) return;
-          
-          _lottieController?.dispose();
-          _lottieController = AnimationController(
-            vsync: this,
-            duration: composition.duration,
-          );
+    final screenHeight = MediaQuery.of(context).size.height;
 
-          // Listen for animation completion
-          _lottieController!.addStatusListener((status) {
-            if (!mounted) return;
-            
-            if (status == AnimationStatus.completed) {
-              print('Animation completed. IsCurrentPage: ${widget.isCurrentPage}, Page: ${widget.data.title}');
-              
-              // Only trigger callback if this is the current page
-              if (widget.isCurrentPage) {
-                print('Calling onAnimationComplete callback for: ${widget.data.title}');
-                widget.onAnimationComplete();
-              }
-              
-              // Schedule repeat with a delay to allow state updates to propagate
-              Future.delayed(const Duration(milliseconds: 200), () {
-                // Check again after delay if we should repeat
-                if (mounted && widget.isCurrentPage && !widget.isAdvancing) {
-                  print('Repeating animation for: ${widget.data.title}');
-                  if (_lottieController != null && !_lottieController!.isAnimating) {
-                    _lottieController!.forward(from: 0);
-                  }
-                } else if (widget.isAdvancing) {
-                  print('Not repeating animation - page is advancing');
-                } else if (!widget.isCurrentPage) {
-                  print('Not repeating animation - page is no longer current');
-                }
-              });
-            }
-          });
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SizedBox(
+          height: screenHeight * 0.58,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Lottie.asset(
+                widget.data.animationPath,
+                fit: BoxFit.contain,
+                repeat: false,
+                controller: _controller,
+                onLoaded: (comp) {
+                  _controller?.dispose();
+                  _controller = AnimationController(
+                    vsync: this,
+                    duration: comp.duration,
+                  )
+                    ..addStatusListener((status) {
+                      if (status == AnimationStatus.completed &&
+                          widget.isCurrentPage) {
+                        widget.onAnimationComplete();
+                        Future.delayed(const Duration(milliseconds: 300), () {
+                          if (mounted &&
+                              widget.isCurrentPage &&
+                              !widget.isAdvancing) {
+                            _controller?.reset();
+                            _controller?.forward();
+                          }
+                        });
+                      }
+                    });
+                  if (widget.isCurrentPage) _controller!.forward();
+                },
+              ),
 
-          // Start the animation immediately if this is the current page
-          if (mounted && widget.isCurrentPage) {
-            print('Starting animation for page: ${widget.data.title}');
-            _lottieController!.forward();
-          }
-        },
-        controller: _lottieController,
-      ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          widget.data.title,
+          textAlign: TextAlign.left,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            widget.data.description,
+            textAlign: TextAlign.left,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   @override
   void didUpdateWidget(_OnboardingPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
-    // Stop animation if advancing flag is set
-    if (!oldWidget.isAdvancing && widget.isAdvancing && _lottieController != null) {
-      print('Page ${widget.data.title} is advancing, stopping animation');
-      _lottieController!.stop();
-    }
-    
-    // Start animation if this page becomes current
-    if (oldWidget.isCurrentPage != widget.isCurrentPage) {
-      if (widget.isCurrentPage && _lottieController != null && !widget.isAdvancing) {
-        print('Page ${widget.data.title} became current, restarting animation');
-        // Stop any ongoing animation first
-        _lottieController!.stop();
-        _lottieController!.reset();
-        // Start fresh animation with a small delay
-        Future.delayed(const Duration(milliseconds: 150), () {
-          if (mounted && widget.isCurrentPage && !widget.isAdvancing && _lottieController != null) {
-            print('Actually starting animation for: ${widget.data.title}');
-            _lottieController!.forward();
-          }
-        });
-      } else if (!widget.isCurrentPage && _lottieController != null) {
-        // Stop animation when page is no longer current
-        print('Page ${widget.data.title} is no longer current, stopping animation');
-        _lottieController!.stop();
-      }
+    if (widget.isAdvancing && _controller != null) {
+      _controller!.stop();
+    } else if (widget.isCurrentPage && !oldWidget.isCurrentPage) {
+      _controller?.reset();
+      _controller?.forward();
     }
   }
 }

@@ -7,7 +7,7 @@ import 'package:ai_keyboard/screens/main%20screens/typing_suggestion_screen.dart
 import 'package:flutter/material.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
-import 'keyboard_settings_screen.dart';
+import 'keyboard_settings.dart';
 import 'emoji_settings_screen.dart';
 
 class SettingScreen extends StatelessWidget {
@@ -27,7 +27,7 @@ class SettingScreen extends StatelessWidget {
                 children: [
                   _buildSettingsOption(
                     icon: AppIcons.keyboard_icon,
-                    title: 'Keyboard',
+                    title: 'Keyboard ',
                     subtitle: 'Adjust keyboard layout & other Options',
                     onTap: () => Navigator.push(
                       context,
@@ -79,7 +79,7 @@ class SettingScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   _buildSettingsOption(
                     icon: AppIcons.AI_writing_assistant,
-                    title: 'AI Rewrite',
+                    title: 'Customize AI',
                     subtitle: 'Rewrite Prompt and Add Custom Tone',
                     onTap: () {
                       Navigator.push(

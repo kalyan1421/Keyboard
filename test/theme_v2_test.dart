@@ -12,8 +12,11 @@ void main() {
       expect(theme.name, 'Default Dark');
       expect(theme.mode, 'unified');
       expect(theme.background.type, 'solid');
-      expect(theme.keys.preset, 'bordered');
+      expect(theme.background.color, const Color(0xFF121212));
+      expect(theme.keys.preset, 'rounded');
+      expect(theme.keys.bg, const Color(0xFF2C2C2C));
       expect(theme.specialKeys.useAccentForEnter, true);
+      expect(theme.specialKeys.accent, const Color(0xFFFF9F1A));
     });
 
     test('serializes and deserializes JSON correctly', () {
@@ -151,7 +154,7 @@ void main() {
     test('sound and effects have valid defaults', () {
       final theme = KeyboardThemeV2.createDefault();
       
-      expect(theme.sounds.pack, 'soft');
+      expect(theme.sounds.pack, 'default');
       expect(theme.sounds.volume, 0.6);
       expect(theme.sounds.volume >= 0 && theme.sounds.volume <= 1, true);
       

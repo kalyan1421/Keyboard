@@ -88,7 +88,7 @@ flutter:
     - assets/
     - assets/sounds/
     - assets/images/
-    - assets/onboarding/
+    - assets/image_theme/
     - assets/icons/
     - assets/keyboards/
     - assets/animations/

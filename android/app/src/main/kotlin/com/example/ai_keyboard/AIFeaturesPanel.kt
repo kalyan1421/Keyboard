@@ -356,11 +356,11 @@ class AIFeaturesPanel @JvmOverloads constructor(
         }
 
         guideLink.setOnClickListener {
-            Toast.makeText(context, "Kvive guide coming soon", Toast.LENGTH_SHORT).show()
+            // Toast removed - guide message logged only
         }
 
         btnAddMore.setOnClickListener {
-            Toast.makeText(context, "More AI prompts coming soon", Toast.LENGTH_SHORT).show()
+            // Toast removed - guide message logged only
         }
     }
 

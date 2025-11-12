@@ -6,6 +6,9 @@ import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
 import 'package:ai_keyboard/services/keyboard_cloud_sync.dart';
+import 'package:ai_keyboard/theme/theme_v2.dart';
+
+// Removed _SoundOption class - sound selection is now handled in Custom_theme.dart
 
 class SoundsVibrationScreen extends StatefulWidget {
   const SoundsVibrationScreen({super.key});
@@ -17,17 +20,19 @@ class SoundsVibrationScreen extends StatefulWidget {
 class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   // MethodChannel for communication with native Kotlin keyboard
   static const _channel = MethodChannel('ai_keyboard/config');
+  static const _soundChannel = MethodChannel('keyboard.sound');
   
   // Debounce timers
   Timer? _saveDebounceTimer;
   Timer? _notifyDebounceTimer;
   
   // Sounds Settings
-  bool audioFeedback = true; // Default to true
+  bool audioFeedback = false; // Default to false (sound off)
   double soundVolume = 50.0; // Default 50%
   bool keyPressSounds = true;
   bool longPressKeySounds = true;
   bool repeatedActionKeySounds = true;
+  String _selectedSound = 'click.mp3'; // Default sound file name
 
   // Haptic feedback & Vibration Settings
   bool hapticFeedback = true; // Default to true
@@ -54,12 +59,14 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      // Sound Settings
-      audioFeedback = prefs.getBool('audio_feedback') ?? true;
+      // Sound Settings - use same key as Custom_theme.dart
+      audioFeedback = prefs.getBool('audio_feedback') ?? false;
       soundVolume = prefs.getDouble('sound_volume') ?? 50.0;
       keyPressSounds = prefs.getBool('key_press_sounds') ?? true;
       longPressKeySounds = prefs.getBool('long_press_key_sounds') ?? true;
       repeatedActionKeySounds = prefs.getBool('repeated_action_key_sounds') ?? true;
+      // Use same key as Custom_theme.dart: 'selected_sound'
+      _selectedSound = prefs.getString('selected_sound') ?? 'click.mp3';
       
       // Vibration Settings
       hapticFeedback = prefs.getBool('haptic_feedback') ?? true;
@@ -90,12 +97,14 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   Future<void> _performSave() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // Save Sound Settings
+    // Save Sound Settings - use same key as Custom_theme.dart
     await prefs.setBool('audio_feedback', audioFeedback);
     await prefs.setDouble('sound_volume', soundVolume);
     await prefs.setBool('key_press_sounds', keyPressSounds);
     await prefs.setBool('long_press_key_sounds', longPressKeySounds);
     await prefs.setBool('repeated_action_key_sounds', repeatedActionKeySounds);
+    // Save selected sound using same key as Custom_theme.dart
+    await prefs.setString('selected_sound', _selectedSound);
     
     // Save Vibration Settings
     await prefs.setBool('haptic_feedback', hapticFeedback);
@@ -105,9 +114,9 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
     await prefs.setBool('long_press_key_vibration', longPressKeyVibration);
     await prefs.setBool('repeated_action_key_vibration', repeatedActionKeyVibration);
     
-    debugPrint('✅ Sound & Vibration settings saved');
+    debugPrint('✅ Sound & Vibration settings saved (selected_sound: $_selectedSound)');
     
-    // Send to native keyboard
+    // Send to native keyboard - use same method as Custom_theme.dart
     await _sendSettingsToKeyboard();
     
     // Sync to Firebase for cross-device sync
@@ -149,6 +158,13 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
         'longPressVibration': longPressKeyVibration,
         'repeatedActionVibration': repeatedActionKeyVibration,
       });
+      
+      // Use same method as Custom_theme.dart to set keyboard sound
+      if (audioFeedback && _selectedSound.isNotEmpty) {
+        await _soundChannel.invokeMethod('setKeyboardSound', {'file': _selectedSound});
+        debugPrint('📤 Sound set to native keyboard: $_selectedSound');
+      }
+      
       debugPrint('📤 Settings sent to native keyboard');
     } catch (e) {
       debugPrint('⚠ Error sending settings: $e');
@@ -175,6 +191,9 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
       _showErrorSnackBar(e.toString());
     }
   }
+
+  // Removed sound pack selection - sounds are now managed in Custom_theme.dart
+  // This screen only controls sound enable/disable and volume settings
   
   /// Show success snackbar
   void _showSuccessSnackBar() {
@@ -265,6 +284,9 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
               },
             ),
             const SizedBox(height: 16),
+
+            // Sound pack selection removed - managed in Custom Theme Editor
+            // Users can select sounds from the Theme Editor's Sound tab
 
             const SizedBox(height: 12),
 
@@ -363,12 +385,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
 
             const SizedBox(height: 12),
 
-            // Vibration mode (disabled)
-            _buildDisabledVibrationModeCard(
-              title: 'Vibration mode',
-              description:
-                  'Hardware is missing in your device, Need hardware for use features',
-            ),
+            // // Vibration mode (disabled)
+            // _buildDisabledVibrationModeCard(
+            //   title: 'Vibration mode',
+            //   description:
+            //       'Hardware is missing in your device, Need hardware for use features',
+            // ),
 
             const SizedBox(height: 12),
 

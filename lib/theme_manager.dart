@@ -357,8 +357,8 @@ class FlutterThemeManager extends ChangeNotifier {
   // Cache for background images
   final Map<String, Uint8List> _imageCache = {};
 
-  // Default Gboard Light Theme
-  static const KeyboardThemeData _defaultTheme = KeyboardThemeData(
+  // Built-in Gboard baseline themes
+  static const KeyboardThemeData _gboardLight = KeyboardThemeData(
     id: 'gboard_light',
     name: 'Gboard Light',
     description: 'Clean, minimal design inspired by Google Keyboard',
@@ -373,6 +373,22 @@ class FlutterThemeManager extends ChangeNotifier {
     swipeTrailColor: Color(0xFF1A73E8), // Match accent
   );
 
+  static const KeyboardThemeData _gboardDark = KeyboardThemeData(
+    id: 'gboard_dark',
+    name: 'Gboard Dark',
+    description: 'Dark theme for low-light environments',
+    backgroundColor: Color(0xFF1E1E1E),
+    keyBackgroundColor: Color(0xFF2D2D2D),
+    keyPressedColor: Color(0xFF3C3C3C),
+    keyTextColor: Color(0xFFFFFFFF),
+    accentColor: Color(0xFF8AB4F8),
+    suggestionBarColor: Color(0xFF2D2D2D),
+    suggestionTextColor: Color(0xFFFFFFFF),
+    shadowColor: Color(0x40000000),
+  );
+
+  static const KeyboardThemeData _defaultTheme = _gboardDark;
+
   /// Initialize theme manager
   Future<void> initialize() async {
     await _loadBuiltInThemes();
@@ -382,23 +398,11 @@ class FlutterThemeManager extends ChangeNotifier {
 
   /// Load built-in themes (Gboard baseline)
   Future<void> _loadBuiltInThemes() async {
-    // Gboard Light (Default)
-    _availableThemes['gboard_light'] = _defaultTheme;
+    // Gboard Light
+    _availableThemes['gboard_light'] = _gboardLight;
 
-    // Gboard Dark
-    _availableThemes['gboard_dark'] = const KeyboardThemeData(
-      id: 'gboard_dark',
-      name: 'Gboard Dark',
-      description: 'Dark theme for low-light environments',
-      backgroundColor: Color(0xFF1E1E1E),
-      keyBackgroundColor: Color(0xFF2D2D2D),
-      keyPressedColor: Color(0xFF3C3C3C),
-      keyTextColor: Color(0xFFFFFFFF),
-      accentColor: Color(0xFF8AB4F8),
-      suggestionBarColor: Color(0xFF2D2D2D),
-      suggestionTextColor: Color(0xFFFFFFFF),
-      shadowColor: Color(0x40000000),
-    );
+    // Gboard Dark (Default)
+    _availableThemes['gboard_dark'] = _gboardDark;
 
     // Material You Theme (Dynamic Colors)
     _availableThemes['material_you'] = const KeyboardThemeData(

@@ -120,6 +120,11 @@ class UnifiedAutocorrectEngine(
     // Suggestion callback for real-time suggestion updates
     private var suggestionCallback: ((List<String>) -> Unit)? = null
 
+    private fun isBlacklisted(original: String, corrected: String): Boolean {
+        val manager = userDictionaryManager ?: return false
+        return manager.isBlacklisted(original, corrected)
+    }
+
     /**
      * Set language and resources (NEW UNIFIED API)
      * This is the single entry point for language switching
@@ -258,17 +263,25 @@ class UnifiedAutocorrectEngine(
         LogUtil.d(TAG, "🔧 Autocorrect: checking '$inputLower' in corrections map (${resources.corrections.size} entries)")
         
         resources.corrections[inputLower]?.let { correction ->
-            val score = scoringWeights.correctionWeight * 4.0 // High priority for predefined corrections
-            LogUtil.d(TAG, "✅ Correction found: '$inputLower' → '$correction'")
-            return Suggestion(correction, score, SuggestionSource.CORRECTION, isAutoCommit = true)
+            if (isBlacklisted(input, correction)) {
+                LogUtil.d(TAG, "🚫 Correction blacklisted: '$inputLower' → '$correction'")
+            } else {
+                val score = scoringWeights.correctionWeight * 4.0 // High priority for predefined corrections
+                LogUtil.d(TAG, "✅ Correction found: '$inputLower' → '$correction'")
+                return Suggestion(correction, score, SuggestionSource.CORRECTION, isAutoCommit = true)
+            }
         }
         
         LogUtil.d(TAG, "⚠️ No correction found for '$inputLower' in map")
         
         // Priority 2: Check typing suggestions and return best if score is high enough
         val suggestions = suggestForTyping(input, context)
-        if (suggestions.isNotEmpty() && suggestions.first().score > 2.0) {
-            return suggestions.first().copy(isAutoCommit = true)
+        val candidate = suggestions.firstOrNull { !isBlacklisted(input, it.text) }
+        if (candidate != null && candidate.score > 2.0) {
+            LogUtil.d(TAG, "✅ Using suggestion '${candidate.text}' for '$input' (score=${candidate.score})")
+            return candidate.copy(isAutoCommit = true)
+        } else if (candidate == null && suggestions.isNotEmpty()) {
+            LogUtil.d(TAG, "🚫 All suggestions for '$input' are blacklisted; skipping autocorrect")
         }
         
         return null
@@ -1414,6 +1427,11 @@ class UnifiedAutocorrectEngine(
      */
     fun getConfidence(input: String, suggestion: String): Float {
         if (input.isEmpty() || suggestion.isEmpty()) return 0f
+
+        if (isBlacklisted(input, suggestion)) {
+            LogUtil.d(TAG, "🚫 Confidence suppressed for blacklisted correction '$input' → '$suggestion'")
+            return 0f
+        }
         
         // Exact match = perfect confidence
         if (input.equals(suggestion, ignoreCase = true)) return 1.0f

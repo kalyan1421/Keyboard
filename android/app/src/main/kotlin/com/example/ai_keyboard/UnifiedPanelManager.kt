@@ -7,6 +7,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.Log
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -14,14 +15,15 @@ import android.view.KeyEvent
 import android.view.inputmethod.InputConnection
 import android.widget.*
 import android.text.TextUtils
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.ImageViewCompat
 import androidx.core.content.ContextCompat
 import androidx.annotation.DrawableRes
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.RecyclerView
 import android.os.SystemClock
+import com.example.ai_keyboard.stickers.SimpleMediaPanel
 import com.example.ai_keyboard.themes.PanelTheme
 import com.example.ai_keyboard.themes.ThemePaletteV2
 import com.example.ai_keyboard.utils.LogUtil
@@ -102,37 +104,95 @@ class UnifiedPanelManager(
         var isActive: Boolean = false,
         val handler: (QuickSettingItem) -> Unit
     )
+// ——— Better, production-grade prompts ———
 
-    private enum class GrammarAction(
-        val label: String,
-        val description: String,
-        val feature: AdvancedAIService.ProcessingFeature? = null,
-        val customPrompt: String? = null
-    ) {
-        REPHRASE(
-            label = "Rephrase",
-            description = "Say the same thing more naturally",
-            customPrompt = "Rewrite this text so it sounds natural, clear, and friendly. Preserve the original meaning."
-        ),
-        GRAMMAR_FIX(
-            label = "Grammar Fix",
-            description = "Fix Grammar of the sentence",
-            feature = AdvancedAIService.ProcessingFeature.GRAMMAR_FIX
-        ),
-        ADD_EMOJIS(
-            label = "Add emojis",
-            description = "Add relevant emojis",
-            customPrompt = "Rewrite this text and add fitting emojis while keeping the original intent. Return only the new text."
-        )
-    }
+private enum class GrammarAction(
+    val label: String,
+    val description: String,
+    val feature: AdvancedAIService.ProcessingFeature? = null,
+    val customPrompt: String? = null
+) {
+    REPHRASE(
+        label = "Rephrase",
+        description = "Say the same thing more naturally",
+        customPrompt =
+            """
+            You are a writing assistant. Rewrite the user's text in the **same language** it was provided.
+            Goals:
+            • Keep the original meaning and facts exactly.
+            • Improve clarity, flow, and naturalness (concise, readable).
+            • Preserve any structure (line breaks, lists, bullets, punctuation style).
 
-    private enum class ToneAction(val label: String, val prompt: String) {
-        FUNNY("Funny", "Create playful and funny rewrites"),
-        POETIC("Poetic", "Make lyrical, poetic versions with imagery"),
-        SHORTEN("Shorten", "Condense the message but keep the core meaning"),
-        SARCASTIC("Sarcastic", "Use witty, sarcastic humor while staying light-hearted")
-    }
-    
+            Hard rules:
+            • Do NOT add or remove facts.
+            • Do NOT translate to another language.
+            • Do NOT include quotes, code fences, or explanations.
+            • Output only the rewritten text.
+            """.trimIndent()
+    ),
+
+    GRAMMAR_FIX(
+        label = "Grammar Fix",
+        description = "Fix grammar, spelling, and punctuation",
+        feature = AdvancedAIService.ProcessingFeature.GRAMMAR_FIX
+    ),
+
+    ADD_EMOJIS(
+        label = "Add emojis",
+        description = "Add relevant emojis inline",
+        customPrompt =
+            """
+            Rewrite the user's text in the **same language** it was provided and keep the original meaning.
+            Add 1–3 contextually relevant emojis **inline** (place them near the words they enhance, not all at the end).
+            Preserve names, numbers, URLs, hashtags, and formatting.
+
+            Hard rules:
+            • Do NOT overuse emojis (max 3).
+            • Do NOT translate to another language.
+            • Do NOT add or remove facts.
+            • Output only the revised text (no quotes or explanations).
+            """.trimIndent()
+    )
+}
+
+private enum class ToneAction(
+    val label: String,
+    val prompt: String
+) {
+    FUNNY(
+        "Funny",
+        """
+        Rewrite in the **same language** with light, witty humor. Keep the original meaning and facts.
+        Use playful phrasing or a subtle joke or two; avoid sarcasm unless the context clearly supports it.
+        Do NOT add emojis unless already present. Output text only (no quotes/explanations).
+        """.trimIndent()
+    ),
+
+    POETIC(
+        "Poetic",
+        """
+        Rewrite in the **same language** with a lyrical, imagery-rich style while preserving the original meaning.
+        Aim for elegant rhythm and vivid but tasteful metaphors. Avoid clichés. Output text only.
+        """.trimIndent()
+    ),
+
+    SHORTEN(
+        "Shorten",
+        """
+        Condense the text in the **same language** by ~30–40% while preserving all key information and intent.
+        Remove filler words, redundancies, and hedging. Keep lists/bullets if present. Output text only.
+        """.trimIndent()
+    ),
+
+    SARCASTIC(
+        "Sarcastic",
+        """
+        Rewrite in the **same language** with mild, witty sarcasm while maintaining facts and intent.
+        Keep it clever (not hostile). Be concise. Do NOT add emojis. Output text only.
+        """.trimIndent()
+    )
+}
+
     // ✅ REFACTORED: No container management - caller handles display
     private var currentPanelType: PanelType? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -147,6 +207,7 @@ class UnifiedPanelManager(
     private var emojiPanelController: EmojiPanelController? = null
     private var emojiPanelView: View? = null
     private var settingsPanelView: View? = null
+    private var simpleMediaPanel: SimpleMediaPanel? = null
     private var emojiSearchModeListener: ((Boolean) -> Unit)? = null
     
     // Services
@@ -201,12 +262,45 @@ class UnifiedPanelManager(
     )
     private var grammarLanguage = supportedLanguages.first()
     private var toneLanguage = supportedLanguages.first()
+    private val translateLanguageOptions = listOf(
+        LanguageOption("Arabic", "Arabic"),
+        LanguageOption("Bosnian", "Bosnian"),
+        LanguageOption("Bulgarian", "Bulgarian"),
+        LanguageOption("Bangla", "Bangla"),
+        LanguageOption("Catalan", "Catalan"),
+        LanguageOption("Chinese", "Chinese"),
+        LanguageOption("Dutch", "Dutch"),
+        LanguageOption("English", "English"),
+        LanguageOption("French", "French"),
+        LanguageOption("German", "German"),
+        LanguageOption("Hindi", "Hindi"),
+        LanguageOption("Italian", "Italian"),
+        LanguageOption("Japanese", "Japanese"),
+        LanguageOption("Korean", "Korean"),
+        LanguageOption("Portuguese", "Portuguese"),
+        LanguageOption("Russian", "Russian"),
+        LanguageOption("Spanish", "Spanish"),
+        LanguageOption("Telugu", "Telugu"),
+        LanguageOption("Turkish", "Turkish")
+    )
+    private var translateLanguage = translateLanguageOptions.first()
+    private var translateEmptyState: View? = null
+    private var translateResultContainer: LinearLayout? = null
+    private var translateStatusText: TextView? = null
+    private var translateOutputView: TextView? = null
+    private var translateReplaceButton: Button? = null
+    private var translateCopyButton: ImageButton? = null
+    private var translateLanguageLabel: TextView? = null
+    private var translateGuideLink: TextView? = null
+    private var translateKeyboardButton: ImageButton? = null
     private var grammarTranslationJob: Job? = null
     private val toneTranslationJobs = mutableListOf<Job>()
+    private var translateJob: Job? = null
     private var lastGrammarResult: String = ""
     private val lastToneResults = mutableListOf<String>()
     private var lastGrammarRequestedInput: String = ""
     private var lastToneRequestedInput: String = ""
+    private var lastTranslateRequestedInput: String = ""
     
     init {
         // Register theme change listener to rebuild panels dynamically
@@ -252,34 +346,67 @@ class UnifiedPanelManager(
         return currentPanelType != null
     }
     
-    fun isEmojiSearchMode(): Boolean {
-        return emojiPanelController?.isInSearchMode() == true
-    }
     
-    fun resetEmojiPanelState() {
-        emojiPanelController?.resetToNormalMode()
-    }
-    
-    fun setEmojiSearchModeListener(listener: (Boolean) -> Unit) {
-        emojiSearchModeListener = listener
-    }
-
-    fun appendEmojiSearchCharacter(char: Char) {
-        emojiPanelController?.appendToSearchQuery(char)
-    }
-
-    fun removeEmojiSearchCharacter() {
-        emojiPanelController?.removeLastFromSearchQuery()
-    }
-
-    fun clearEmojiSearch() {
-        emojiPanelController?.clearSearchQuery()
-    }
+   
     
     /**
      * Get current panel type
      */
     fun getCurrentPanelType(): PanelType? = currentPanelType
+    
+    /**
+     * Set listener for emoji search mode changes
+     */
+    fun setEmojiSearchModeListener(listener: (Boolean) -> Unit) {
+        emojiSearchModeListener = listener
+    }
+    
+    fun markPanelClosed() {
+        if (currentPanelType != null) {
+            LogUtil.d(TAG, "Panel closed: $currentPanelType")
+        }
+        currentPanelType = null
+    }
+
+    fun invalidateClipboardPanel() {
+        clipboardPanelView = null
+    }
+    
+    /**
+     * Append character to emoji search query
+     */
+    fun appendEmojiSearchCharacter(char: Char) {
+        emojiPanelController?.appendToSearchQuery(char)
+    }
+    
+    /**
+     * Remove last character from emoji search query
+     */
+    fun removeEmojiSearchCharacter() {
+        emojiPanelController?.removeLastFromSearchQuery()
+    }
+    
+    /**
+     * Clear emoji search query
+     */
+    fun clearEmojiSearch() {
+        emojiPanelController?.clearSearchQuery()
+    }
+    
+    /**
+     * Check if emoji panel is in search mode
+     */
+    fun isEmojiSearchMode(): Boolean {
+        return emojiPanelController?.isInSearchMode() ?: false
+    }
+    
+    /**
+     * Get the emoji search keyboard container
+     * Returns the FrameLayout where UnifiedKeyboardView should render the keyboard grid
+     */
+    fun getEmojiSearchKeyboardContainer(): FrameLayout? {
+        return emojiPanelController?.getSearchKeyboardContainer()
+    }
     
     /**
      * Refresh AI prompts (called when broadcast received)
@@ -328,8 +455,21 @@ class UnifiedPanelManager(
         grammarKeyboardButton = null
         toneKeyboardButton = null
         aiKeyboardButton = null
+        translateEmptyState = null
+        translateResultContainer = null
+        translateStatusText = null
+        translateOutputView = null
+        translateReplaceButton = null
+        translateCopyButton = null
+        translateLanguageLabel = null
+        translateGuideLink = null
+        translateKeyboardButton = null
         lastGrammarRequestedInput = ""
         lastToneRequestedInput = ""
+        translateJob?.cancel()
+        translateJob = null
+        lastTranslateRequestedInput = ""
+        translateLanguage = translateLanguageOptions.first()
         grammarChipViews.clear()
         toneChipViews.clear()
         grammarChipActions.clear()
@@ -438,6 +578,68 @@ class UnifiedPanelManager(
                 triggerDefaultToneAction()
             }
         }
+
+        updateTranslateState(hasInput)
+    }
+
+    private fun updateTranslateState(hasInput: Boolean) {
+        if (!hasInput) {
+            translateEmptyState?.visibility = View.VISIBLE
+            translateGuideLink?.visibility = View.VISIBLE
+            translateResultContainer?.visibility = View.GONE
+            translateReplaceButton?.visibility = View.GONE
+            translateReplaceButton?.isEnabled = false
+            translateCopyButton?.isEnabled = false
+            translateCopyButton?.alpha = 0.4f
+            translateStatusText?.text = "Select text to translate"
+            translateOutputView?.text = "Translation will appear here..."
+            translateJob?.cancel()
+            translateJob = null
+            lastTranslateRequestedInput = ""
+            return
+        }
+
+        translateEmptyState?.visibility = View.GONE
+        translateGuideLink?.visibility = View.GONE
+        translateResultContainer?.visibility = View.VISIBLE
+        translateReplaceButton?.visibility = View.VISIBLE
+
+        val currentText = translateOutputView?.text?.toString()?.trim().orEmpty()
+        val hasResult = currentText.isNotBlank() &&
+            !currentText.startsWith("Translation", ignoreCase = true) &&
+            !currentText.startsWith("⏳") &&
+            !currentText.startsWith("❌")
+        translateReplaceButton?.isEnabled = hasResult
+        translateCopyButton?.isEnabled = hasResult
+        translateCopyButton?.alpha = if (hasResult) 1f else 0.4f
+
+        if (currentPanelType == PanelType.TRANSLATE && translatePanelView != null) {
+            triggerTranslateForCurrentLanguage(force = !hasResult)
+        }
+    }
+
+    private fun triggerTranslateForCurrentLanguage(force: Boolean = false) {
+        val trimmed = currentInputText.trim()
+        if (trimmed.isEmpty()) return
+        if (!force && trimmed == lastTranslateRequestedInput) return
+
+        lastTranslateRequestedInput = trimmed
+        processTranslateAction(translateLanguage.value)
+    }
+
+    private fun copyTranslateResult() {
+        val text = translateOutputView?.text?.toString()?.trim().orEmpty()
+        if (text.isBlank() ||
+            text.startsWith("Translation", ignoreCase = true) ||
+            text.startsWith("⏳") ||
+            text.startsWith("❌")
+        ) {
+            // Toast removed - copy error logged only
+            return
+        }
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Translation", text))
+        // Toast removed - copy success logged only
     }
     
     private fun triggerDefaultGrammarAction() {
@@ -505,7 +707,7 @@ class UnifiedPanelManager(
     }
     
     private fun getOrCreateEmojiPanel(): View {
-        if (emojiPanelView == null && emojiPanelController == null) {
+        if (simpleMediaPanel == null) {
             emojiPanelController = EmojiPanelController(
                 context,
                 themeManager,
@@ -514,9 +716,10 @@ class UnifiedPanelManager(
             ) { active ->
                 emojiSearchModeListener?.invoke(active)
             }
-            val dummyContainer = FrameLayout(context)
-            emojiPanelView = emojiPanelController!!.inflate(dummyContainer)
+            simpleMediaPanel = SimpleMediaPanel(context, themeManager, emojiPanelController!!)
+            emojiPanelView = simpleMediaPanel
         }
+        simpleMediaPanel?.show()
         return emojiPanelView!!
     }
     
@@ -1415,141 +1618,284 @@ class UnifiedPanelManager(
     private fun createTranslatePanel(): View {
         val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
-        val languageOptions = listOf(
-            "🇺🇸 English" to "English",
-            "🇪🇸 Spanish" to "Spanish",
-            "🇫🇷 French" to "French",
-            "🇩🇪 German" to "German",
-            "🇮🇳 Hindi" to "Hindi",
-            "🇯🇵 Japanese" to "Japanese",
-            "🇧🇷 Portuguese" to "Portuguese",
-            "🇰🇷 Korean" to "Korean"
-        )
-        
-        val panelBg = if (themeManager.isImageBackground()) palette.panelSurface else palette.keyboardBg
+        val root = createPanelRoot(palette, height)
+        root.addView(createPanelHeader("Translate"))
+
+        val scrollView = ScrollView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(32))
+        }
+        scrollView.addView(content)
+        root.addView(scrollView)
+
+        content.addView(createTranslateLanguageSelector(palette))
+        content.addView(spacerView(dpToPx(12)))
+
+        val emptyState = createTranslateEmptyState(palette)
+        translateEmptyState = emptyState
+        content.addView(emptyState)
+
+        val guideLink = TextView(context).apply {
+            text = "How to Use CleverType Guide"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(palette.specialAccent)
+            paint.isUnderlineText = true
+            gravity = Gravity.CENTER
+            setPadding(0, dpToPx(4), 0, dpToPx(16))
+            setOnClickListener {
+                // Toast removed - guide message logged only
+            }
+        }
+        translateGuideLink = guideLink
+        content.addView(guideLink)
+
+        val resultCard = createTranslateResultCard(palette).apply {
+            visibility = View.GONE
+        }
+        translateResultContainer = resultCard
+        content.addView(resultCard)
+
+        val replaceButton = Button(context).apply {
+            text = "Replace Text"
+            isAllCaps = false
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            background = createAccentButtonBackground(palette, 24)
+            setTextColor(getContrastColor(palette.specialAccent))
+            visibility = View.GONE
+            isEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(46)
+            )
+            setOnClickListener {
+                val text = translateOutputView?.text?.toString()?.trim().orEmpty()
+                if (text.isBlank() ||
+                    text.startsWith("Translation", ignoreCase = true) ||
+                    text.startsWith("⏳") ||
+                    text.startsWith("❌")
+                ) {
+                    // Toast removed - translate validation logged only
+                    return@setOnClickListener
+                }
+                onTextProcessedCallback?.invoke(text)
+                onBackToKeyboard()
+            }
+        }
+        translateReplaceButton = replaceButton
+        content.addView(replaceButton)
+
+        val keyboardButton = createFloatingKeyboardButton(palette).apply {
+            visibility = View.VISIBLE
+        }
+        translateKeyboardButton = keyboardButton
+        root.addView(keyboardButton, createKeyboardButtonLayoutParams())
+
+        updateTranslateState(currentInputText.trim().isNotEmpty())
+
+        return root
+    }
+    private fun createTranslateLanguageSelector(palette: ThemePaletteV2): View {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
-            setBackgroundColor(panelBg)
-            
-            // Consume focus so touches stay within the panel
-            isClickable = true
-            isFocusable = true
-            
-            addView(createPanelHeader("🌐 Translate"))
-            
-            addView(ScrollView(context).apply {
+
+            addView(TextView(context).apply {
+                text = "Translate to"
+                textSize = 12f
+                setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 200))
+                setPadding(0, 0, 0, dpToPx(6))
+            })
+
+            val selector = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = createRoundedDrawable(palette.keyBg, dpToPx(18))
+                setPadding(dpToPx(14), dpToPx(10), dpToPx(12), dpToPx(10))
+            }
+
+            val icon = ImageView(context).apply {
+                setImageResource(R.drawable.sym_keyboard_globe)
+                setColorFilter(palette.keyText)
+                layoutParams = LinearLayout.LayoutParams(dpToPx(18), dpToPx(18))
+            }
+            selector.addView(icon)
+
+            val value = TextView(context).apply {
+                text = translateLanguage.label
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(palette.keyText)
+                setPadding(dpToPx(8), 0, dpToPx(4), 0)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            selector.addView(value)
+            translateLanguageLabel = value
+
+            val chevron = ImageView(context).apply {
+                setImageResource(R.drawable.ic_back_chevron)
+                rotation = 90f
+                setColorFilter(palette.keyText)
+                layoutParams = LinearLayout.LayoutParams(dpToPx(20), dpToPx(20))
+            }
+            selector.addView(chevron)
+
+            selector.setOnClickListener {
+                val popup = PopupMenu(context, selector)
+                translateLanguageOptions.forEach { option ->
+                    popup.menu.add(option.label)
+                }
+                popup.setOnMenuItemClickListener { item ->
+                    val selected = translateLanguageOptions.firstOrNull { it.label == item.title }
+                    if (selected != null) {
+                        translateLanguage = selected
+                        translateLanguageLabel?.text = selected.label
+                        triggerTranslateForCurrentLanguage(force = currentInputText.trim().isNotEmpty())
+                    }
+                    true
+                }
+                popup.show()
+            }
+
+            addView(selector)
+        }
+    }
+
+    private fun createTranslateEmptyState(palette: ThemePaletteV2): LinearLayout {
+        val highlight = "Something"
+        val baseText = "Select $highlight and tap Translate to convert instantly"
+        val spannable = SpannableString(baseText)
+        val start = baseText.indexOf(highlight)
+        if (start >= 0) {
+            spannable.setSpan(
+                ForegroundColorSpan(Color.parseColor("#FF7AD9")),
+                start,
+                start + highlight.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(16), dpToPx(48), dpToPx(16), dpToPx(48))
+
+            addView(TextView(context).apply {
+                text = spannable
+                textSize = 20f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(palette.keyText)
+                gravity = Gravity.CENTER
+            })
+
+            addView(TextView(context).apply {
+                text = "Highlight text, tap the Translate key, and we'll do the rest."
+                textSize = 13f
+                setPadding(0, dpToPx(12), 0, dpToPx(20))
+                setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 180))
+                gravity = Gravity.CENTER
+            })
+
+            addView(Button(context).apply {
+                text = "Back to Keyboard"
+                isAllCaps = false
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                background = createAccentButtonBackground(palette, 24)
+                setTextColor(getContrastColor(palette.specialAccent))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    0,
-                    1f
+                    dpToPx(48)
                 )
-                
-                addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    layoutParams = FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    setPadding(dpToPx(12), dpToPx(4), dpToPx(12), dpToPx(8))
-                    
-                    val outputView = themedTextView("Translation will appear here...", 14f, false).apply {
-                        minHeight = dpToPx(80)
-                        background = createRoundedDrawable(PanelTheme.palette.keyBg, dpToPx(8))
-                        setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
-                        setOnClickListener {
-                            val text = this.text.toString()
-                            if (text.isNotEmpty() && !text.startsWith("Translation")) {
-                                onTextProcessedCallback?.invoke(text)
-                                Toast.makeText(context, "Translation inserted", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                    addView(outputView)
-                    
-                    addView(View(context).apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            dpToPx(16)
-                        )
-                    })
-                    
-                    val scrollView = HorizontalScrollView(context).apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT
-                        )
-                        isHorizontalScrollBarEnabled = false
-                    }
-                    
-                    val buttonContainer = LinearLayout(context).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        layoutParams = FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.WRAP_CONTENT,
-                            FrameLayout.LayoutParams.WRAP_CONTENT
-                        )
-                    }
-                    
-                    languageOptions.forEach { (label, language) ->
-                        buttonContainer.addView(themedButton(label) {
-                            processTranslateAction(language, outputView)
-                        })
-                    }
-                    
-                    scrollView.addView(buttonContainer)
-                    addView(scrollView)
-                    
-                    addView(View(context).apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            dpToPx(16)
-                        )
-                    })
-                    
-                    addView(themedButton("↩️ Insert Translation") {
-                        val text = outputView.text.toString()
-                        if (text.isNotEmpty() && !text.startsWith("Translation")) {
-                            onTextProcessedCallback?.invoke(text)
-                            Toast.makeText(context, "Translation inserted", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Nothing to insert yet", Toast.LENGTH_SHORT).show()
-                        }
-                    }.apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            dpToPx(44)
-                        ).apply {
-                            bottomMargin = dpToPx(8)
-                        }
-                    })
-                    
-                    addView(themedButton("📋 Copy Translation") {
-                        val text = outputView.text.toString()
-                        if (text.isNotEmpty() && !text.startsWith("Translation")) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Translation", text))
-                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Nothing to copy yet", Toast.LENGTH_SHORT).show()
-                        }
-                    }.apply {
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            dpToPx(44)
-                        )
-                    })
-                })
+                setOnClickListener { onBackToKeyboard() }
             })
         }
     }
-    
+
+    private fun createTranslateResultCard(palette: ThemePaletteV2): LinearLayout {
+        val bgColor = if (themeManager.isImageBackground()) {
+            ColorUtils.blendARGB(palette.panelSurface, Color.BLACK, 0.2f)
+        } else {
+            palette.keyBg
+        }
+
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(18).toFloat()
+                setColor(bgColor)
+                setStroke(1, palette.keyBorderColor)
+            }
+            setPadding(dpToPx(18), dpToPx(18), dpToPx(18), dpToPx(18))
+
+            val header = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val status = TextView(context).apply {
+                text = "Select text to get started"
+                textSize = 12f
+                setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 200))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            translateStatusText = status
+            header.addView(status)
+
+            val copy = ImageButton(context).apply {
+                setImageResource(R.drawable.ic_qs_copy)
+                background = null
+                setColorFilter(palette.keyText)
+                isEnabled = false
+                alpha = 0.4f
+                layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
+                setOnClickListener { copyTranslateResult() }
+            }
+            translateCopyButton = copy
+            header.addView(copy)
+
+            addView(header)
+
+            val output = TextView(context).apply {
+                text = "Translation will appear here..."
+                textSize = 20f
+                setLineSpacing(0f, 1.2f)
+                setTextColor(palette.keyText)
+                setPadding(0, dpToPx(12), 0, 0)
+            }
+            output.setOnClickListener { copyTranslateResult() }
+            output.setOnLongClickListener {
+                copyTranslateResult()
+                true
+            }
+            translateOutputView = output
+            addView(output)
+        }
+    }
+
     /**
      * Create Clipboard Panel - Pure Kotlin UI
      */
     private fun createClipboardPanel(): View {
         val palette = PanelTheme.palette
         val height = keyboardHeightManager?.getPanelHeight() ?: dpToPx(PANEL_HEIGHT_DP)
-        val prefs = context.getSharedPreferences("ai_keyboard_clipboard", Context.MODE_PRIVATE)
+        val service = AIKeyboardService.getInstance()
+        val clipboardItems = service?.getClipboardHistoryItems(40) ?: emptyList()
+        val clipboardEnabled = service?.isClipboardHistoryEnabled() ?: true
         val root = createPanelRoot(palette, height)
         root.addView(createPanelHeader("Clipboard"))
 
@@ -1576,8 +1922,15 @@ class UnifiedPanelManager(
 
         content.addView(createHeroBlock("Clipboard", "Tap an entry to paste instantly"))
 
-        val history = prefs.getStringSet("clipboard_history", emptySet())?.toList() ?: emptyList()
-        if (history.isEmpty()) {
+        if (!clipboardEnabled) {
+            content.addView(TextView(context).apply {
+                text = "Clipboard history is turned off.\nUse Quick Settings to enable it."
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setTextColor(ColorUtils.setAlphaComponent(Color.WHITE, 200))
+                setPadding(dpToPx(16), dpToPx(28), dpToPx(16), dpToPx(28))
+            })
+        } else if (clipboardItems.isEmpty()) {
             content.addView(TextView(context).apply {
                 text = "No clipboard items yet"
                 textSize = 14f
@@ -1593,24 +1946,29 @@ class UnifiedPanelManager(
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             }
-            history.take(20).forEach { item ->
-                grid.addView(createClipboardTile(item, prefs, palette))
+            clipboardItems.take(20).forEach { item ->
+                grid.addView(createClipboardTile(item, palette, service))
             }
             content.addView(grid)
         }
 
-        val clearLink = TextView(context).apply {
-            text = "Clear history"
-            textSize = 13f
-            setPadding(0, dpToPx(12), 0, dpToPx(4))
-            setTextColor(palette.specialAccent)
-            setOnClickListener {
-                prefs.edit().remove("clipboard_history").apply()
-                Toast.makeText(context, "Clipboard history cleared", Toast.LENGTH_SHORT).show()
-                rebuildDynamicPanelsFromPrompts()
+        if (clipboardEnabled && clipboardItems.isNotEmpty()) {
+            val clearLink = TextView(context).apply {
+                text = "Clear non-pinned items"
+                textSize = 13f
+                setPadding(0, dpToPx(12), 0, dpToPx(4))
+                setTextColor(palette.specialAccent)
+                setOnClickListener {
+                    if (service?.clearClipboardHistory() == true) {
+                        // Toast removed - clipboard cleared logged only
+                    } else {
+                        // Toast removed - clipboard error logged only
+                    }
+                    rebuildDynamicPanelsFromPrompts()
+                }
             }
+            content.addView(clearLink)
         }
-        content.addView(clearLink)
 
         
         
@@ -1627,20 +1985,6 @@ class UnifiedPanelManager(
         val prefs = context.getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         val quickSettings = loadQuickSettings(prefs)
         val panelBg = if (themeManager.isImageBackground()) palette.panelSurface else palette.keyboardBg
-
-        val adapter = QuickSettingsAdapter(
-            items = quickSettings,
-            palette = palette,
-            onItemInvoked = { item ->
-                try {
-                    item.handler(item)
-                } catch (e: Exception) {
-                    LogUtil.e(TAG, "Error executing quick setting ${item.id}", e)
-                    Toast.makeText(context, "Action unavailable", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onOrderChanged = { items -> persistQuickSettingsOrder(prefs, items) }
-        )
 
         val navBarHeight = keyboardHeightManager?.getNavigationBarHeight() ?: 0
 
@@ -1661,47 +2005,80 @@ class UnifiedPanelManager(
 
         container.addView(createSettingsPanelToolbar(palette))
 
-        
-
-        val recyclerView = RecyclerView(context).apply {
+        // Create horizontally scrollable features panel with 2 rows
+        val scrollView = HorizontalScrollView(context).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                1f
+                1f // Take remaining space
             )
-            overScrollMode = RecyclerView.OVER_SCROLL_NEVER
-            clipToPadding = false
-            setPadding(20, 0, 0, dpToPx(8))
-            layoutManager = GridLayoutManager(context, calculateQuickSettingsSpan())
-            this.adapter = adapter
+            overScrollMode = HorizontalScrollView.OVER_SCROLL_NEVER
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(panelBg)
         }
 
-        val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
-            ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.START or ItemTouchHelper.END,
-            0
-        ) {
-            override fun onMove(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-                target: RecyclerView.ViewHolder
-            ): Boolean {
-                adapter.swapItems(
-                    viewHolder.bindingAdapterPosition,
-                    target.bindingAdapterPosition
-                )
-                return true
+        // Vertical container for 2 rows
+        val rowsContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
+        }
+
+        // Row 1 - Top row
+        val row1 = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                0,
+                1f
+            )
+        }
+
+        // Row 2 - Bottom row
+        val row2 = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                0,
+                1f
+            )
+        }
+
+        // Create feature items with refresh support
+        fun buildItems() {
+            row1.removeAllViews()
+            row2.removeAllViews()
+            quickSettings.forEachIndexed { index, item ->
+                val featureItem = createFeatureItem(item, palette) {
+                    try {
+                        item.handler(item)
+                        // Refresh UI for toggle items to show updated state
+                        if (item.type == QuickSettingType.TOGGLE) {
+                            buildItems()
+                        }
+                    } catch (e: Exception) {
+                        LogUtil.e(TAG, "Error executing quick setting ${item.id}", e)
+                        // Toast removed - action error logged only
+                    }
+                }
+                // Alternate between row 1 and row 2
+                if (index % 2 == 0) {
+                    row1.addView(featureItem)
+                } else {
+                    row2.addView(featureItem)
+                }
             }
+        }
+        buildItems()
 
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                // no-op
-            }
-
-            override fun isLongPressDragEnabled(): Boolean = false
-        })
-        touchHelper.attachToRecyclerView(recyclerView)
-        adapter.setDragStartListener { holder -> touchHelper.startDrag(holder) }
-
-        container.addView(recyclerView)
+        rowsContainer.addView(row1)
+        rowsContainer.addView(row2)
+        scrollView.addView(rowsContainer)
+        container.addView(scrollView)
+        
         return container
     }
     
@@ -1711,6 +2088,69 @@ class UnifiedPanelManager(
     
     private fun dpToPx(dp: Int): Int {
         return (dp * context.resources.displayMetrics.density).toInt()
+    }
+    
+    /**
+     * Create individual feature item for 2-row horizontal scroll
+     * Bigger icons and text for better visibility
+     */
+    private fun createFeatureItem(
+        item: QuickSettingItem,
+        palette: ThemePaletteV2,
+        onClick: () -> Unit
+    ): View {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                dpToPx(120),
+                LinearLayout.LayoutParams.MATCH_PARENT
+            ).apply {
+                setMargins(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+            }
+            setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
+            // Add ripple feedback by resolving the attribute
+            val typedValue = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
+            foreground = ContextCompat.getDrawable(context, typedValue.resourceId)
+            setOnClickListener { onClick() }
+        }
+
+        // Icon - larger size
+        val iconView = ImageView(context).apply {
+            val iconSize = dpToPx(56)
+            layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setImageResource(item.iconRes)
+            
+            // Apply tint based on toggle state
+            val tintColor = if (item.type == QuickSettingType.TOGGLE && item.isActive) {
+                palette.specialAccent
+            } else {
+                palette.keyText
+            }
+            ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(tintColor))
+        }
+        container.addView(iconView)
+
+        // Label - larger text
+        val labelView = TextView(context).apply {
+            text = item.label
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 200))
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dpToPx(6)
+            }
+        }
+        container.addView(labelView)
+
+        return container
     }
     
     /**
@@ -1897,7 +2337,7 @@ class UnifiedPanelManager(
             setPadding(0, dpToPx(10), 0, 0)
             setTextColor(palette.specialAccent)
             setOnClickListener {
-                Toast.makeText(context, "Guide coming soon", Toast.LENGTH_SHORT).show()
+                // Toast removed - guide message logged only
             }
         }
     }
@@ -2110,7 +2550,7 @@ class UnifiedPanelManager(
             Log.d(TAG, "✅ Launching Flutter app: category=$category, route=$navigationRoute")
         } catch (e: Exception) {
             Log.e(TAG, "Error launching prompt manager for $category", e)
-            Toast.makeText(context, "Unable to open app", Toast.LENGTH_SHORT).show()
+            // Toast removed - app launch error logged only
         }
     }
     
@@ -2268,32 +2708,7 @@ class UnifiedPanelManager(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val rightGroup = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
         addButton(leftGroup, R.drawable.keyboard_icon, withBox = true) { onBackToKeyboard() }
-        addButton(leftGroup, R.drawable.voice, withBox = true) {
-            if (service != null) {
-                service.startVoiceInputFromToolbar()
-            } else {
-                showToast("Voice input unavailable")
-            }
-        }
-        addButton(leftGroup, R.drawable.emoji_icon, withBox = true) {
-            openPanelFromToolbar(PanelType.EMOJI)
-        }
-
-        addButton(rightGroup, R.drawable.chatgpt_icon, withBox = true) {
-            openPanelFromToolbar(PanelType.AI_ASSISTANT)
-        }
-        addButton(rightGroup, R.drawable.grammar_icon, withBox = true) {
-            openPanelFromToolbar(PanelType.GRAMMAR)
-        }
-        addButton(rightGroup, R.drawable.tone_icon, withBox = true) {
-            openPanelFromToolbar(PanelType.TONE)
-        }
 
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2307,7 +2722,6 @@ class UnifiedPanelManager(
             addView(View(context).apply {
                 layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
             })
-            addView(rightGroup)
         }
     }
 
@@ -2362,6 +2776,12 @@ class UnifiedPanelManager(
         val numberRowFallback = prefs.getBoolean("show_number_row", false)
         val autoCorrectFallback = prefs.getBoolean("auto_correct", true)
         val oneHandedFallback = flutterPrefs.getBoolean("flutter.keyboard_settings.one_handed_mode", false)
+        val clipboardPrefs = context.getSharedPreferences("clipboard_history", Context.MODE_PRIVATE)
+        val clipboardEnabledFallback = when {
+            flutterPrefs.contains("flutter.clipboard_history") ->
+                flutterPrefs.getBoolean("flutter.clipboard_history", true)
+            else -> clipboardPrefs.getBoolean("clipboard_enabled", true)
+        }
 
         return listOf(
             QuickSettingItem(
@@ -2389,6 +2809,22 @@ class UnifiedPanelManager(
                 }
             },
             QuickSettingItem(
+                id = "clipboard_history",
+                label = "Clipboard",
+                iconRes = R.drawable.clipboard,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isClipboardHistoryEnabled() ?: clipboardEnabledFallback
+            ) { item ->
+                if (service != null) {
+                    item.isActive = service.toggleClipboardHistory()
+                } else {
+                    val newState = !item.isActive
+                    clipboardPrefs.edit().putBoolean("clipboard_enabled", newState).apply()
+                    flutterPrefs.edit().putBoolean("flutter.clipboard_history", newState).apply()
+                    item.isActive = newState
+                }
+            },
+            QuickSettingItem(
                 id = "sound",
                 label = "Sound",
                 iconRes = R.drawable.ic_qs_sound,
@@ -2405,6 +2841,38 @@ class UnifiedPanelManager(
                 }
             },
             QuickSettingItem(
+                id = "vibration",
+                label = "Vibration",
+                iconRes = R.drawable.ic_qs_vibration,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isVibrationEnabled() ?: vibrationFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleVibration()
+                    item.isActive = service.isVibrationEnabled()
+                } else {
+                    val newState = !item.isActive
+                    prefs.edit().putBoolean("vibration_enabled", newState).apply()
+                    item.isActive = newState
+                }
+            },
+             QuickSettingItem(
+                id = "vibration",
+                label = "Vibration",
+                iconRes = R.drawable.ic_qs_vibration,
+                type = QuickSettingType.TOGGLE,
+                isActive = service?.isVibrationEnabled() ?: vibrationFallback
+            ) { item ->
+                if (service != null) {
+                    service.toggleVibration()
+                    item.isActive = service.isVibrationEnabled()
+                } else {
+                    val newState = !item.isActive
+                    prefs.edit().putBoolean("vibration_enabled", newState).apply()
+                    item.isActive = newState
+                }
+            },
+             QuickSettingItem(
                 id = "vibration",
                 label = "Vibration",
                 iconRes = R.drawable.ic_qs_vibration,
@@ -2512,13 +2980,6 @@ class UnifiedPanelManager(
         prefs.edit().putString("quick_settings_order_v2", order).apply()
     }
 
-    private fun calculateQuickSettingsSpan(): Int {
-        val availableWidth = context.resources.displayMetrics.widthPixels - dpToPx(32)
-        val itemWidth = dpToPx(88).coerceAtLeast(1)
-        val span = (availableWidth / itemWidth).coerceIn(3, 6)
-        return if (span <= 0) 3 else span
-    }
-
     private fun openFlutterRoute(route: String? = null) {
         try {
             val intent = Intent(context, MainActivity::class.java).apply {
@@ -2570,7 +3031,8 @@ class UnifiedPanelManager(
     }
 
     private fun showToast(message: String) {
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        // Toast removed - message logged only
+        Log.d(TAG, "Toast message: $message")
     }
 
     private fun openPanelFromToolbar(type: PanelType) {
@@ -2582,125 +3044,12 @@ class UnifiedPanelManager(
         }
     }
 
-    private inner class QuickSettingsAdapter(
-        private val items: MutableList<QuickSettingItem>,
-        private val palette: ThemePaletteV2,
-        private val onItemInvoked: (QuickSettingItem) -> Unit,
-        private val onOrderChanged: (List<QuickSettingItem>) -> Unit
-    ) : RecyclerView.Adapter<QuickSettingsAdapter.QuickSettingViewHolder>() {
-
-        private var dragStartListener: ((RecyclerView.ViewHolder) -> Unit)? = null
-
-        fun setDragStartListener(listener: (RecyclerView.ViewHolder) -> Unit) {
-            dragStartListener = listener
-        }
-
-        fun swapItems(from: Int, to: Int) {
-            if (from == to) return
-            val moved = items.removeAt(from)
-            items.add(to, moved)
-            notifyItemMoved(from, to)
-            onOrderChanged(items)
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): QuickSettingViewHolder {
-            val context = parent.context
-            val container = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                layoutParams = RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT,
-                    RecyclerView.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    val spacing = dpToPx(12)
-                    bottomMargin = spacing
-                }
-            }
-
-            val iconSize = dpToPx(48)
-            val iconView = ImageView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-            }
-            container.addView(iconView)
-
-            val labelView = TextView(context).apply {
-                textSize = 12f
-                gravity = Gravity.CENTER
-                setPadding(0, dpToPx(8), 0, 0)
-                setTextColor(ColorUtils.setAlphaComponent(palette.keyText, 220))
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-            }
-            container.addView(labelView)
-
-            return QuickSettingViewHolder(container, iconView, labelView)
-        }
-
-        override fun onBindViewHolder(holder: QuickSettingViewHolder, position: Int) {
-            val item = items[position]
-            holder.bind(item)
-            holder.itemView.setOnClickListener {
-                onItemInvoked(item)
-                if (item.type == QuickSettingType.TOGGLE) {
-                    val adapterPosition = holder.bindingAdapterPosition
-                    if (adapterPosition != RecyclerView.NO_POSITION) {
-                        notifyItemChanged(adapterPosition)
-                    }
-                }
-            }
-            holder.itemView.setOnLongClickListener {
-                dragStartListener?.invoke(holder)
-                true
-            }
-        }
-
-        override fun getItemCount(): Int = items.size
-
-        inner class QuickSettingViewHolder(
-            itemView: View,
-            private val iconView: ImageView,
-            private val labelView: TextView
-        ) : RecyclerView.ViewHolder(itemView) {
-
-            fun bind(item: QuickSettingItem) {
-                labelView.text = item.label
-
-                iconView.setImageResource(item.iconRes)
-
-                val baseColor = ColorUtils.blendARGB(
-                    palette.keyBg,
-                    palette.keyboardBg,
-                    0.18f
-                )
-                val activeColor = palette.specialAccent
-
-                val backgroundColor = if (item.type == QuickSettingType.TOGGLE && item.isActive) {
-                    activeColor
-                } else {
-                    baseColor
-                }
-
-                iconView.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(backgroundColor)
-                }
-
-                val tintColor = if (item.type == QuickSettingType.TOGGLE && item.isActive) {
-                    getContrastColor(activeColor)
-                } else {
-                    palette.keyText
-                }
-                ImageViewCompat.setImageTintList(iconView, ColorStateList.valueOf(tintColor))
-            }
-        }
-    }
-    
     private fun createClipboardTile(
-        text: String,
-        prefs: android.content.SharedPreferences,
-        palette: com.example.ai_keyboard.themes.ThemePaletteV2
+        item: ClipboardItem,
+        palette: com.example.ai_keyboard.themes.ThemePaletteV2,
+        service: AIKeyboardService?
     ): View {
+        val text = item.text
         val display = text.take(80) + if (text.length > 80) "…" else ""
         val baseColor = if (themeManager.isImageBackground()) palette.panelSurface else palette.keyboardBg
         val background = GradientDrawable(
@@ -2725,7 +3074,7 @@ class UnifiedPanelManager(
             setPadding(dpToPx(14), dpToPx(12), dpToPx(12), dpToPx(12))
 
             val textView = TextView(context).apply {
-                this.text = display
+                this.text = if (item.isPinned) "📌 $display" else display
                 textSize = 14f
                 setTextColor(Color.WHITE)
                 maxLines = 2
@@ -2742,10 +3091,9 @@ class UnifiedPanelManager(
                 setColorFilter(ColorUtils.setAlphaComponent(Color.WHITE, 200))
                 layoutParams = LinearLayout.LayoutParams(dpToPx(28), dpToPx(28))
                 setOnClickListener {
-                    val history = prefs.getStringSet("clipboard_history", emptySet())?.toMutableSet() ?: mutableSetOf()
-                    history.remove(text)
-                    prefs.edit().putStringSet("clipboard_history", history).apply()
-                    Toast.makeText(context, "Item removed", Toast.LENGTH_SHORT).show()
+                    val deleted = service?.deleteClipboardItem(item.id) ?: false
+                    val message = if (deleted) "Item removed" else "Unable to remove item"
+                    // Toast removed - item removal logged only
                     rebuildDynamicPanelsFromPrompts()
                 }
             }
@@ -2754,7 +3102,7 @@ class UnifiedPanelManager(
             setOnClickListener {
                 val ic = inputConnectionProvider()
                 ic?.commitText(text, 1)
-                Toast.makeText(context, "Inserted from clipboard", Toast.LENGTH_SHORT).show()
+                // Toast removed - clipboard insert logged only
                 onBackToKeyboard()
             }
         }
@@ -2767,7 +3115,7 @@ class UnifiedPanelManager(
     private fun processGrammarAction(action: GrammarAction) {
         val inputText = currentInputText
         if (inputText.isBlank()) {
-            Toast.makeText(context, "Please type something first", Toast.LENGTH_SHORT).show()
+            // Toast removed - input validation logged only
             return
         }
         lastGrammarRequestedInput = inputText.trim()
@@ -2829,7 +3177,7 @@ class UnifiedPanelManager(
     private fun processGrammarCustomPrompt(prompt: String, title: String) {
         val inputText = currentInputText
         if (inputText.isBlank()) {
-            Toast.makeText(context, "Please type something first", Toast.LENGTH_SHORT).show()
+            // Toast removed - input validation logged only
             return
         }
         lastGrammarRequestedInput = inputText.trim()
@@ -2932,7 +3280,7 @@ class UnifiedPanelManager(
     private fun requestToneVariants(instruction: String, cacheKey: String) {
         val inputText = currentInputText
         if (inputText.isBlank()) {
-            Toast.makeText(context, "Please type something first", Toast.LENGTH_SHORT).show()
+            // Toast removed - input validation logged only
             return
         }
         lastToneRequestedInput = inputText.trim()
@@ -2958,10 +3306,23 @@ class UnifiedPanelManager(
 
         scope.launch {
             val systemPrompt = """
-                You are rewriting the user's message.
-                Instruction: $instruction.
-                Generate exactly ${toneResultCards.size} unique variations.
-                Return each variation on its own line without numbering or bullet characters.
+                You are rewriting the user's message using this instruction:
+                $instruction
+
+                Produce exactly ${toneResultCards.size} distinct variations.
+                
+                Formatting rules (all are mandatory):
+                • Each variation must be a single paragraph (no manual line breaks).
+                • Separate variations with a line that contains exactly three dashes (---).
+                • Do not number, label, or explain the variations.
+                • Avoid repeating the original text verbatim; each variation should feel unique while honoring the instruction.
+
+                Example format (do NOT include the words “Variation 1” etc.):
+                <rewrite option 1>
+                ---
+                <rewrite option 2>
+                ---
+                <rewrite option 3>
             """.trimIndent()
 
             val result = try {
@@ -3060,26 +3421,63 @@ class UnifiedPanelManager(
     }
 
     private fun parseVariants(raw: String, expected: Int): List<String> {
-        val lines = raw
-            .split('\n')
-            .map { line ->
-                line.trim()
-                    .replace(Regex("^\\d+[.)\\s]+"), "")  // Remove "1. ", "1) ", "1 ", etc.
-                    .trimStart('-', '•', '*', '·')  // Remove bullet points
-                    .trim()
-            }
+        val normalized = raw.replace("\r", "").trim()
+        if (normalized.isBlank()) return emptyList()
+
+        fun cleanVariant(text: String): String {
+            return text.trim()
+                .replace(Regex("^(?i)(variation\\s*\\d+[:.)-]?\\s+)"), "")
+                .replace(Regex("^\\d+[.)\\-\\s]+"), "")
+                .trimStart('-', '•', '*', '·')
+                .trim()
+        }
+
+        val dashSplit = normalized
+            .split(Regex("\\n+\\s*---+\\s*\\n+"))
+            .map { cleanVariant(it) }
             .filter { it.isNotEmpty() }
 
-        return when {
-            lines.size >= expected -> lines.take(expected)
-            else -> lines
+        if (dashSplit.size >= expected) {
+            return dashSplit.take(expected)
         }
+
+        val variants = mutableListOf<String>()
+        val current = StringBuilder()
+        val variantStartPattern = Regex("^(?i)(variation\\s*\\d+|var\\.?\\s*\\d+|\\d+)[).\\-:]?\\s+")
+
+        fun flush() {
+            if (current.isNotEmpty()) {
+                val cleaned = cleanVariant(current.toString())
+                if (cleaned.isNotEmpty()) variants.add(cleaned)
+                current.clear()
+            }
+        }
+
+        normalized.lines().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@forEach
+
+            if (variantStartPattern.containsMatchIn(trimmed) && current.isNotEmpty()) {
+                flush()
+            }
+
+            val sanitized = trimmed.replace(variantStartPattern, "").trim()
+            if (current.isNotEmpty()) current.append(' ')
+            current.append(sanitized)
+        }
+        flush()
+
+        if (variants.size >= expected) {
+            return variants.take(expected)
+        }
+
+        return if (dashSplit.isNotEmpty()) dashSplit else variants
     }
     
     private fun processAIAction(prompt: String, outputView: TextView) {
         val inputText = currentInputText
         if (inputText.isBlank()) {
-            Toast.makeText(context, "Please type something first", Toast.LENGTH_SHORT).show()
+            // Toast removed - input validation logged only
             return
         }
         
@@ -3107,29 +3505,48 @@ class UnifiedPanelManager(
         }
     }
     
-    private fun processTranslateAction(targetLanguage: String, outputView: TextView) {
-        val inputText = currentInputText
+    private fun processTranslateAction(targetLanguage: String) {
+        val outputView = translateOutputView ?: return
+        val inputText = currentInputText.trim()
         if (inputText.isBlank()) {
-            Toast.makeText(context, "Please type something first", Toast.LENGTH_SHORT).show()
+            // Toast removed - translate validation logged only
+            updateTranslateState(false)
             return
         }
-        
+
+        translateJob?.cancel()
+        translateJob = null
+        translateReplaceButton?.isEnabled = false
+        translateCopyButton?.isEnabled = false
+        translateCopyButton?.alpha = 0.4f
+        translateStatusText?.text = "Translating to $targetLanguage..."
         outputView.text = "⏳ Translating to $targetLanguage..."
-        
-        scope.launch {
+
+        translateJob = scope.launch {
             try {
                 val result = advancedAIService.translateText(inputText, targetLanguage)
                 withContext(Dispatchers.Main) {
                     if (result.success) {
                         outputView.text = result.text
-                        onTextProcessedCallback?.invoke(result.text)
+                        translateStatusText?.text = "Translated to $targetLanguage"
+                        translateReplaceButton?.isEnabled = true
+                        translateCopyButton?.isEnabled = true
+                        translateCopyButton?.alpha = 1f
                     } else {
                         outputView.text = "❌ Error: ${result.error}"
+                        translateStatusText?.text = "Translation failed"
+                        translateReplaceButton?.isEnabled = false
+                        translateCopyButton?.isEnabled = false
+                        translateCopyButton?.alpha = 0.4f
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     outputView.text = "❌ Error: ${e.message}"
+                    translateStatusText?.text = "Translation failed"
+                    translateReplaceButton?.isEnabled = false
+                    translateCopyButton?.isEnabled = false
+                    translateCopyButton?.alpha = 0.4f
                 }
             }
         }

@@ -59,11 +59,28 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
       final entriesJson = prefs.getString('dictionary_entries');
       if (entriesJson != null) {
         final List<dynamic> entriesList = json.decode(entriesJson);
+        final loadedEntries = entriesList
+            .map((entry) => DictionaryEntry.fromJson(entry))
+            .toList();
+        
+        // ✅ FIX: Remove duplicates - keep only the first occurrence of each shortcut
+        final Map<String, DictionaryEntry> uniqueEntries = {};
+        for (var entry in loadedEntries) {
+          final key = entry.shortcut.toLowerCase();
+          if (!uniqueEntries.containsKey(key)) {
+            uniqueEntries[key] = entry;
+          }
+        }
+        
         setState(() {
-          customWords = entriesList
-              .map((entry) => DictionaryEntry.fromJson(entry))
-              .toList();
+          customWords = uniqueEntries.values.toList();
         });
+        
+        // Save cleaned list if duplicates were removed
+        if (uniqueEntries.length != loadedEntries.length) {
+          await _saveDictionaryEntries();
+          debugPrint('Removed ${loadedEntries.length - uniqueEntries.length} duplicate entries');
+        }
       } else {
         // Add default entries
         setState(() {
@@ -384,7 +401,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
               children: [
                 // Header
                 Text(
-                  'Add Dictionary Entry',
+                  'Add Word',
                   style: AppTextStyle.titleLarge.copyWith(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w800,
@@ -470,9 +487,17 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                           if (expansionController.text.isNotEmpty &&
                               shortcutController.text.isNotEmpty) {
                             setState(() {
+                              final newShortcut = shortcutController.text.toLowerCase();
+                              
+                              // ✅ FIX: Remove any existing entry with same shortcut
+                              customWords.removeWhere((e) => 
+                                e.shortcut.toLowerCase() == newShortcut
+                              );
+                              
+                              // Add new entry
                               customWords.add(DictionaryEntry(
                                 id: Uuid().v4(),
-                                shortcut: shortcutController.text.toLowerCase(),
+                                shortcut: newShortcut,
                                 expansion: expansionController.text,
                               ));
                             });
@@ -544,12 +569,8 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                 Divider(color: AppColors.lightGrey, thickness: 1),
 
                 const SizedBox(height: 16),
-                Text(
-                  'word',
-                  style: AppTextStyle.bodyMedium.copyWith(
-                    color: AppColors.grey,
-                  ),
-                ),
+               
+               
                 // Expansion Input
                 TextField(
                   controller: expansionController,
@@ -641,11 +662,21 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                           if (expansionController.text.isNotEmpty &&
                               shortcutController.text.isNotEmpty) {
                             setState(() {
+                              final newShortcut = shortcutController.text.toLowerCase();
+                              final newExpansion = expansionController.text;
+                              
+                              // ✅ FIX: Remove any duplicate shortcuts before updating
+                              customWords.removeWhere((e) => 
+                                e.id != entry.id && 
+                                e.shortcut.toLowerCase() == newShortcut
+                              );
+                              
+                              // Update the entry
                               int index = customWords.indexWhere((e) => e.id == entry.id);
                               if (index != -1) {
                                 customWords[index] = entry.copyWith(
-                                  shortcut: shortcutController.text.toLowerCase(),
-                                  expansion: expansionController.text,
+                                  shortcut: newShortcut,
+                                  expansion: newExpansion,
                                 );
                               }
                             });

@@ -795,7 +795,7 @@ class SwipeKeyboardView @JvmOverloads constructor(
                 if (keyType == "space" && showLanguageOnSpace && currentLanguageLabel.isNotEmpty()) {
                     val textPaint = spaceLabelPaint ?: manager.createSpaceLabelPaint()
                     val basePaint = Paint(textPaint)
-                    basePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    // Use theme font instead of hardcoding
                     basePaint.textSize = textPaint.textSize * labelScaleMultiplier * 0.7f
                     basePaint.color = palette.spaceLabelColor
                     basePaint.textAlign = Paint.Align.CENTER
@@ -811,12 +811,9 @@ class SwipeKeyboardView @JvmOverloads constructor(
             }
             
             val basePaint = Paint(textPaint)
-            basePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            if (keyType == "space") {
-                basePaint.textSize = basePaint.textSize * labelScaleMultiplier
-            } else {
-                basePaint.textSize = spToPx(18f) * labelScaleMultiplier
-            }
+            // ✅ Use theme font (already set in textPaint) instead of hardcoding
+            // Apply label scale to respect user's font size preference
+            basePaint.textSize = textPaint.textSize * labelScaleMultiplier
             
             basePaint.color = when {
                 keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor
@@ -958,12 +955,9 @@ class SwipeKeyboardView @JvmOverloads constructor(
         }
         
         val basePaint = Paint(textPaint)
-        basePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        if (keyType == "space") {
-            basePaint.textSize = basePaint.textSize * labelScaleMultiplier
-        } else {
-            basePaint.textSize = spToPx(18f) * labelScaleMultiplier
-        }
+        // ✅ Use theme font (already set in textPaint) instead of hardcoding
+        // Apply label scale to respect user's font size preference
+        basePaint.textSize = textPaint.textSize * labelScaleMultiplier
         
         basePaint.color = when {
             keyType == "space" && showLanguageOnSpace -> palette.spaceLabelColor

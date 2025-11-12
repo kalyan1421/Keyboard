@@ -222,7 +222,7 @@ import Flutter
     private func updateKeyboardSettings(_ settings: [String: Any]) {
         // Share settings with keyboard extension using App Groups
         if let userDefaults = UserDefaults(suiteName: "group.com.kvive.aikeyboard.shared") {
-            userDefaults.set(settings["theme"] as? String ?? "default", forKey: "keyboard_theme")
+            userDefaults.set(settings["theme"] as? String ?? "default_theme", forKey: "keyboard_theme")
             userDefaults.set(settings["aiSuggestions"] as? Bool ?? true, forKey: "ai_suggestions")
             userDefaults.set(settings["swipeTyping"] as? Bool ?? true, forKey: "swipe_typing")
             userDefaults.set(settings["voiceInput"] as? Bool ?? true, forKey: "voice_input")

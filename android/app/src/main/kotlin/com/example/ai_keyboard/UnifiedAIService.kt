@@ -52,16 +52,31 @@ class UnifiedAIService(private val context: Context) {
         mode: Mode,
         tone: AdvancedAIService.ToneType? = null,
         feature: AdvancedAIService.ProcessingFeature? = null,
-        stream: Boolean = false
+        stream: Boolean = false,
+        customPrompt: String? = null
     ): Flow<UnifiedResult> = flow {
         val startTime = System.currentTimeMillis()
         
         try {
             Log.d(TAG, "Processing text with mode: $mode, stream: $stream")
             
+            PromptManager.init(context)
             // Get active prompt for this mode before processing
             val activePrompt = PromptManager.getActivePrompt(mode.name.lowercase())
+            Log.d(TAG, "🧩 Active prompt refreshed for mode=$mode")
             Log.d(TAG, "📝 Using prompt for $mode: ${activePrompt.take(50)}...")
+
+            val resolvedCustomPrompt = when (mode) {
+                Mode.CUSTOM, Mode.REWRITE -> {
+                    val provided = customPrompt?.trim()
+                    when {
+                        !provided.isNullOrEmpty() -> provided
+                        activePrompt.isNotBlank() -> activePrompt
+                        else -> PromptManager.getDefaultPrompt(mode.name.lowercase())
+                    }
+                }
+                else -> null
+            }
             
             // Check if AI features are enabled
             if (!config.isAIFeaturesEnabled()) {
@@ -85,13 +100,13 @@ class UnifiedAIService(private val context: Context) {
             
             if (stream) {
                 // Handle streaming responses
-                handleStreamingRequest(text, mode, tone, feature, startTime)
+                handleStreamingRequest(text, mode, tone, feature, startTime, resolvedCustomPrompt)
                     .collect { result ->
                         emit(result)
                     }
             } else {
                 // Handle non-streaming responses
-                val result = handleNonStreamingRequest(text, mode, tone, feature, startTime)
+                val result = handleNonStreamingRequest(text, mode, tone, feature, startTime, resolvedCustomPrompt)
                 emit(result)
             }
             
@@ -184,7 +199,8 @@ class UnifiedAIService(private val context: Context) {
         mode: Mode,
         tone: AdvancedAIService.ToneType?,
         feature: AdvancedAIService.ProcessingFeature?,
-        startTime: Long
+        startTime: Long,
+        customPrompt: String?
     ): Flow<UnifiedResult> = flow {
         
         val streamFlow = when (mode) {
@@ -203,12 +219,20 @@ class UnifiedAIService(private val context: Context) {
                     ?: throw IllegalArgumentException("Feature type required for FEATURE mode")
             }
             Mode.CUSTOM -> {
-                // Use SIMPLIFY for custom mode
-                streaming.processFeatureStreaming(text, AdvancedAIService.ProcessingFeature.SIMPLIFY)
+                val prompt = customPrompt ?: PromptManager.getDefaultPrompt("assistant")
+                streaming.processTextStreaming(
+                    text,
+                    prompt,
+                    buildCustomCacheKey(mode, prompt)
+                )
             }
             Mode.REWRITE -> {
-                // Use SIMPLIFY for rewrite mode
-                streaming.processFeatureStreaming(text, AdvancedAIService.ProcessingFeature.SIMPLIFY)
+                val prompt = customPrompt ?: PromptManager.getDefaultPrompt("rewrite")
+                streaming.processTextStreaming(
+                    text,
+                    prompt,
+                    buildCustomCacheKey(mode, prompt)
+                )
             }
         }
         
@@ -231,7 +255,8 @@ class UnifiedAIService(private val context: Context) {
         mode: Mode,
         tone: AdvancedAIService.ToneType?,
         feature: AdvancedAIService.ProcessingFeature?,
-        startTime: Long
+        startTime: Long,
+        customPrompt: String?
     ): UnifiedResult {
         
         val result = when (mode) {
@@ -247,10 +272,20 @@ class UnifiedAIService(private val context: Context) {
                     ?: throw IllegalArgumentException("Feature type required for FEATURE mode")
             }
             Mode.CUSTOM -> {
-                advanced.processText(text, AdvancedAIService.ProcessingFeature.SIMPLIFY)
+                val prompt = customPrompt ?: PromptManager.getDefaultPrompt("assistant")
+                advanced.processCustomPrompt(
+                    text,
+                    prompt,
+                    buildCustomCacheKey(mode, prompt)
+                )
             }
             Mode.REWRITE -> {
-                advanced.processText(text, AdvancedAIService.ProcessingFeature.SIMPLIFY)
+                val prompt = customPrompt ?: PromptManager.getDefaultPrompt("rewrite")
+                advanced.processCustomPrompt(
+                    text,
+                    prompt,
+                    buildCustomCacheKey(mode, prompt)
+                )
             }
         }
         
@@ -356,6 +391,15 @@ class UnifiedAIService(private val context: Context) {
     fun clearCache() {
         cache.clear()
         advanced.clearCache()
+    }
+
+    private fun buildCustomCacheKey(mode: Mode, prompt: String): String {
+        val prefix = when (mode) {
+            Mode.REWRITE -> "rewrite_prompt"
+            Mode.CUSTOM -> "custom_prompt"
+            else -> "custom_prompt"
+        }
+        return "${prefix}_${prompt.hashCode()}"
     }
     
     /**

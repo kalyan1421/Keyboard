@@ -60,11 +60,11 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     override fun initialize() {
         logW("Initializing DictionaryManager with multi-language support")
         
-        // Load settings
-        isEnabled = prefs.getBoolean(KEY_ENABLED, true)
+        // ✅ FIX: Load settings from FlutterSharedPreferences (where UI saves them)
+        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        isEnabled = flutterPrefs.getBoolean("flutter.dictionary_enabled", true)
         
         // Detect current language from keyboard settings
-        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         val savedLanguage = prefs.getString(KEY_CURRENT_LANGUAGE, null)
         val flutterLanguage = flutterPrefs.getString("flutter.keyboard_language", null)
         currentLanguage = savedLanguage ?: flutterLanguage ?: "en"
@@ -310,16 +310,20 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         if (cleanShortcut.isEmpty() || cleanExpansion.isEmpty()) return false
         
         val entry = entries[index]
+        val oldShortcut = entry.shortcut
+        
+        // Update the entry with new values
         entries[index] = entry.copy(
             shortcut = cleanShortcut,
             expansion = cleanExpansion
         )
         
-        saveEntriesToPrefs()
+        // ✅ FIX: Rebuild shortcut map to clear old key and add new one
         rebuildShortcutMap()
+        saveEntriesToPrefs()
         notifyDictionaryUpdated()
         
-        logW("Updated entry: $cleanShortcut -> $cleanExpansion")
+        logW("Updated entry: $oldShortcut -> $cleanShortcut = $cleanExpansion")
         return true
     }
     
@@ -338,6 +342,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      * Returns the expansion string if found, null otherwise
      */
     fun getExpansionText(word: String): String? {
+        if (!isEnabled || word.isBlank()) return null
         return getExpansion(word)?.expansion
     }
     
@@ -410,8 +415,15 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      */
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
+        
+        // ✅ FIX: Save to both preferences for consistency
         prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
-        logW("Dictionary enabled: $enabled")
+        
+        // Also save to FlutterSharedPreferences to keep UI in sync
+        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        flutterPrefs.edit().putBoolean("flutter.dictionary_enabled", enabled).apply()
+        
+        logW("✅ Dictionary enabled: $enabled (saved to both preferences)")
     }
     
     fun isEnabled(): Boolean = isEnabled

@@ -82,7 +82,7 @@ class AdvancedAIService(private val context: Context) {
         val color: String
     ) {
         FORMAL(
-            "Professional",
+            "Professional + blur",
             "🎩",
             "Rewrite this text in a highly professional, formal tone suitable for business communications, official documents, or academic writing. Use sophisticated vocabulary and proper grammar.",
             "#1a73e8"

@@ -52,6 +52,7 @@ class CapsShiftManager(
     private var longPressHandler: Handler? = null
     private var isAutoCapitalizationEnabled = true
     private var isContextAwareCapitalizationEnabled = true
+    private var isCapsLockMemoryEnabled = false
     
     // Callbacks
     private var onStateChangedListener: ((Int) -> Unit)? = null
@@ -69,6 +70,11 @@ class CapsShiftManager(
     private fun loadSettings() {
         isAutoCapitalizationEnabled = settings.getBoolean("auto_capitalization", true)
         isContextAwareCapitalizationEnabled = settings.getBoolean("context_aware_capitalization", true)
+        isCapsLockMemoryEnabled = settings.getBoolean("remember_caps_state", false)
+        if (!isCapsLockMemoryEnabled && currentState == STATE_CAPS_LOCK) {
+            currentState = STATE_NORMAL
+            onStateChangedListener?.invoke(currentState)
+        }
     }
     
     /**
@@ -101,14 +107,15 @@ class CapsShiftManager(
                 showFeedback("Shift ON")
             }
             STATE_SHIFT -> {
-                if (now - lastShiftPressTime < DOUBLE_TAP_TIMEOUT) {
+                val isDoubleTap = now - lastShiftPressTime < DOUBLE_TAP_TIMEOUT
+                lastShiftPressTime = now
+                if (isDoubleTap && isCapsLockMemoryEnabled) {
                     // Double tap detected: Shift -> Caps Lock
                     currentState = STATE_CAPS_LOCK
                     showFeedback("CAPS LOCK")
                 } else {
-                    // Single tap after timeout: Shift -> Normal
+                    // Either caps lock memory disabled or timeout elapsed: Shift -> Normal
                     currentState = STATE_NORMAL
-                    lastShiftPressTime = now
                     showFeedback("Shift OFF")
                 }
             }
@@ -286,9 +293,8 @@ class CapsShiftManager(
      * Show user feedback for state changes
      */
     private fun showFeedback(message: String) {
-        if (settings.getBoolean("show_shift_feedback", false)) {
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-        }
+        // Toast removed - shift feedback logged only
+        Log.d(TAG, "Shift feedback: $message")
     }
     
     /**
@@ -339,4 +345,3 @@ class CapsShiftManager(
         longPressHandler = null
     }
 }
-

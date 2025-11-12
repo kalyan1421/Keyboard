@@ -3,17 +3,20 @@ package com.example.ai_keyboard
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
+import android.net.Uri
 import android.util.Log
 import androidx.annotation.RawRes
+import java.io.File
 
 /**
  * ✅ LIGHTWEIGHT SOUNDPOOL MANAGER - Singleton Pattern
- * 
+ *
  * Replaces heavy MediaCodec audio pipeline with ultra-fast SoundPool.
- * This eliminates the c2.android.raw.decoder logs and reduces latency to ~2ms.
- * 
+ * Adds support for theme-aware sound packs and custom audio imports.
+ *
  * Usage:
  *   KeyboardSoundManager.init(context)
+ *   KeyboardSoundManager.update(type, volume, context, customUri)
  *   KeyboardSoundManager.play()
  *   KeyboardSoundManager.release()
  */
@@ -21,18 +24,18 @@ object KeyboardSoundManager {
 
     private const val TAG = "KeyboardSoundManager"
     private const val MAX_STREAMS = 8
-    
+
     private var soundPool: SoundPool? = null
     private val soundMap = mutableMapOf<String, Int>()
-    private var currentType = "classic"
-    private var volume = 1.0f
+    private val aliasMap = mutableMapOf<String, String>()
+    private var currentType: String = "default"
+    private var volume: Float = 1.0f
     private var isInitialized = false
+    private var customSoundId: Int? = null
+    private var currentCustomUri: String? = null
 
     /**
-     * Initialize SoundPool and preload all sound effects.
-     * Safe to call multiple times - will skip if already initialized.
-     * 
-     * @param context Application or service context
+     * Initialize SoundPool and preload built-in sound profiles.
      */
     fun init(context: Context) {
         if (soundPool != null) {
@@ -51,11 +54,13 @@ object KeyboardSoundManager {
                 .setAudioAttributes(attrs)
                 .build()
 
-            // Preload all sound profiles
+            // Preload core sounds once
             load(context, "classic", R.raw.key_click)
-            load(context, "pop", R.raw.key_pop)
-            load(context, "mech", R.raw.key_mech)
+            load(context, "mechanical", R.raw.key_mech)
             load(context, "bubble", R.raw.key_bubble)
+            load(context, "pop", R.raw.key_pop)
+
+            registerAliases()
 
             soundPool?.setOnLoadCompleteListener { _, sampleId, status ->
                 if (status == 0) {
@@ -66,33 +71,112 @@ object KeyboardSoundManager {
                 }
             }
 
-            Log.d(TAG, "✅ SoundPool initialized with ${soundMap.size} sounds")
+            Log.d(TAG, "✅ SoundPool initialized with ${soundMap.size} base sounds")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to initialize SoundPool", e)
         }
     }
 
+    private fun registerAliases() {
+        aliasMap.clear()
+        aliasMap["classic"] = "classic"
+        aliasMap["clicky"] = "classic"
+        aliasMap["mechanical"] = "mechanical"
+        aliasMap["mech"] = "mechanical"
+        aliasMap["typewriter"] = "mechanical"
+        aliasMap["bubble"] = "bubble"
+        aliasMap["soft"] = "bubble"
+        aliasMap["piano"] = "bubble"
+        aliasMap["default"] = "bubble"
+        aliasMap["pop"] = "pop"
+        aliasMap["custom"] = "custom"
+        aliasMap["silent"] = "silent"
+    }
+
     /**
-     * Load a sound file into the pool.
+     * Load a raw resource into the pool.
      */
     private fun load(context: Context, key: String, @RawRes resId: Int) {
         try {
             val id = soundPool?.load(context, resId, 1)
             if (id != null && id > 0) {
-                soundMap[key] = id
-                Log.d(TAG, "Loaded sound: $key → ID=$id")
+                soundMap[key.lowercase()] = id
+                Log.d(TAG, "Loaded sound: ${key.lowercase()} → ID=$id")
             } else {
-                Log.w(TAG, "Failed to load sound: $key (invalid ID)")
+                Log.w(TAG, "⚠️ Failed to load sound: $key (invalid ID)")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Exception loading sound: $key", e)
+            Log.e(TAG, "❌ Exception loading sound: $key", e)
+        }
+    }
+
+    private fun loadCustom(context: Context, uriString: String): Int? {
+        val pool = soundPool ?: return null
+
+        return try {
+            customSoundId?.let { oldId ->
+                pool.unload(oldId)
+                soundMap.remove("custom")
+                Log.d(TAG, "🔁 Unloaded previous custom sound")
+            }
+
+            val soundId = when {
+                uriString.startsWith("content://") -> {
+                    context.contentResolver.openAssetFileDescriptor(Uri.parse(uriString), "r")?.use { afd ->
+                        pool.load(afd, 1)
+                    }
+                }
+                uriString.startsWith("sounds/") -> {
+                    // Load from assets folder
+                    try {
+                        val afd = context.assets.openFd(uriString)
+                        // SoundPool.load() reads the file descriptor immediately, so we can close it after
+                        val id = pool.load(afd, 1)
+                        afd.close()
+                        Log.d(TAG, "✅ Loading asset sound: $uriString (ID=$id)")
+                        id
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Error loading asset sound: $uriString", e)
+                        null
+                    }
+                }
+                else -> {
+                    val file = File(uriString)
+                    if (file.exists()) {
+                        pool.load(file.path, 1)
+                    } else {
+                        Log.w(TAG, "⚠️ Custom sound file missing: $uriString")
+                        null
+                    }
+                }
+            }
+
+            if (soundId != null && soundId > 0) {
+                customSoundId = soundId
+                currentCustomUri = uriString
+                soundMap["custom"] = soundId
+                Log.d(TAG, "🎶 Custom sound loaded from $uriString (ID=$soundId)")
+            } else {
+                Log.w(TAG, "⚠️ Failed to load custom sound from $uriString")
+            }
+
+            customSoundId
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error loading custom sound: $uriString", e)
+            null
+        }
+    }
+
+    private fun resolveType(type: String): String {
+        val normalized = type.lowercase()
+        return when {
+            normalized == "custom" && customSoundId != null -> "custom"
+            else -> aliasMap[normalized] ?: normalized
         }
     }
 
     /**
      * Play the currently selected sound with configured volume.
-     * This is a LIGHTWEIGHT operation (~2ms latency).
-     * NO MediaCodec initialization/teardown overhead.
      */
     fun play() {
         val pool = soundPool
@@ -101,47 +185,105 @@ object KeyboardSoundManager {
             return
         }
 
-        if (!isInitialized) {
+        if (!isInitialized && customSoundId == null) {
             Log.w(TAG, "⚠️ Cannot play: Sounds still loading")
             return
         }
 
-        val soundId = soundMap[currentType] ?: soundMap["classic"]
+        val resolvedType = resolveType(currentType)
+        if (resolvedType == "silent") {
+            return
+        }
+        val soundId = soundMap[resolvedType]
         if (soundId == null) {
-            Log.w(TAG, "⚠️ Cannot play: No sound ID for type '$currentType'")
+            Log.w(TAG, "⚠️ Cannot play: No sound ID for type '$currentType' (resolved=$resolvedType)")
             return
         }
 
         try {
-            pool.play(soundId, volume, volume, 1, 0, 1.0f)
+            pool.play(soundId, volume.coerceIn(0f, 1f), volume.coerceIn(0f, 1f), 1, 0, 1.0f)
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error playing sound", e)
         }
     }
 
     /**
-     * Update sound type and volume without reinitializing the pool.
-     * 
-     * @param type Sound profile: "classic", "pop", "mech", "bubble", "silent"
-     * @param vol Volume level (0.0 - 1.0)
+     * Play a preview of a sound file from assets folder.
+     * @param fileName The sound file name (e.g., "click.mp3")
+     * @param context Context to access assets
      */
-    fun update(type: String?, vol: Float?) {
+    fun playPreview(fileName: String, context: Context) {
+        try {
+            val assetPath = "sounds/$fileName"
+            val afd = context.assets.openFd(assetPath)
+            val previewPlayer = android.media.MediaPlayer()
+            previewPlayer.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            previewPlayer.prepare()
+            previewPlayer.setOnCompletionListener { mp ->
+                mp.release()
+            }
+            previewPlayer.start()
+            afd.close()
+            Log.d(TAG, "🔊 Preview playing: $fileName")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error playing preview: $fileName", e)
+        }
+    }
+
+    /**
+     * Update sound profile and volume without reinitializing the pool.
+     *
+     * @param type Sound profile identifier (supports aliases + "custom" + "silent")
+     * @param vol Desired volume (0f-1f)
+     * @param context Required when loading custom sounds
+     * @param customUri Optional URI/path for custom sound
+     */
+    fun update(type: String?, vol: Float?, context: Context? = null, customUri: String? = null) {
         var silentProfile = false
         type?.let { profile ->
-            if (profile.equals("silent", ignoreCase = true)) {
-                currentType = "classic" // fallback ID
-                volume = 0f
-                silentProfile = true
-                Log.d(TAG, "🔇 Silent sound profile applied")
-            } else if (soundMap.containsKey(profile)) {
-                currentType = profile
-                Log.d(TAG, "🔊 Sound type updated: $profile")
-            } else {
-                Log.w(TAG, "⚠️ Unknown sound type: $profile (keeping '$currentType')")
+            val normalized = profile.lowercase()
+            when (normalized) {
+                "silent" -> {
+                    currentType = "silent"
+                    volume = 0f
+                    silentProfile = true
+                    Log.d(TAG, "🔇 Silent sound profile applied")
+                }
+                "custom" -> {
+                    if (customUri.isNullOrBlank()) {
+                        Log.w(TAG, "⚠️ Custom sound requested but URI is missing")
+                    } else if (context == null) {
+                        Log.w(TAG, "⚠️ Custom sound requested but context is null")
+                    } else {
+                        val alreadyLoaded = currentCustomUri == customUri && customSoundId != null
+                        if (!alreadyLoaded) {
+                            val loadedId = loadCustom(context, customUri)
+                            if (loadedId != null && loadedId > 0) {
+                                currentType = "custom"
+                                Log.d(TAG, "🎧 Custom sound loaded and set: $customUri (ID=$loadedId)")
+                            } else {
+                                Log.w(TAG, "⚠️ Failed to load custom sound: $customUri")
+                            }
+                        } else {
+                            currentType = "custom"
+                            Log.d(TAG, "🎧 Using already loaded custom sound profile")
+                        }
+                    }
+                }
+                else -> {
+                    val resolved = resolveType(normalized)
+                    if (soundMap.containsKey(resolved)) {
+                        currentType = normalized
+                        Log.d(TAG, "🔊 Sound type updated: $normalized (resolved=$resolved)")
+                    } else {
+                        Log.w(TAG, "⚠️ Unknown sound type: $profile (keeping '$currentType')")
+                    }
+                }
             }
         }
+
         if (!silentProfile) {
-            vol?.let { 
+            vol?.let {
                 volume = it.coerceIn(0f, 1f)
                 Log.d(TAG, "🔊 Volume updated: $volume")
             }
@@ -150,13 +292,15 @@ object KeyboardSoundManager {
 
     /**
      * Release the SoundPool and free all resources.
-     * Call this in onDestroy().
      */
     fun release() {
         try {
             soundPool?.release()
             soundPool = null
             soundMap.clear()
+            aliasMap.clear()
+            customSoundId = null
+            currentCustomUri = null
             isInitialized = false
             Log.d(TAG, "🔇 SoundPool released")
         } catch (e: Exception) {

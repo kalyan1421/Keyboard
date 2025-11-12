@@ -1,130 +1,156 @@
 package com.example.ai_keyboard.stickers
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
-import android.widget.*
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.*
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.example.ai_keyboard.ThemeManager
+import com.example.ai_keyboard.themes.KeyboardThemeV2
+import com.example.ai_keyboard.themes.ThemePaletteV2
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Modern Firebase-powered sticker panel for AIKeyboard
- * Replaces SimpleStickerPanel with full Firebase + JSON cache support
+ * Firebase-backed sticker browser that powers both the emoji panel and the media tray.
+ * Packs are fetched from Firebase Storage via StickerServiceAdapter/Repository, thumbnails
+ * are rendered with Glide, and the entire panel stays in sync with the active keyboard theme.
  */
-class StickerPanel(context: Context) : LinearLayout(context) {
-    
+class StickerPanel(
+    context: Context,
+    private val themeManager: ThemeManager
+) : LinearLayout(context), ThemeManager.ThemeChangeListener {
+
     companion object {
         private const val TAG = "StickerPanel"
         private const val PANEL_HEIGHT_DP = 280
         private const val STICKERS_PER_ROW = 6
-        private const val PACK_ICON_SIZE = 48
-        private const val STICKER_SIZE = 54
+        private const val STICKER_PRELOAD_COUNT = 12
     }
-    
+
     private val stickerService = StickerServiceAdapter(context)
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    
-    private var onStickerSelected: ((String, StickerData?) -> Unit)? = null
+
+    private var palette: ThemePaletteV2 = themeManager.getCurrentPalette()
     private var currentPackId: String? = null
-    
-    // UI Components
+    private var packsLoaded = false
+
+    private var onStickerSelected: ((StickerData, String) -> Unit)? = null
+    private var onPackLoaded: ((String) -> Unit)? = null
+
+    private lateinit var headerLayout: LinearLayout
+    private lateinit var titleText: TextView
+    private lateinit var refreshButton: ImageButton
     private lateinit var packRecyclerView: RecyclerView
     private lateinit var stickerRecyclerView: RecyclerView
     private lateinit var loadingIndicator: ProgressBar
     private lateinit var errorMessage: TextView
-    
-    // Adapters
-    private val packAdapter = StickerPackAdapter { pack ->
-        loadStickersForPack(pack)
-    }
-    private val stickerAdapter = StickerAdapter { sticker ->
-        handleStickerClick(sticker)
-    }
-    
+
+    private val packAdapter = StickerPackAdapter(
+        paletteProvider = { palette },
+        onPackSelected = { loadStickersForPack(it) }
+    )
+
+    private val stickerAdapter = StickerAdapter(
+        paletteProvider = { palette },
+        onStickerSelected = { handleStickerClick(it) }
+    )
+
     init {
+        orientation = VERTICAL
+        layoutParams = LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            dpToPx(PANEL_HEIGHT_DP)
+        )
+        themeManager.addThemeChangeListener(this)
         setupLayout()
+        applyTheme(palette)
         loadStickerPacks()
     }
-    
-    private fun setupLayout() {
-        orientation = VERTICAL
-        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(PANEL_HEIGHT_DP))
-        setBackgroundColor(Color.parseColor("#FAFAFA"))
-        
-        // Header with title
-        val headerLayout = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(48))
-            setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(8))
-            setBackgroundColor(Color.parseColor("#F5F5F5"))
+
+    // region Public API -------------------------------------------------------------------------
+
+    fun show(forceRefresh: Boolean = false) {
+        if (!packsLoaded || forceRefresh) {
+            loadStickerPacks(forceRefresh)
         }
-        
-        val titleText = TextView(context).apply {
+    }
+
+    fun setOnStickerSelectedListener(listener: (StickerData, String) -> Unit) {
+        onStickerSelected = listener
+    }
+
+    fun setOnPackLoadedListener(listener: (String) -> Unit) {
+        onPackLoaded = listener
+    }
+
+    fun onDestroy() {
+        themeManager.removeThemeChangeListener(this)
+        coroutineScope.cancel()
+    }
+
+    // endregion ---------------------------------------------------------------------------------
+
+    // region Layout -----------------------------------------------------------------------------
+
+    private fun setupLayout() {
+        setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(10))
+        headerLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(44))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(12), 0, dpToPx(12), 0)
+        }
+
+        titleText = TextView(context).apply {
             text = "Stickers"
             textSize = 16f
-            setTextColor(Color.parseColor("#333333"))
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
         }
-        headerLayout.addView(titleText)
-        
-        // Refresh button
-        val refreshButton = ImageButton(context).apply {
+
+        refreshButton = ImageButton(context).apply {
             setImageResource(android.R.drawable.ic_menu_rotate)
-            layoutParams = LinearLayout.LayoutParams(dpToPx(40), dpToPx(40))
-            setBackgroundResource(android.R.drawable.btn_default_small)
-            setOnClickListener { refreshStickers() }
+            background = createRoundedBackground(Color.TRANSPARENT)
+            setOnClickListener { show(forceRefresh = true) }
         }
-        headerLayout.addView(refreshButton)
+
+        headerLayout.addView(titleText)
+        headerLayout.addView(refreshButton, LinearLayout.LayoutParams(dpToPx(36), dpToPx(36)))
         addView(headerLayout)
-        
-        // Sticker pack horizontal list
+
         packRecyclerView = RecyclerView(context).apply {
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(70))
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dpToPx(72))
             layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
             adapter = packAdapter
-            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
-            setBackgroundColor(Color.parseColor("#F0F0F0"))
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            setPadding(dpToPx(4), dpToPx(8), dpToPx(4), dpToPx(4))
         }
         addView(packRecyclerView)
-        
-        // Content container
+
         val contentContainer = FrameLayout(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
         }
-        
-        // Loading indicator
-        loadingIndicator = ProgressBar(context).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                LayoutParams.WRAP_CONTENT,
-                LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            )
-            visibility = GONE
-        }
-        contentContainer.addView(loadingIndicator)
-        
-        // Error message
-        errorMessage = TextView(context).apply {
-            text = "Failed to load stickers"
-            textSize = 14f
-            setTextColor(Color.parseColor("#666666"))
-            gravity = Gravity.CENTER
-            layoutParams = FrameLayout.LayoutParams(
-                LayoutParams.WRAP_CONTENT,
-                LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            )
-            visibility = GONE
-        }
-        contentContainer.addView(errorMessage)
-        
-        // Sticker grid
+
         stickerRecyclerView = RecyclerView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 LayoutParams.MATCH_PARENT,
@@ -132,317 +158,311 @@ class StickerPanel(context: Context) : LinearLayout(context) {
             )
             layoutManager = GridLayoutManager(context, STICKERS_PER_ROW)
             adapter = stickerAdapter
-            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setHasFixedSize(true)
+            clipToPadding = false
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
         }
+
+        loadingIndicator = ProgressBar(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                LayoutParams.WRAP_CONTENT,
+                LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+            visibility = View.GONE
+        }
+
+        errorMessage = TextView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                LayoutParams.WRAP_CONTENT,
+                LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+            text = "Unable to load stickers"
+            visibility = View.GONE
+        }
+
         contentContainer.addView(stickerRecyclerView)
-        
+        contentContainer.addView(loadingIndicator)
+        contentContainer.addView(errorMessage)
         addView(contentContainer)
     }
-    
-    private fun loadStickerPacks() {
+
+    private fun applyTheme(newPalette: ThemePaletteV2) {
+        palette = newPalette
+        setBackgroundColor(palette.panelSurface)
+        headerLayout.setBackgroundColor(palette.toolbarBg)
+        titleText.setTextColor(palette.keyText)
+        refreshButton.setColorFilter(palette.keyText)
+        packRecyclerView.setBackgroundColor(ColorUtils.setAlphaComponent(palette.keyboardBg, 235))
+        stickerRecyclerView.setBackgroundColor(Color.TRANSPARENT)
+        errorMessage.setTextColor(palette.keyText)
+
+        DrawableCompat.setTint(loadingIndicator.indeterminateDrawable, palette.specialAccent)
+        packAdapter.notifyDataSetChanged()
+        stickerAdapter.notifyDataSetChanged()
+    }
+
+    // endregion ---------------------------------------------------------------------------------
+
+    // region Data loading -----------------------------------------------------------------------
+
+    private fun loadStickerPacks(forceRefresh: Boolean = false) {
         showLoading(true)
-        
         coroutineScope.launch {
             try {
                 val packs = withContext(Dispatchers.IO) {
-                    stickerService.getAvailablePacks()
+                    stickerService.getAvailablePacks(forceRefresh)
                 }
-                
+                if (packs.isEmpty()) {
+                    packsLoaded = false
+                    showError("No sticker packs available yet")
+                    return@launch
+                }
+                packsLoaded = true
                 packAdapter.updatePacks(packs)
-                
-                // Load first pack automatically
-                if (packs.isNotEmpty()) {
-                    loadStickersForPack(packs.first())
-                } else {
-                    showError("No sticker packs available")
-                }
+
+                val initialPack = packs.find { it.id == currentPackId } ?: packs.first()
+                loadStickersForPack(initialPack)
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading sticker packs", e)
-                showError("Failed to load sticker packs")
+                packsLoaded = false
+                showError("Unable to load stickers")
             }
         }
     }
-    
+
     private fun loadStickersForPack(pack: StickerPack) {
         currentPackId = pack.id
         packAdapter.setSelectedPack(pack.id)
         showLoading(true)
-        
+
         coroutineScope.launch {
             try {
                 val stickers = withContext(Dispatchers.IO) {
                     stickerService.getStickersFromPack(pack.id)
                 }
-                
                 stickerAdapter.updateStickers(stickers)
+                preloadStickers(stickers)
                 showLoading(false)
+                onPackLoaded?.invoke(pack.id)
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading stickers for pack ${pack.id}", e)
-                showError("Failed to load stickers")
+                showError("Unable to load stickers")
             }
         }
     }
-    
+
     private fun handleStickerClick(sticker: StickerData) {
         coroutineScope.launch {
             try {
-                // Record usage
+                val localPath = withContext(Dispatchers.IO) {
+                    stickerService.downloadStickerIfNeeded(sticker)
+                } ?: sticker.imageUrl
+
                 withContext(Dispatchers.IO) {
                     stickerService.recordStickerUsage(sticker.id)
                 }
-                
-                // Try to get local path first
-                val localPath = withContext(Dispatchers.IO) {
-                    stickerService.downloadStickerIfNeeded(sticker)
-                }
-                
-                val content = localPath ?: sticker.imageUrl
-                onStickerSelected?.invoke(content, sticker)
-                
-                Log.d(TAG, "Sticker selected: ${sticker.id}, content: $content")
+
+                onStickerSelected?.invoke(sticker, localPath)
             } catch (e: Exception) {
-                Log.e(TAG, "Error handling sticker click", e)
-                // Fallback to URL
-                onStickerSelected?.invoke(sticker.imageUrl, sticker)
+                Log.e(TAG, "Error handling sticker click for ${sticker.id}", e)
+                onStickerSelected?.invoke(sticker, sticker.imageUrl)
             }
         }
     }
-    
-    private fun refreshStickers() {
-        coroutineScope.launch {
-            try {
-                showLoading(true)
-                
-                // Force refresh from Firebase
-                val packs = withContext(Dispatchers.IO) {
-                    stickerService.getAvailablePacks()
-                }
-                
-                packAdapter.updatePacks(packs)
-                
-                // Reload current pack
-                currentPackId?.let { packId ->
-                    val currentPack = packs.find { it.id == packId }
-                    currentPack?.let { loadStickersForPack(it) }
-                } ?: run {
-                    if (packs.isNotEmpty()) {
-                        loadStickersForPack(packs.first())
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error refreshing stickers", e)
-                showError("Failed to refresh stickers")
-            }
+
+    private fun preloadStickers(stickers: List<StickerData>) {
+        stickers.take(STICKER_PRELOAD_COUNT).forEach { sticker ->
+            Glide.with(this)
+                .load(sticker.imageUrl)
+                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                .preload()
         }
     }
-    
+
     private fun showLoading(show: Boolean) {
-        loadingIndicator.visibility = if (show) VISIBLE else GONE
-        stickerRecyclerView.visibility = if (show) GONE else VISIBLE
-        errorMessage.visibility = GONE
+        loadingIndicator.visibility = if (show) View.VISIBLE else View.GONE
+        stickerRecyclerView.visibility = if (show) View.GONE else View.VISIBLE
+        errorMessage.visibility = View.GONE
     }
-    
+
     private fun showError(message: String) {
-        loadingIndicator.visibility = GONE
-        stickerRecyclerView.visibility = GONE
-        errorMessage.visibility = VISIBLE
+        loadingIndicator.visibility = View.GONE
+        stickerRecyclerView.visibility = View.GONE
+        errorMessage.visibility = View.VISIBLE
         errorMessage.text = message
     }
-    
-    fun setOnStickerSelectedListener(listener: (String, StickerData?) -> Unit) {
-        onStickerSelected = listener
+
+    // endregion ---------------------------------------------------------------------------------
+
+    override fun onThemeChanged(theme: KeyboardThemeV2, palette: ThemePaletteV2) {
+        applyTheme(palette)
     }
-    
+
+    private fun createRoundedBackground(color: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = dpToPx(16).toFloat()
+            setColor(color)
+        }
+    }
+
     private fun dpToPx(dp: Int): Int {
         return (dp * context.resources.displayMetrics.density).toInt()
     }
-    
-    fun onDestroy() {
-        coroutineScope.cancel()
-    }
 }
 
-/**
- * Adapter for sticker packs horizontal list
- */
-class StickerPackAdapter(
+// region Adapters ------------------------------------------------------------------------------
+
+private class StickerPackAdapter(
+    private val paletteProvider: () -> ThemePaletteV2,
     private val onPackSelected: (StickerPack) -> Unit
 ) : RecyclerView.Adapter<StickerPackAdapter.PackViewHolder>() {
-    
-    private var packs = listOf<StickerPack>()
+
+    private var packs: List<StickerPack> = emptyList()
     private var selectedPackId: String? = null
-    
+
     fun updatePacks(newPacks: List<StickerPack>) {
         packs = newPacks
         notifyDataSetChanged()
     }
-    
+
     fun setSelectedPack(packId: String) {
-        val oldSelected = selectedPackId
+        val oldSelection = selectedPackId
         selectedPackId = packId
-        
-        // Update visual selection
         packs.forEachIndexed { index, pack ->
-            when {
-                pack.id == packId && pack.id != oldSelected -> notifyItemChanged(index)
-                pack.id == oldSelected && pack.id != packId -> notifyItemChanged(index)
+            if (pack.id == packId || pack.id == oldSelection) {
+                notifyItemChanged(index)
             }
         }
     }
-    
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PackViewHolder {
         val container = LinearLayout(parent.context).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = ViewGroup.LayoutParams(
-                dpToPx(parent.context, 64),
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setPadding(dpToPx(parent.context, 4), dpToPx(parent.context, 4), dpToPx(parent.context, 4), dpToPx(parent.context, 4))
+            layoutParams = ViewGroup.LayoutParams(dpToPx(parent.context, 64), ViewGroup.LayoutParams.MATCH_PARENT)
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dpToPx(parent.context, 6), dpToPx(parent.context, 4), dpToPx(parent.context, 6), dpToPx(parent.context, 4))
         }
-        
-        val imageView = ImageView(parent.context).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                dpToPx(parent.context, 48),
-                dpToPx(parent.context, 48)
-            )
+
+        val thumbnail = ImageView(parent.context).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(parent.context, 48), dpToPx(parent.context, 48))
             scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundResource(android.R.drawable.btn_default_small)
+            clipToOutline = true
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(parent.context, 12).toFloat()
+            }
         }
-        container.addView(imageView)
-        
-        val textView = TextView(parent.context).apply {
-            textSize = 10f
+
+        val label = TextView(parent.context).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            textSize = 11f
             gravity = Gravity.CENTER
             maxLines = 1
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
         }
-        container.addView(textView)
-        
-        return PackViewHolder(container, imageView, textView)
+
+        container.addView(thumbnail)
+        container.addView(label)
+        return PackViewHolder(container, thumbnail, label, paletteProvider)
     }
-    
+
     override fun onBindViewHolder(holder: PackViewHolder, position: Int) {
         val pack = packs[position]
         holder.bind(pack, pack.id == selectedPackId) { onPackSelected(pack) }
     }
-    
-    override fun getItemCount() = packs.size
-    
+
+    override fun getItemCount(): Int = packs.size
+
     class PackViewHolder(
         itemView: LinearLayout,
         private val imageView: ImageView,
-        private val textView: TextView
+        private val textView: TextView,
+        private val paletteProvider: () -> ThemePaletteV2
     ) : RecyclerView.ViewHolder(itemView) {
-        
+
         fun bind(pack: StickerPack, isSelected: Boolean, onClick: () -> Unit) {
+            val palette = paletteProvider()
             textView.text = pack.name
             textView.setTextColor(
-                if (isSelected) Color.parseColor("#2196F3") 
-                else Color.parseColor("#666666")
+                if (isSelected) palette.specialAccent else palette.keyText
             )
-            
-            itemView.setBackgroundColor(
-                if (isSelected) Color.parseColor("#E3F2FD")
-                else Color.TRANSPARENT
-            )
-            
-            itemView.setOnClickListener { onClick() }
-            
-            // Load thumbnail - for now showing category emoji
-            val categoryEmoji = when (pack.category.lowercase()) {
-                "animals" -> "🐶"
-                "emotions" -> "😊"
-                "business" -> "💼"
-                "food" -> "🍕"
-                else -> "📦"
+
+            val bgColor = if (isSelected) {
+                ColorUtils.setAlphaComponent(palette.specialAccent, 40)
+            } else {
+                Color.TRANSPARENT
             }
-            
-            // For now, we'll create a simple text-based thumbnail
-            // In production, use StickerServiceAdapter.loadPackThumbnail()
-            imageView.setImageResource(android.R.drawable.ic_menu_gallery)
+            itemView.background = GradientDrawable().apply {
+                cornerRadius = dpToPx(itemView.context, 14).toFloat()
+                setColor(bgColor)
+            }
+
+            Glide.with(imageView)
+                .load(pack.thumbnailUrl)
+                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                .centerCrop()
+                .placeholder(android.R.drawable.ic_menu_gallery)
+                .into(imageView)
+
+            itemView.setOnClickListener { onClick() }
         }
-    }
-    
-    private fun dpToPx(context: Context, dp: Int): Int {
-        return (dp * context.resources.displayMetrics.density).toInt()
     }
 }
 
-/**
- * Adapter for sticker grid
- */
-class StickerAdapter(
+private class StickerAdapter(
+    private val paletteProvider: () -> ThemePaletteV2,
     private val onStickerSelected: (StickerData) -> Unit
 ) : RecyclerView.Adapter<StickerAdapter.StickerViewHolder>() {
-    
-    private var stickers = listOf<StickerData>()
-    
+
+    private var stickers: List<StickerData> = emptyList()
+
     fun updateStickers(newStickers: List<StickerData>) {
         stickers = newStickers
         notifyDataSetChanged()
     }
-    
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StickerViewHolder {
         val imageView = ImageView(parent.context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                dpToPx(parent.context, 54),
-                dpToPx(parent.context, 54)
-            )
+            layoutParams = ViewGroup.LayoutParams(dpToPx(parent.context, 54), dpToPx(parent.context, 54))
             scaleType = ImageView.ScaleType.CENTER_CROP
-            setPadding(dpToPx(parent.context, 4), dpToPx(parent.context, 4), dpToPx(parent.context, 4), dpToPx(parent.context, 4))
-            setBackgroundResource(android.R.drawable.btn_default_small)
+            clipToOutline = true
         }
-        
-        return StickerViewHolder(imageView)
+        return StickerViewHolder(imageView, paletteProvider)
     }
-    
+
     override fun onBindViewHolder(holder: StickerViewHolder, position: Int) {
-        val sticker = stickers[position]
-        holder.bind(sticker) { onStickerSelected(sticker) }
+        holder.bind(stickers[position], onStickerSelected)
     }
-    
-    override fun getItemCount() = stickers.size
-    
-    class StickerViewHolder(private val imageView: ImageView) : RecyclerView.ViewHolder(imageView) {
-        
-        fun bind(sticker: StickerData, onClick: () -> Unit) {
-            imageView.setOnClickListener { onClick() }
-            
-            // For now, show emoji if available, otherwise placeholder
-            if (sticker.emojis.isNotEmpty()) {
-                // Create a temporary TextView to show emoji
-                val context = imageView.context
-                val textView = TextView(context).apply {
-                    text = sticker.emojis.first()
-                    textSize = 24f
-                    gravity = Gravity.CENTER
-                    layoutParams = imageView.layoutParams
-                    setBackgroundResource(android.R.drawable.btn_default_small)
-                    setOnClickListener { onClick() }
-                }
-                
-                // Replace ImageView with TextView temporarily
-                (imageView.parent as? ViewGroup)?.let { parent ->
-                    val index = parent.indexOfChild(imageView)
-                    parent.removeViewAt(index)
-                    parent.addView(textView, index)
-                }
-            } else {
-                // Show placeholder or load actual image
-                imageView.setImageResource(android.R.drawable.ic_menu_gallery)
-                
-                // TODO: Load actual sticker image using StickerServiceAdapter.loadStickerThumbnail()
-                // stickerService.loadStickerThumbnail(sticker, 54, 54) { bitmap ->
-                //     bitmap?.let { imageView.setImageBitmap(it) }
-                // }
+
+    override fun getItemCount(): Int = stickers.size
+
+    class StickerViewHolder(
+        private val imageView: ImageView,
+        private val paletteProvider: () -> ThemePaletteV2
+    ) : RecyclerView.ViewHolder(imageView) {
+
+        fun bind(sticker: StickerData, onClick: (StickerData) -> Unit) {
+            val palette = paletteProvider()
+            imageView.background = GradientDrawable().apply {
+                cornerRadius = dpToPx(imageView.context, 12).toFloat()
+                setColor(ColorUtils.setAlphaComponent(palette.keyboardBg, 180))
             }
+
+            Glide.with(imageView)
+                .load(sticker.imageUrl)
+                .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
+                .centerCrop()
+                .placeholder(android.R.drawable.ic_menu_gallery)
+                .into(imageView)
+
+            imageView.setOnClickListener { onClick(sticker) }
         }
-    }
-    
-    private fun dpToPx(context: Context, dp: Int): Int {
-        return (dp * context.resources.displayMetrics.density).toInt()
     }
 }
+
+private fun dpToPx(context: Context, dp: Int): Int {
+    return (dp * context.resources.displayMetrics.density).toInt()
+}
+
+// endregion ------------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import android.content.res.Resources
 import android.graphics.*
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -56,9 +57,15 @@ class KeyboardHeightManager(private val context: Context) {
     companion object {
         private const val TAG = "KeyboardHeightManager"
         private const val KEYBOARD_HEIGHT_RATIO = 0.265f
-        private const val MIN_KEYBOARD_GRID_HEIGHT_DP = 234
-        private const val MAX_KEYBOARD_GRID_HEIGHT_DP = 248
+        private const val DEFAULT_MIN_GRID_HEIGHT_DP = 234
+        private const val DEFAULT_MAX_GRID_HEIGHT_DP = 520
         private const val STRUCTURAL_MIN_GRID_HEIGHT_DP = 234
+        private const val USER_MIN_GRID_HEIGHT_DP = 140
+        private const val USER_MAX_GRID_HEIGHT_DP = 520
+        private const val HEIGHT_PERCENT_MIN = 20
+        private const val HEIGHT_PERCENT_MAX = 150
+        private const val PREF_MIN_GRID_HEIGHT = "flutter.keyboard.minGridHeightDp"
+        private const val PREF_MIN_GRID_HEIGHT_LEGACY = "keyboard.minGridHeightDp"
         private const val NUMBER_ROW_EXTRA_DP = 44
         private const val TOOLBAR_HEIGHT_DP = 64
         private const val SUGGESTION_BAR_HEIGHT_DP = 40
@@ -122,8 +129,8 @@ class KeyboardHeightManager(private val context: Context) {
         val navigationInset = if (includeNavigationInset) getNavigationBarHeight() else 0
         
         val structuralMinPx = dpToPx(STRUCTURAL_MIN_GRID_HEIGHT_DP)
-        val minGridPx = dpToPx(MIN_KEYBOARD_GRID_HEIGHT_DP)
-        val maxGridPx = dpToPx(MAX_KEYBOARD_GRID_HEIGHT_DP).coerceAtLeast(minGridPx)
+        val minGridPx = resolveMinGridHeightPx()
+        val maxGridPx = dpToPx(DEFAULT_MAX_GRID_HEIGHT_DP).coerceAtLeast(minGridPx)
         val availableDisplayHeight = computeUsableDisplayHeightPx().coerceAtLeast(structuralMinPx)
         val ratioTargetPx = (availableDisplayHeight * KEYBOARD_HEIGHT_RATIO).roundToInt()
         val percentTargetPx = resolveHeightPercentPx(availableDisplayHeight)
@@ -171,7 +178,7 @@ class KeyboardHeightManager(private val context: Context) {
         for (key in keysToCheck) {
             val value = readPercentPreference(key)
             if (value != null && value > 0) {
-                return value.coerceIn(20, 40)
+                return value.coerceIn(HEIGHT_PERCENT_MIN, HEIGHT_PERCENT_MAX)
             }
         }
         return null
@@ -186,6 +193,29 @@ class KeyboardHeightManager(private val context: Context) {
             is Float -> value.roundToInt()
             is Double -> value.roundToInt()
             is String -> value.toIntOrNull()
+            else -> null
+        }
+    }
+
+    private fun resolveMinGridHeightPx(): Int {
+        val dpValue = listOf(PREF_MIN_GRID_HEIGHT, PREF_MIN_GRID_HEIGHT_LEGACY)
+            .firstNotNullOfOrNull { key ->
+                readFloatPreference(key)?.roundToInt()
+            }
+            ?.coerceIn(USER_MIN_GRID_HEIGHT_DP, USER_MAX_GRID_HEIGHT_DP)
+            ?: DEFAULT_MIN_GRID_HEIGHT_DP
+        return dpToPx(dpValue)
+    }
+
+    private fun readFloatPreference(key: String): Float? {
+        if (!sharedPrefs.contains(key)) return null
+        val value = sharedPrefs.all[key] ?: return null
+        return when (value) {
+            is Float -> value
+            is Double -> value.toFloat()
+            is Int -> value.toFloat()
+            is Long -> value.toFloat()
+            is String -> value.toFloatOrNull()
             else -> null
         }
     }
@@ -528,6 +558,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var suggestionSlotState: List<SuggestionSlotState> = emptyList()
     private var suggestionsEnabled: Boolean = true
     private val toolbarButtons = mutableListOf<ImageButton>()
+    private var clipboardToolbarButton: ImageButton? = null
+    private var clipboardButtonVisible: Boolean = true
     private var tapEffectStyle: TapEffectStyle = TapEffectStyle.NONE
     private var tapEffectsEnabled: Boolean = false
     private var lastEditorText: String = ""
@@ -571,6 +603,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var oneHandedWidthPct: Float = 0.75f
     private var numberRowActive = false
     private var instantLongPressSelectFirst = true
+    private var longPressDelayMs: Long = 200L // Configurable long press delay
     // Tuned to mirror CleverType row density and gutters
     private var keySpacingVerticalDp = 1
     private var keySpacingHorizontalDp = 1
@@ -685,6 +718,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
      * Show typing layout (keyboard grid)
      */
     fun showTypingLayout(model: LanguageLayoutAdapter.LayoutModel) {
+        panelManager?.markPanelClosed()
         currentMode = DisplayMode.TYPING
         currentLayout = model
         currentLangCode = model.languageCode
@@ -719,9 +753,24 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         dynamicKeys.clear()
 
         toolbarContainer.visibility = GONE
-        val isEmojiPanel = panelManager?.getCurrentPanelType() == UnifiedPanelManager.PanelType.EMOJI
+        val currentPanelType = panelManager?.getCurrentPanelType()
+        val isEmojiPanel = currentPanelType == UnifiedPanelManager.PanelType.EMOJI
+        val isSettingsPanel = currentPanelType == UnifiedPanelManager.PanelType.SETTINGS
+        val isAIPanel = currentPanelType == UnifiedPanelManager.PanelType.AI_ASSISTANT
+        val isGrammarPanel = currentPanelType == UnifiedPanelManager.PanelType.GRAMMAR
+        val isTonePanel = currentPanelType == UnifiedPanelManager.PanelType.TONE
+        val isClipboardPanel = currentPanelType == UnifiedPanelManager.PanelType.CLIPBOARD
         val overlayActive = emojiSearchOverlayActive && isEmojiPanel
-        suggestionContainer.visibility = if (overlayActive && suggestionsEnabled) VISIBLE else GONE
+        // Hide suggestion strip when showing emoji, settings, AI, grammar, or tone panels
+        suggestionContainer.visibility = if (
+            isEmojiPanel ||
+            isSettingsPanel ||
+            isAIPanel ||
+            isGrammarPanel ||
+            isTonePanel ||
+            isClipboardPanel ||
+            overlayActive
+        ) GONE else if (suggestionsEnabled) VISIBLE else GONE
         panelManager?.setInputText(lastEditorText)
 
         keyboardGridView?.visibility = if (overlayActive) VISIBLE else GONE
@@ -729,11 +778,38 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         // Remove old panel if any
         currentPanelView?.let { bodyContainer.removeView(it) }
 
-        // Add new panel
-        bodyContainer.addView(panelView, FrameLayout.LayoutParams(
+        // Add new panel with one-handed mode support
+        val panelParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
-        ))
+        )
+        
+        // Apply one-handed mode sizing if enabled
+        if (oneHandedModeEnabled) {
+            val panelWidth = oneHandPanelWidthPx()
+            val gap = dpToPx(8)
+            val screenWidth = resources.displayMetrics.widthPixels
+            val targetWidth = (screenWidth * oneHandedWidthPct).roundToInt()
+            val containerWidth = if (bodyContainer.width > 0) bodyContainer.width else screenWidth
+            val maxPanelWidth = (containerWidth - (panelWidth + gap * 2)).coerceAtLeast((containerWidth * 0.5f).toInt())
+            val desiredWidth = targetWidth.coerceAtMost(maxPanelWidth)
+            
+            panelParams.width = desiredWidth
+            panelParams.height = FrameLayout.LayoutParams.MATCH_PARENT
+            if (oneHandedSide == "left") {
+                panelParams.gravity = Gravity.START or Gravity.BOTTOM
+                panelParams.marginStart = gap
+                panelParams.marginEnd = panelWidth + gap
+            } else {
+                panelParams.gravity = Gravity.END or Gravity.BOTTOM
+                panelParams.marginStart = panelWidth + gap
+                panelParams.marginEnd = gap
+            }
+            panelParams.topMargin = gap
+            panelParams.bottomMargin = gap
+        }
+        
+        bodyContainer.addView(panelView, panelParams)
         panelView.visibility = VISIBLE
 
         currentPanelView = panelView
@@ -741,7 +817,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         // Recalculate height
         recalcHeight()
 
-        Log.d(TAG, "✅ Showing panel (keyboard grid hidden)")
+        Log.d(TAG, "✅ Showing panel (keyboard grid hidden)${if (oneHandedModeEnabled) " [One-handed: ${oneHandedSide}]" else ""}")
     }
 
     /**
@@ -755,8 +831,46 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val isEmojiPanel = panelManager?.getCurrentPanelType() == UnifiedPanelManager.PanelType.EMOJI
         emojiSearchOverlayActive = active
         if (currentMode == DisplayMode.PANEL && isEmojiPanel) {
-            keyboardGridView?.visibility = if (active) VISIBLE else GONE
-            suggestionContainer.visibility = if (active && suggestionsEnabled) VISIBLE else GONE
+            val grid = keyboardGridView
+            if (grid != null) {
+                if (active) {
+                    // Move keyboard grid to search container
+                    val searchContainer = panelManager?.getEmojiSearchKeyboardContainer()
+                    if (searchContainer != null) {
+                        // Remove from current parent
+                        (grid.parent as? ViewGroup)?.removeView(grid)
+                        
+                        // Add to search container with MATCH_PARENT layout params
+                        val params = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                        searchContainer.addView(grid, params)
+                        grid.visibility = VISIBLE
+                        
+                        Log.d(TAG, "✅ Moved keyboard grid to emoji search container")
+                    }
+                } else {
+                    // Move keyboard grid back to body container
+                    (grid.parent as? ViewGroup)?.removeView(grid)
+                    val params = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    bodyContainer.addView(grid, params)
+                    grid.visibility = GONE
+                    
+                    Log.d(TAG, "✅ Moved keyboard grid back to body container")
+                }
+                
+                // Refresh keyboard layout if showing
+                if (active) {
+                    currentLayout?.let { showTypingLayout(it) }
+                }
+            }
+            
+            // Always hide suggestions when emoji panel is active
+            suggestionContainer.visibility = GONE
         }
     }
     
@@ -933,7 +1047,59 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             params.bottomMargin = gap
             grid.layoutParams = params
 
-            bodyContainer.setBackgroundColor(ContextCompat.getColor(context, R.color.one_hand_panel_bg))
+            // ✅ FIX: Also resize toolbar and suggestions to match keyboard width
+            val toolbarParams = toolbarContainer.layoutParams as? LayoutParams
+            if (toolbarParams != null) {
+                toolbarParams.width = desiredWidth
+                toolbarParams.gravity = if (side == "left") Gravity.START else Gravity.END
+                if (side == "left") {
+                    toolbarParams.leftMargin = gap
+                    toolbarParams.rightMargin = panelWidth + gap
+                } else {
+                    toolbarParams.leftMargin = panelWidth + gap
+                    toolbarParams.rightMargin = gap
+                }
+                toolbarContainer.layoutParams = toolbarParams
+            }
+
+            val suggestionParams = suggestionContainer.layoutParams as? LayoutParams
+            if (suggestionParams != null) {
+                suggestionParams.width = desiredWidth
+                suggestionParams.gravity = if (side == "left") Gravity.START else Gravity.END
+                if (side == "left") {
+                    suggestionParams.leftMargin = gap
+                    suggestionParams.rightMargin = panelWidth + gap
+                } else {
+                    suggestionParams.leftMargin = panelWidth + gap
+                    suggestionParams.rightMargin = gap
+                }
+                suggestionContainer.layoutParams = suggestionParams
+            }
+            
+            // ✅ FIX: Resize current panel if visible (emoji, clipboard, AI, etc.)
+            currentPanelView?.let { panel ->
+                val panelParams = panel.layoutParams as? FrameLayout.LayoutParams
+                if (panelParams != null) {
+                    panelParams.width = desiredWidth
+                    panelParams.height = FrameLayout.LayoutParams.MATCH_PARENT
+                    if (side == "left") {
+                        panelParams.gravity = Gravity.START or Gravity.BOTTOM
+                        panelParams.marginStart = gap
+                        panelParams.marginEnd = panelWidth + gap
+                    } else {
+                        panelParams.gravity = Gravity.END or Gravity.BOTTOM
+                        panelParams.marginStart = panelWidth + gap
+                        panelParams.marginEnd = gap
+                    }
+                    panelParams.topMargin = gap
+                    panelParams.bottomMargin = gap
+                    panel.layoutParams = panelParams
+                    panel.requestLayout()
+                }
+            }
+
+            // Use theme's keyboard background for clean, unified UI
+            bodyContainer.background = themeManager.createKeyboardBackground()
 
             val controls = ensureOneHandedControls()
             val controlsParams = controls.layoutParams as FrameLayout.LayoutParams
@@ -946,6 +1112,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
             updateOneHandedButtons(side)
         } else {
+            // Reset keyboard grid
             params.width = FrameLayout.LayoutParams.MATCH_PARENT
             params.height = FrameLayout.LayoutParams.MATCH_PARENT
             params.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
@@ -955,12 +1122,51 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             params.bottomMargin = 0
             grid.layoutParams = params
 
+            // ✅ FIX: Reset toolbar and suggestions to full width
+            val toolbarParams = toolbarContainer.layoutParams as? LayoutParams
+            if (toolbarParams != null) {
+                toolbarParams.width = LayoutParams.MATCH_PARENT
+                toolbarParams.gravity = Gravity.NO_GRAVITY
+                toolbarParams.leftMargin = 0
+                toolbarParams.rightMargin = 0
+                toolbarContainer.layoutParams = toolbarParams
+            }
+
+            val suggestionParams = suggestionContainer.layoutParams as? LayoutParams
+            if (suggestionParams != null) {
+                suggestionParams.width = LayoutParams.MATCH_PARENT
+                suggestionParams.gravity = Gravity.NO_GRAVITY
+                suggestionParams.leftMargin = 0
+                suggestionParams.rightMargin = 0
+                suggestionContainer.layoutParams = suggestionParams
+            }
+            
+            // ✅ FIX: Reset current panel to full width
+            currentPanelView?.let { panel ->
+                val panelParams = panel.layoutParams as? FrameLayout.LayoutParams
+                if (panelParams != null) {
+                    panelParams.width = FrameLayout.LayoutParams.MATCH_PARENT
+                    panelParams.height = FrameLayout.LayoutParams.MATCH_PARENT
+                    panelParams.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+                    panelParams.marginStart = 0
+                    panelParams.marginEnd = 0
+                    panelParams.topMargin = 0
+                    panelParams.bottomMargin = 0
+                    panel.layoutParams = panelParams
+                    panel.requestLayout()
+                }
+            }
+
             bodyContainer.setBackgroundColor(Color.TRANSPARENT)
             oneHandedControlsContainer?.visibility = View.GONE
         }
 
         bodyContainer.invalidate()
         bodyContainer.requestLayout()
+        toolbarContainer.invalidate()
+        toolbarContainer.requestLayout()
+        suggestionContainer.invalidate()
+        suggestionContainer.requestLayout()
     }
 
     private fun ensureOneHandedControls(): LinearLayout {
@@ -970,7 +1176,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = ContextCompat.getDrawable(context, R.drawable.one_hand_panel_background)
+            // Use theme's keyboard background for clean, unified UI
+            background = themeManager.createKeyboardBackground()
             setPadding(panelPadding, panelPadding, panelPadding, panelPadding)
             visibility = View.GONE
         }
@@ -1025,16 +1232,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     }
 
     private fun updateOneHandedButtons(side: String) {
-        val tint = ContextCompat.getColor(context, R.color.one_hand_panel_icon)
+        // Use theme's text color for icons for clean, unified UI
+        val tint = themeManager.getTextColor()
         oneHandedCollapseButton?.imageTintList = ColorStateList.valueOf(tint)
         oneHandedSwapButton?.apply {
             imageTintList = ColorStateList.valueOf(tint)
             scaleX = if (side == "left") -1f else 1f
         }
         oneHandedControlsContainer?.let { container ->
+            // Use theme's keyboard background for clean, unified UI
             val radius = dpToPx(16).toFloat()
+            val bgColor = themeManager.getKeyboardBackgroundColor()
             val drawable = GradientDrawable().apply {
-                setColor(ContextCompat.getColor(context, R.color.one_hand_panel_bg))
+                setColor(bgColor)
                 cornerRadii = if (side == "left") {
                     floatArrayOf(0f, 0f, radius, radius, radius, radius, 0f, 0f)
                 } else {
@@ -1050,9 +1260,25 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         contentDesc: String,
         onClick: () -> Unit
     ): ImageButton {
+        // Create ripple drawable using theme colors for clean, unified UI
+        val palette = themeManager.getCurrentPalette()
+        val rippleColor = ColorUtils.setAlphaComponent(
+            if (palette.usesImageBackground) palette.specialAccent else palette.keyText,
+            51 // ~20% opacity for subtle ripple
+        )
+        val mask = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.WHITE)
+        }
+        val rippleDrawable = RippleDrawable(
+            ColorStateList.valueOf(rippleColor),
+            null, // No background - transparent
+            mask
+        )
+        
         val button = ImageButton(context).apply {
             setImageResource(iconRes)
-            background = ContextCompat.getDrawable(context, R.drawable.one_hand_button_background)
+            background = rippleDrawable
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
             contentDescription = contentDesc
@@ -1117,6 +1343,11 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         this.panelManager = manager
         manager?.setInputText(lastEditorText)
     }
+
+    fun setClipboardButtonVisible(visible: Boolean) {
+        clipboardButtonVisible = visible
+        mainHandler.post { applyClipboardButtonVisibility() }
+    }
     
     fun setSuggestionController(controller: UnifiedSuggestionController?) {
         this.suggestionController = controller
@@ -1130,6 +1361,25 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     /**
      * Set the number of suggestions to display (3 or 4)
      */
+    /**
+     * ✅ NEW: Enable or disable key preview popups
+     */
+    fun setPreviewEnabled(enabled: Boolean) {
+        keyboardGridView?.setPreviewEnabled(enabled)
+        Log.d(TAG, "✅ Key preview set to: $enabled")
+    }
+    
+    /**
+     * Set long press delay in milliseconds
+     */
+    fun setLongPressDelay(delayMs: Int) {
+        val clampedDelay = delayMs.coerceIn(150, 600).toLong()
+        if (longPressDelayMs == clampedDelay) return
+        longPressDelayMs = clampedDelay
+        keyboardGridView?.setLongPressDelay(clampedDelay)
+        Log.d(TAG, "✅ Long press delay set to: ${clampedDelay}ms")
+    }
+    
     fun setSuggestionDisplayCount(count: Int) {
         val clamped = count.coerceIn(1, 4)
         if (clamped == suggestionDisplayCount) return
@@ -1304,12 +1554,15 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val settingsButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_settings)
         val voiceButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_voice)
         val emojiButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_emoji)
+        val clipboardButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_clipboard).also {
+            clipboardToolbarButton = it
+        }
         val aiButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_ai)
         val grammarButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_grammar)
         val toneButton = toolbarView.findViewById<ImageButton>(R.id.button_toolbar_tone)
 
         // Style left side buttons without boxes (plain icons)
-        listOfNotNull(settingsButton, voiceButton, emojiButton).forEach { button ->
+        listOfNotNull(settingsButton, voiceButton, emojiButton, clipboardButton).forEach { button ->
             toolbarButtons.add(button)
             styleToolbarButton(button, withBox = false)
         }
@@ -1332,7 +1585,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             if (service != null) {
                 service.startVoiceInputFromToolbar()
             } else {
-                Toast.makeText(context, context.getString(R.string.voice_input_not_available), Toast.LENGTH_SHORT).show()
+                // Toast removed - voice input error logged only
+                Log.d(TAG, "Voice input not available")
             }
         }
 
@@ -1347,6 +1601,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             panelManager?.let { manager ->
                 val aiPanel = manager.buildPanel(UnifiedPanelManager.PanelType.AI_ASSISTANT)
                 showPanel(aiPanel)
+            }
+        }
+        
+        clipboardButton?.setOnClickListener {
+            panelManager?.let { manager ->
+                val clipboardPanel = manager.buildPanel(UnifiedPanelManager.PanelType.CLIPBOARD)
+                showPanel(clipboardPanel)
             }
         }
 
@@ -1365,6 +1626,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         toolbarContainer.addView(toolbarView)
+        applyClipboardButtonVisibility()
     }
 
     private fun styleToolbarButton(button: ImageButton, withBox: Boolean = false) {
@@ -1383,6 +1645,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         
         // Adjust padding for better touch target
         button.setPadding(padding, padding, padding, padding)
+    }
+
+    private fun applyClipboardButtonVisibility() {
+        clipboardToolbarButton?.visibility = if (clipboardButtonVisible) View.VISIBLE else View.GONE
     }
 
     // ========================================
@@ -1409,7 +1675,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val palette = themeManager.getCurrentPalette()
         return TextView(context).apply {
             this.text = text
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            // ✅ Use theme font for suggestions
+            typeface = themeManager.createTypeface(palette.suggestionFontFamily, palette.suggestionFontBold, false)
             setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.suggestion_text_size))
             gravity = Gravity.CENTER
             setTextColor(palette.suggestionText)
@@ -2076,6 +2343,11 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private val dynamicKeys = mutableListOf<DynamicKey>()
         private val largeIconKeyTypes = setOf("emoji", "mic", "symbols")
         
+        // ✅ NEW: Key preview popup settings
+        private var keyPreviewEnabled = true // Enable by default
+        private var keyPreviewPopup: PopupWindow? = null
+        private var keyPreviewText: TextView? = null
+        
         // Swipe trail for visual feedback
         private val swipeTrailPaint = Paint().apply {
             strokeWidth = 8f
@@ -2089,6 +2361,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         // Touch handling
         private var longPressHandler = Handler(Looper.getMainLooper())
         private var longPressRunnable: Runnable? = null
+        private var longPressDelayMs: Long = 200L // Configurable long press delay
         private var accentPopup: PopupWindow? = null
         private var stickyFirstPopupSelection = false
         private var accentOptionViews = mutableListOf<TextView>()
@@ -2099,12 +2372,117 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         fun setInstantLongPressSelectFirst(enabled: Boolean) {
             instantLongPressSelectFirst = enabled
         }
+        
+        fun setLongPressDelay(delayMs: Long) {
+            longPressDelayMs = delayMs.coerceIn(150L, 600L)
+            Log.d(TAG, "KeyboardGridView: Long press delay set to ${longPressDelayMs}ms")
+        }
 
         fun setLabelScale(multiplier: Float) {
             val coerced = multiplier.coerceIn(0.8f, 1.3f)
             if (coerced == labelScaleMultiplier) return
             labelScaleMultiplier = coerced
             invalidate()
+        }
+        
+        /**
+         * ✅ NEW: Enable or disable key preview popups
+         */
+        fun setPreviewEnabled(enabled: Boolean) {
+            keyPreviewEnabled = enabled
+            if (!enabled) {
+                hideKeyPreview()
+            }
+            Log.d(TAG, "Key preview enabled: $enabled")
+        }
+        
+        /**
+         * ✅ NEW: Show key preview popup for a key
+         */
+        private fun showKeyPreview(key: DynamicKey) {
+            if (!keyPreviewEnabled) return
+            
+            // Skip preview for special keys
+            val keyType = getKeyTypeFromCode(key.code)
+            if (keyType in setOf("space", "enter", "shift", "backspace", "symbols", "emoji", "mic", "globe")) {
+                return
+            }
+            
+            try {
+                val palette = themeManager.getCurrentPalette()
+                
+                // Create popup window if needed or update theme if changed
+                if (keyPreviewPopup == null) {
+                    keyPreviewText = TextView(context).apply {
+                        textSize = 24f
+                        gravity = Gravity.CENTER
+                        setTextColor(palette.keyText)
+                        setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                    }
+                    
+                    keyPreviewPopup = PopupWindow(
+                        keyPreviewText,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        isClippingEnabled = false
+                        inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
+                        isTouchable = false
+                        isFocusable = false
+                        elevation = 12f
+                        
+                        // Set background with theme colors - match keyboard key style
+                        contentView.background = themeManager.createKeyDrawable()
+                    }
+                } else {
+                    // Update theme colors if popup already exists
+                    keyPreviewText?.setTextColor(palette.keyText)
+                    keyPreviewPopup?.contentView?.background = themeManager.createKeyDrawable()
+                }
+                
+                // Update preview text - just use the key label as-is
+                keyPreviewText?.text = key.label
+                
+                // Calculate position - center above the key
+                val location = IntArray(2)
+                this.getLocationInWindow(location)
+                
+                // Measure popup to get actual size
+                keyPreviewText?.measure(
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+                )
+                val popupWidth = keyPreviewText?.measuredWidth ?: dpToPx(56)
+                val popupHeight = keyPreviewText?.measuredHeight ?: dpToPx(64)
+                
+                val popupX = location[0] + key.x + (key.width / 2) - (popupWidth / 2)
+                val popupY = location[1] + key.y - popupHeight - dpToPx(12)
+                
+                // Show popup
+                if (!keyPreviewPopup!!.isShowing) {
+                    keyPreviewPopup?.width = popupWidth
+                    keyPreviewPopup?.height = popupHeight
+                    keyPreviewPopup?.showAtLocation(this, Gravity.NO_GRAVITY, popupX, popupY)
+                } else {
+                    keyPreviewPopup?.update(popupX, popupY, popupWidth, popupHeight)
+                }
+                
+                Log.d(TAG, "Key preview shown for: ${key.label}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error showing key preview", e)
+            }
+        }
+        
+        /**
+         * ✅ NEW: Hide key preview popup
+         */
+        private fun hideKeyPreview() {
+            try {
+                keyPreviewPopup?.dismiss()
+            } catch (e: Exception) {
+                // Ignore dismissal errors
+            }
         }
         
         // Swipe state
@@ -3667,10 +4045,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             val overlays = buildOverlayState(palette, key)
             if (!tapEffectsEnabled && overlays.isEmpty()) return
             val duration = when (tapEffectStyle) {
-                UnifiedKeyboardView.TapEffectStyle.NONE -> 320L
-                UnifiedKeyboardView.TapEffectStyle.RIPPLE -> 320L
-                UnifiedKeyboardView.TapEffectStyle.GLOW -> 360L
-                UnifiedKeyboardView.TapEffectStyle.BOUNCE -> 240L
+                UnifiedKeyboardView.TapEffectStyle.NONE -> 520L
+                UnifiedKeyboardView.TapEffectStyle.RIPPLE -> 520L
+                UnifiedKeyboardView.TapEffectStyle.GLOW -> 560L
+                UnifiedKeyboardView.TapEffectStyle.BOUNCE -> 540L
             }
             tapEffectState = TapEffectState(
                 key = key,
@@ -3733,7 +4111,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             // Language label on space
             if (key.keyType == "space" && showLanguageOnSpace && currentLanguageLabel.isNotEmpty()) {
                 val textPaint = Paint(parentView.spaceLabelPaint).apply {
-                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    // ✅ Use theme font (already set in spaceLabelPaint)
                     textSize = parentView.spaceLabelPaint.textSize * labelScaleMultiplier * 0.7f
                     color = palette.spaceLabelColor
                     textAlign = Paint.Align.CENTER
@@ -3754,12 +4132,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 themeManager.createKeyTextPaint(keyIdentifier) // ✅ Use per-key font customization
             }
             
-            textPaint.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            if (key.keyType == "space" && showLanguageOnSpace) {
-                textPaint.textSize = textPaint.textSize * labelScaleMultiplier
-            } else {
-                textPaint.textSize = spToPx(20f) * labelScaleMultiplier
-            }
+            // ✅ Use theme font (already set in textPaint) instead of hardcoding
+            // Apply label scale to respect user's font size preference
+            textPaint.textSize = textPaint.textSize * labelScaleMultiplier
 
             val accentForeground = if (borderlessMode) palette.specialAccent else getAccentForegroundColor(palette)
             val shouldAccent = themeManager.shouldUseAccentForKey(key.keyType)
@@ -3873,6 +4248,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    // ✅ NEW: Hide key preview popup
+                    hideKeyPreview()
+                    
                     val key = findKeyAtPosition(event.x.toInt(), event.y.toInt())
                     
                     // Stop delete repeat
@@ -3896,6 +4274,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    // ✅ NEW: Hide key preview popup
+                    hideKeyPreview()
+                    
                     stopDeleteRepeat()
                     cancelLongPressInternal()
                     isSwipeActive = false
@@ -4125,6 +4506,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun handleKeyDown(key: DynamicKey) {
+            // ✅ NEW: Show key preview popup
+            showKeyPreview(key)
+            
             // Special handling for delete key - enable continuous repeat
             if (key.keyType == "backspace") {
                 // Initial delete
@@ -4158,7 +4542,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             // Long press handling for accent options
             if (!key.longPressOptions.isNullOrEmpty()) {
                 longPressRunnable = Runnable { showAccentOptions(key) }
-                longPressHandler.postDelayed(longPressRunnable!!, 500L)
+                longPressHandler.postDelayed(longPressRunnable!!, longPressDelayMs)
             }
         }
         

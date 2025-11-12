@@ -1,11 +1,15 @@
 package com.example.ai_keyboard
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.annotation.NonNull
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -29,6 +33,9 @@ class MainActivity : FlutterActivity() {
         private const val AI_CHANNEL = "ai_keyboard/unified_ai"
         private const val PROMPT_CHANNEL = "ai_keyboard/prompts"
         private const val CLIPBOARD_CHANNEL = "ai_keyboard/clipboard"
+        private const val THEME_CHANNEL = "keyboard.theme"
+        private const val SOUND_CHANNEL = "keyboard.sound"
+        private const val EFFECTS_CHANNEL = "keyboard.effects"
     }
     
     private lateinit var unifiedAIService: UnifiedAIService
@@ -37,6 +44,8 @@ class MainActivity : FlutterActivity() {
     private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     private var navigationMethodChannel: MethodChannel? = null
+    private var clipboardChannel: MethodChannel? = null
+    private var clipboardBroadcastReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,7 +107,7 @@ class MainActivity : FlutterActivity() {
                             }
                             "updateSettings" -> {
                                 // Enhanced settings with Gboard + CleverType features
-                                val theme = call.argument<String>("theme") ?: "default"
+                                val theme = call.argument<String>("theme") ?: "default_theme"
                                 val popupEnabled = call.argument<Boolean>("popupEnabled") ?: false
                                 val aiSuggestions = call.argument<Boolean>("aiSuggestions") ?: true
                                 val autocorrect = call.argument<Boolean>("autoCorrect") ?: true  // ✅ Fixed: Match Flutter camelCase
@@ -110,6 +119,8 @@ class MainActivity : FlutterActivity() {
                                 val dictionaryEnabled = call.argument<Boolean>("dictionaryEnabled") ?: true
                                 val autoCapitalization = call.argument<Boolean>("autoCapitalization") ?: true
                                 val doubleSpacePeriod = call.argument<Boolean>("doubleSpacePeriod") ?: true
+                                val autoFillSuggestion = call.argument<Boolean>("autoFillSuggestion") ?: true
+                                val rememberCapsState = call.argument<Boolean>("rememberCapsState") ?: false
                                 
                                 // Sound & Vibration Settings (Unified System)
                                 val soundEnabled = call.argument<Boolean>("soundEnabled") ?: true
@@ -135,7 +146,8 @@ class MainActivity : FlutterActivity() {
                                         theme, popupEnabled, aiSuggestions, autocorrect, 
                                         emojiSuggestions, nextWordPrediction, clipboardEnabled,
                                         clipboardWindowSec, clipboardHistoryItems, dictionaryEnabled,
-                                        autoCapitalization, doubleSpacePeriod, soundEnabled,
+                                        autoCapitalization, doubleSpacePeriod, autoFillSuggestion,
+                                        rememberCapsState, soundEnabled,
                                         soundVolume, keyPressSounds, longPressSounds, repeatedActionSounds,
                                         vibrationEnabled, vibrationMs, useHapticInterface,
                                         keyPressVibration, longPressVibration, repeatedActionVibration,
@@ -212,6 +224,19 @@ class MainActivity : FlutterActivity() {
                                     notifyKeyboardServiceThemeChanged()
                                 }
                                 result.success(true)
+                            }
+                            "setOneHandedMode" -> {
+                                val enabled = call.argument<Boolean>("enabled") ?: false
+                                val side = call.argument<String>("side") ?: "right"
+                                val width = call.argument<Double>("width") ?: 0.75
+                                val applied = withKeyboardService { service ->
+                                    service.applyOneHandedMode(enabled, side, width.toFloat())
+                                }
+                                if (applied) {
+                                    result.success(true)
+                                } else {
+                                    result.error("service_unavailable", "Keyboard service not available", null)
+                                }
                             }
                             "themeChanged" -> {
                                 val themeId = call.argument<String>("themeId") ?: "default_theme"
@@ -361,7 +386,12 @@ class MainActivity : FlutterActivity() {
         
         // Clipboard Management Channel
         setupClipboardChannel(flutterEngine)
-        
+
+        // Theme & personalization channels
+        setupThemeChannel(flutterEngine)
+        setupSoundChannel(flutterEngine)
+        setupEffectsChannel(flutterEngine)
+
         // Language Download Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LANGUAGE_CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -477,6 +507,8 @@ class MainActivity : FlutterActivity() {
         dictionaryEnabled: Boolean,
         autoCapitalization: Boolean,
         doubleSpacePeriod: Boolean,
+        autoFillSuggestion: Boolean,
+        rememberCapsState: Boolean,
         soundEnabled: Boolean,
         soundVolume: Double,
         keyPressSounds: Boolean,
@@ -508,6 +540,8 @@ class MainActivity : FlutterActivity() {
             .putBoolean("dictionary_enabled", dictionaryEnabled)
             .putBoolean("auto_capitalization", autoCapitalization)
             .putBoolean("double_space_period", doubleSpacePeriod)
+            .putBoolean("auto_fill_suggestion", autoFillSuggestion)
+            .putBoolean("remember_caps_state", rememberCapsState)
             // Sound & Vibration Settings (Unified System)
             .putBoolean("sound_enabled", soundEnabled)
             .putFloat("sound_volume", soundVolume.toFloat())
@@ -526,6 +560,21 @@ class MainActivity : FlutterActivity() {
             .putBoolean("show_shift_feedback", shiftFeedback)
             .putBoolean("show_number_row", showNumberRow)
             .apply()
+
+        // Mirror critical toggles into Flutter SharedPreferences so the service and Flutter stay in sync
+        val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        flutterPrefs.edit()
+            .putBoolean("flutter.keyboard.popupPreview", popupEnabled)
+            .putBoolean("flutter.keyboard_settings.popup_visibility", popupEnabled)
+            .putBoolean("flutter.auto_capitalization", autoCapitalization)
+            .putBoolean("flutter.autoCapitalization", autoCapitalization)
+            .putBoolean("flutter.double_space_period", doubleSpacePeriod)
+            .putBoolean("flutter.doubleSpacePeriod", doubleSpacePeriod)
+            .putBoolean("flutter.auto_fill_suggestion", autoFillSuggestion)
+            .putBoolean("flutter.autoFillSuggestion", autoFillSuggestion)
+            .putBoolean("flutter.remember_caps_state", rememberCapsState)
+            .putBoolean("flutter.rememberCapsState", rememberCapsState)
+            .apply()
             
         LogUtil.d("MainActivity", "✓ Settings V2 persisted to SharedPreferences")
         LogUtil.d("TypingSync", "Settings applied: popup=$popupEnabled, autocorrect=$autocorrect, emoji=$emojiSuggestions, nextWord=$nextWordPrediction, clipboard=$clipboardEnabled")
@@ -537,7 +586,20 @@ class MainActivity : FlutterActivity() {
     private fun notifyKeyboardServiceSettingsChanged() {
         BroadcastManager.sendToKeyboard(this, "com.example.ai_keyboard.SETTINGS_CHANGED")
     }
-    
+
+    private suspend fun withKeyboardService(action: (AIKeyboardService) -> Unit): Boolean {
+        return withContext(Dispatchers.Main) {
+            val service = AIKeyboardService.getInstance()
+            if (service != null) {
+                action(service)
+                true
+            } else {
+                LogUtil.w("MainActivity", "Keyboard service not available for channel request")
+                false
+            }
+        }
+    }
+
     private fun notifyKeyboardServiceThemeChanged() {
         try {
             LogUtil.d("MainActivity", "Starting theme change notification process")
@@ -977,6 +1039,7 @@ class MainActivity : FlutterActivity() {
                                 val toneName = call.argument<String>("tone")
                                 val featureName = call.argument<String>("feature")
                                 val stream = call.argument<Boolean>("stream") ?: false
+                                val customPrompt = call.argument<String>("customPrompt")
                                 
                                 if (text.isEmpty()) {
                                     result.error("INVALID_ARGS", "Text cannot be empty", null)
@@ -1014,7 +1077,14 @@ class MainActivity : FlutterActivity() {
                                     // Flutter doesn't support streaming method channel responses directly
                                     // So we'll collect all results and return the final one
                                     val results = mutableListOf<UnifiedAIService.UnifiedResult>()
-                                    unifiedAIService.processText(text, aiMode, tone, feature, stream)
+                                    unifiedAIService.processText(
+                                        text = text,
+                                        mode = aiMode,
+                                        tone = tone,
+                                        feature = feature,
+                                        stream = stream,
+                                        customPrompt = customPrompt
+                                    )
                                         .collect { res ->
                                             results.add(res)
                                             if (res.isComplete) {
@@ -1032,7 +1102,14 @@ class MainActivity : FlutterActivity() {
                                         }
                                 } else {
                                     // Non-streaming response
-                                    unifiedAIService.processText(text, aiMode, tone, feature, stream)
+                                    unifiedAIService.processText(
+                                        text = text,
+                                        mode = aiMode,
+                                        tone = tone,
+                                        feature = feature,
+                                        stream = stream,
+                                        customPrompt = customPrompt
+                                    )
                                         .collect { res ->
                                             withContext(Dispatchers.Main) {
                                                 result.success(mapOf(
@@ -1149,7 +1226,7 @@ class MainActivity : FlutterActivity() {
                 coroutineScope.launch {
                     try {
                         when (call.method) {
-                            "savePrompt" -> {
+                            "savePrompt", "addPrompt" -> {
                                 val category = call.argument<String>("category") ?: "assistant"
                                 val title = call.argument<String>("title") ?: "Custom Prompt"
                                 val prompt = call.argument<String>("prompt") ?: ""
@@ -1168,7 +1245,10 @@ class MainActivity : FlutterActivity() {
                                         "com.example.ai_keyboard.PROMPTS_UPDATED"
                                     )
                                     result.success(true)
-                                    LogUtil.d("MainActivity", "✅ Prompt saved: $title ($category)")
+                                    LogUtil.d(
+                                        "MainActivity",
+                                        "✅ Prompt saved: $title ($category) via ${call.method}"
+                                    )
                                 } else {
                                     result.error("SAVE_ERROR", "Failed to save prompt", null)
                                 }
@@ -1195,7 +1275,7 @@ class MainActivity : FlutterActivity() {
                                 LogUtil.d("MainActivity", "📋 Retrieved ${prompts.size} prompts for category: ${category ?: "all"}")
                             }
                             
-                            "deletePrompt" -> {
+                            "deletePrompt", "removePrompt" -> {
                                 val category = call.argument<String>("category") ?: "assistant"
                                 val title = call.argument<String>("title") ?: ""
                                 
@@ -1204,7 +1284,7 @@ class MainActivity : FlutterActivity() {
                                     return@launch
                                 }
                                 
-                                val success = PromptManager.deletePrompt(category, title)
+                                val success = PromptManager.removePrompt(category, title)
                                 
                                 if (success) {
                                     // Broadcast update to keyboard service
@@ -1213,7 +1293,10 @@ class MainActivity : FlutterActivity() {
                                         "com.example.ai_keyboard.PROMPTS_UPDATED"
                                     )
                                     result.success(true)
-                                    LogUtil.d("MainActivity", "🗑️ Prompt deleted: $title ($category)")
+                                    LogUtil.d(
+                                        "MainActivity",
+                                        "🗑️ Prompt deleted: $title ($category) via ${call.method}"
+                                    )
                                 } else {
                                     result.error("DELETE_ERROR", "Failed to delete prompt", null)
                                 }
@@ -1270,8 +1353,8 @@ class MainActivity : FlutterActivity() {
      * Setup clipboard channel for Flutter communication
      */
     private fun setupClipboardChannel(flutterEngine: FlutterEngine) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CLIPBOARD_CHANNEL)
-            .setMethodCallHandler { call, result ->
+        clipboardChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CLIPBOARD_CHANNEL).apply {
+            setMethodCallHandler { call, result ->
                 coroutineScope.launch {
                     try {
                         when (call.method) {
@@ -1279,35 +1362,39 @@ class MainActivity : FlutterActivity() {
                                 val history = withContext(Dispatchers.IO) { getClipboardHistory() }
                                 result.success(history)
                             }
-                            
+
                             "togglePin" -> {
-                                val itemId = call.argument<String>("id") ?: ""
+                                val itemId = call.argument<String>("id")
+                                    ?: call.argument<String>("itemId")
+                                    ?: ""
                                 if (itemId.isBlank()) {
                                     result.error("INVALID_ARGS", "Item ID cannot be empty", null)
                                     return@launch
                                 }
-                                
+
                                 withContext(Dispatchers.IO) {
                                     toggleClipboardPin(itemId)
                                     notifyKeyboardServiceClipboardChanged()
                                 }
                                 result.success(true)
                             }
-                            
+
                             "deleteItem" -> {
-                                val itemId = call.argument<String>("id") ?: ""
+                                val itemId = call.argument<String>("id")
+                                    ?: call.argument<String>("itemId")
+                                    ?: ""
                                 if (itemId.isBlank()) {
                                     result.error("INVALID_ARGS", "Item ID cannot be empty", null)
                                     return@launch
                                 }
-                                
+
                                 withContext(Dispatchers.IO) {
                                     deleteClipboardItem(itemId)
                                     notifyKeyboardServiceClipboardChanged()
                                 }
                                 result.success(true)
                             }
-                            
+
                             "clearAll" -> {
                                 withContext(Dispatchers.IO) {
                                     clearAllClipboardItems()
@@ -1315,16 +1402,40 @@ class MainActivity : FlutterActivity() {
                                 }
                                 result.success(true)
                             }
-                            
+
+                            "syncFromSystem" -> {
+                                var operationSuccess = false
+                                val delivered = withKeyboardService { service ->
+                                    operationSuccess = service.syncClipboardFromSystem()
+                                }
+                                result.success(delivered && operationSuccess)
+                            }
+
+                            "syncToCloud" -> {
+                                var operationSuccess = false
+                                val delivered = withKeyboardService { service ->
+                                    operationSuccess = service.syncClipboardToCloud()
+                                }
+                                result.success(delivered && operationSuccess)
+                            }
+
+                            "syncFromCloud" -> {
+                                var operationSuccess = false
+                                val delivered = withKeyboardService { service ->
+                                    operationSuccess = service.syncClipboardFromCloud()
+                                }
+                                result.success(delivered && operationSuccess)
+                            }
+
                             "updateSettings" -> {
                                 val enabled = call.argument<Boolean>("enabled") ?: true
                                 val maxHistorySize = call.argument<Int>("maxHistorySize") ?: 20
                                 val autoExpiryEnabled = call.argument<Boolean>("autoExpiryEnabled") ?: true
                                 val expiryDurationMinutes = (call.argument<Int>("expiryDurationMinutes") ?: 60).toLong()
                                 val templates = call.argument<List<Map<String, Any>>>("templates") ?: emptyList()
-                                
+
                                 LogUtil.d("MainActivity", "🔧 Received clipboard settings: enabled=$enabled, maxSize=$maxHistorySize, autoExpiry=$autoExpiryEnabled")
-                                
+
                                 withContext(Dispatchers.IO) {
                                     updateClipboardSettings(enabled, maxHistorySize, autoExpiryEnabled, expiryDurationMinutes, templates)
                                     notifyKeyboardServiceClipboardChanged()
@@ -1332,12 +1443,12 @@ class MainActivity : FlutterActivity() {
                                 LogUtil.d("MainActivity", "✅ Clipboard settings saved and broadcast sent")
                                 result.success(true)
                             }
-                            
+
                             "getSettings" -> {
                                 val settings = withContext(Dispatchers.IO) { getClipboardSettings() }
                                 result.success(settings)
                             }
-                            
+
                             else -> {
                                 result.notImplemented()
                             }
@@ -1345,6 +1456,150 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         LogUtil.e("MainActivity", "❌ Error in clipboard channel: ${e.message}", e)
                         result.error("CLIPBOARD_ERROR", "Clipboard error: ${e.message}", e.stackTraceToString())
+                    }
+                }
+            }
+        }
+        registerClipboardBroadcastReceiver()
+    }
+
+    private fun registerClipboardBroadcastReceiver() {
+        if (clipboardBroadcastReceiver != null) return
+
+        clipboardBroadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val action = intent?.action ?: return
+                when (action) {
+                    ClipboardBroadcasts.ACTION_CLIPBOARD_HISTORY_UPDATED -> {
+                        val count = intent.getIntExtra("count", 0)
+                        try {
+                            clipboardChannel?.invokeMethod("onHistoryChanged", count)
+                        } catch (e: Exception) {
+                            LogUtil.e("MainActivity", "Failed to forward clipboard history update", e)
+                        }
+                    }
+
+                    ClipboardBroadcasts.ACTION_CLIPBOARD_NEW_ITEM -> {
+                        val text = intent.getStringExtra("text") ?: return
+                        val payload = mapOf(
+                            "id" to (intent.getStringExtra("id") ?: ""),
+                            "text" to text,
+                            "timestamp" to intent.getLongExtra("timestamp", System.currentTimeMillis()),
+                            "isOTP" to intent.getBooleanExtra("isOTP", false)
+                        )
+                        try {
+                            clipboardChannel?.invokeMethod("onNewItem", payload)
+                        } catch (e: Exception) {
+                            LogUtil.e("MainActivity", "Failed to forward new clipboard item", e)
+                        }
+                    }
+                }
+            }
+        }
+
+        val filter = IntentFilter().apply {
+            addAction(ClipboardBroadcasts.ACTION_CLIPBOARD_HISTORY_UPDATED)
+            addAction(ClipboardBroadcasts.ACTION_CLIPBOARD_NEW_ITEM)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.registerReceiver(
+                this,
+                clipboardBroadcastReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            registerReceiver(clipboardBroadcastReceiver, filter)
+        }
+    }
+
+    private fun setupThemeChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, THEME_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                coroutineScope.launch {
+                    when (call.method) {
+                        "applyTheme" -> {
+                            val payload = call.arguments as? Map<String, Any?>
+                            if (payload == null) {
+                                result.error("INVALID_ARGS", "Theme payload missing", null)
+                                return@launch
+                            }
+                            val delivered = withKeyboardService { service ->
+                                service.applyThemeFromFlutter(payload)
+                            }
+                            if (!delivered) {
+                                notifyKeyboardServiceThemeChanged()
+                            }
+                            result.success(delivered)
+                        }
+                        else -> result.notImplemented()
+                    }
+                }
+            }
+    }
+
+    private fun setupSoundChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SOUND_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                coroutineScope.launch {
+                    when (call.method) {
+                        "setSound" -> {
+                            val payload = call.arguments as? Map<String, Any?>
+                            if (payload == null) {
+                                result.error("INVALID_ARGS", "Sound payload missing", null)
+                                return@launch
+                            }
+                            val delivered = withKeyboardService { service ->
+                                service.applySoundSelection(
+                                    payload["name"]?.toString(),
+                                    payload["asset"] as? String
+                                )
+                            }
+                            result.success(delivered)
+                        }
+                        "setKeyboardSound" -> {
+                            val file = call.argument<String>("file")
+                            if (file != null) {
+                                val delivered = withKeyboardService { service ->
+                                    service.setKeyboardSound(file)
+                                }
+                                result.success(delivered)
+                            } else {
+                                result.error("NO_FILE", "Missing sound file", null)
+                            }
+                        }
+                        "playSample" -> {
+                            val asset = when (val arg = call.arguments) {
+                                is String -> arg
+                                is Map<*, *> -> arg["asset"] as? String
+                                else -> null
+                            }
+                            val delivered = withKeyboardService { service ->
+                                service.playSoundSample(asset)
+                            }
+                            result.success(delivered)
+                        }
+                        else -> result.notImplemented()
+                    }
+                }
+            }
+    }
+
+    private fun setupEffectsChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EFFECTS_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                coroutineScope.launch {
+                    when (call.method) {
+                        "applyEffect" -> {
+                            val payload = call.arguments as? Map<String, Any?>
+                            val effectType = payload?.get("type")?.toString() ?: "ripple"
+                            val opacity = (payload?.get("opacity") as? Number)?.toFloat() ?: 1f
+                            val delivered = withKeyboardService { service ->
+                                service.previewTapEffect(effectType, opacity)
+                            }
+                            result.success(delivered)
+                        }
+                        else -> result.notImplemented()
                     }
                 }
             }
@@ -1484,5 +1739,10 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
         coroutineScope.cancel()
         ioScope.cancel()
+        clipboardBroadcastReceiver?.let {
+            runCatching { unregisterReceiver(it) }
+            clipboardBroadcastReceiver = null
+        }
+        clipboardChannel = null
     }
 }
