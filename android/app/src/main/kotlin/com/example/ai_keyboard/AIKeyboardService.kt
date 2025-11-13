@@ -51,6 +51,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.example.ai_keyboard.GestureAction
 import com.example.ai_keyboard.GestureSettings
 import com.example.ai_keyboard.GestureSource
+import com.example.ai_keyboard.VoiceInputManager
 
 class AIKeyboardService : InputMethodService(), 
     KeyboardView.OnKeyboardActionListener, 
@@ -83,7 +84,7 @@ class AIKeyboardService : InputMethodService(),
         // Swipe settings
         private const val SWIPE_START_THRESHOLD = 100f
         private const val MIN_SWIPE_TIME = 300L
-        private const val DOUBLE_SPACE_TIMEOUT_MS = 400L
+        private const val DOUBLE_SPACE_TIMEOUT_MS = 500L  // Gboard-style timeout
         private const val MIN_SWIPE_DISTANCE = 100f
         private const val SWIPE_CONFIDENCE_THRESHOLD = 0.55
         private const val SWIPE_CONFIDENCE_GAP = 0.2
@@ -179,9 +180,19 @@ class AIKeyboardService : InputMethodService(),
          * @return UnifiedSettings with all keyboard configuration
          */
         fun loadAll(): UnifiedSettings {
-            // Read from native preferences (MainActivity writes here via MethodChannel)
-            val vibration = nativePrefs.getBoolean("vibration_enabled", true)
-            val sound = nativePrefs.getBoolean("sound_enabled", true)
+            // ✅ CRITICAL: Sound and vibration ONLY from Flutter preferences - NO fallback to native
+            val sound = when {
+                flutterPrefs.contains("flutter.sound_enabled") ->
+                    flutterPrefs.getBoolean("flutter.sound_enabled", false)
+                flutterPrefs.contains("flutter.soundEnabled") ->
+                    flutterPrefs.getBoolean("flutter.soundEnabled", false)
+                else -> false // Default to false (sound off) if not set in Flutter
+            }
+            val vibration = when {
+                flutterPrefs.contains("flutter.vibration_enabled") ->
+                    flutterPrefs.getBoolean("flutter.vibration_enabled", false)
+                else -> false // ✅ Default to false (vibration OFF) if not set in Flutter
+            }
             
             // ✅ FIX: Check Flutter preferences for popup_visibility first, then fallback to native
             val keyPreviewNative = nativePrefs.getBoolean("key_preview_enabled", false)
@@ -234,15 +245,8 @@ class AIKeyboardService : InputMethodService(),
             val popup = nativePrefs.getBoolean("popup_enabled", false)
             val soundType = flutterPrefs.getString("flutter.sound.type", "default") ?: "default"
             val effectType = flutterPrefs.getString("flutter.effect.type", "none") ?: "none"
-            // ✅ CRITICAL: Read sound volume from Flutter preferences (0-100 scale, convert to 0-1)
-            val soundVolumePercent = flutterPrefs.getIntCompat(
-                "flutter.sound_volume",
-                if (nativePrefs.contains("sound_volume")) {
-                    (nativePrefs.getFloat("sound_volume", 0.65f) * 100).toInt()
-                } else {
-                    50 // Default 50%
-                }
-            )
+            // ✅ CRITICAL: Read sound volume ONLY from Flutter preferences (0-100 scale, convert to 0-1) - NO fallback
+            val soundVolumePercent = flutterPrefs.getIntCompat("flutter.sound_volume", 50) // Default 50%
             val soundVolume = (soundVolumePercent / 100.0f).coerceIn(0f, 1f)
             val soundCustomUri = nativePrefs.getString("sound_custom_uri", null)
             
@@ -859,13 +863,9 @@ class AIKeyboardService : InputMethodService(),
             val assetPath = "sounds/$selectedSound"
             customSoundUri = assetPath
             
-            // Update sound manager with the asset file
-            KeyboardSoundManager.update("custom", computeEffectiveSoundVolume(), this, assetPath)
-            
-            // Configure sound manager
-            configureSoundManager()
-            
-            Log.d(TAG, "🔊 Loaded keyboard sound on startup: $selectedSound")
+            // ✅ CRITICAL: Don't configure sound manager here - wait for settings to load
+            // configureSoundManager() will be called after settings are loaded
+            Log.d(TAG, "🔊 Loaded keyboard sound on startup: $selectedSound (will configure after settings load)")
         }
         // Initialize keyboard height manager
         keyboardHeightManager = KeyboardHeightManager(this)
@@ -977,10 +977,10 @@ class AIKeyboardService : InputMethodService(),
         // Initialize advanced keyboard features
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         
-        // ✅ FIX: Check if device has vibrator and show toast if not
+        // ✅ FIX: Check if device has vibrator - but don't disable user preference
+        // User preference should remain, vibration will just be skipped if device doesn't support it
         if (vibrator == null || (vibrator?.hasVibrator() == false)) {
-            Log.w(TAG, "⚠️ Device has no vibration motor")
-            vibrationEnabled = false
+            Log.w(TAG, "⚠️ Device has no vibration motor - vibration will be skipped but user preference preserved")
             // Mark warning as shown (toast removed)
             val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("vibrator_warning_shown", false)) {
@@ -1997,16 +1997,28 @@ class AIKeyboardService : InputMethodService(),
         }
         
         if (soundEnabled) {
+            // ✅ CRITICAL: Ensure soundIntensity is not 0 when sound is enabled
+            if (soundIntensity == 0) {
+                soundIntensity = 2 // Default to medium intensity
+                Log.d(TAG, "🔊 Auto-corrected soundIntensity from 0 to 2 (medium)")
+            }
             // ✅ Update singleton with current preferences
             // SoundPool already initialized in onCreate() - just update settings
             val effectiveVolume = computeEffectiveSoundVolume()
+            // ✅ CRITICAL: Ensure volume is not 0 when sound is enabled
+            val finalVolume = if (effectiveVolume <= 0f && soundVolume > 0f) {
+                // If computed volume is 0 but base volume > 0, use base volume with medium intensity
+                (soundVolume.coerceIn(0f, 1f) * 0.8f).coerceIn(0f, 1f)
+            } else {
+                effectiveVolume
+            }
             KeyboardSoundManager.update(
                 selectedSoundProfile,
-                effectiveVolume,
+                finalVolume,
                 context = this,
                 customUri = customSoundUri
             )
-            Log.d(TAG, "🔊 SoundManager configured: profile=$selectedSoundProfile, volume=$effectiveVolume, uri=$customSoundUri")
+            Log.d(TAG, "🔊 SoundManager configured: profile=$selectedSoundProfile, volume=$finalVolume (base=$soundVolume, intensity=$soundIntensity), uri=$customSoundUri")
         } else {
             // Even when disabled, don't release - just set volume to 0
             
@@ -2016,7 +2028,9 @@ class AIKeyboardService : InputMethodService(),
 
     private fun computeEffectiveSoundVolume(): Float {
         var effective = soundVolume.coerceIn(0f, 1f)
-        effective *= when (soundIntensity) {
+        // ✅ CRITICAL: If sound is enabled but intensity is 0, default to medium (2) to prevent volume=0
+        val intensity = if (soundEnabled && soundIntensity == 0) 2 else soundIntensity
+        effective *= when (intensity) {
             0 -> 0f
             1 -> 0.5f
             2 -> 0.8f
@@ -2930,22 +2944,19 @@ class AIKeyboardService : InputMethodService(),
             val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
             
-            // Read vibration duration from Flutter (flutter.vibration.duration) or default to 50ms
-            vibrationMs = flutterPrefs.getInt("flutter.vibration.duration", 
-                         prefs.getInt("vibration_ms", 50))
+            // ✅ CRITICAL: Read vibration duration ONLY from Flutter preferences - NO fallback
+            vibrationMs = flutterPrefs.getInt("flutter.vibration_ms", 50) // Default 50ms
             
             // Read haptic intensity from Flutter (already loaded earlier as hapticIntensity variable)
             // No need to reload here as it's already in unified settings
             
-            useHapticInterface = prefs.getBoolean("use_haptic_interface", true)
+            // ✅ CRITICAL: Read useHapticInterface ONLY from Flutter preferences - NO fallback
+            useHapticInterface = flutterPrefs.getBoolean("flutter.use_haptic_interface", true)
             
-            // ✅ CRITICAL: Initialize granular vibration settings
-            keyPressVibration = flutterPrefs.getBoolean("flutter.key_press_vibration", 
-                prefs.getBoolean("key_press_vibration", unified.vibrationEnabled))
-            longPressVibration = flutterPrefs.getBoolean("flutter.long_press_vibration",
-                prefs.getBoolean("long_press_vibration", unified.vibrationEnabled))
-            repeatedActionVibration = flutterPrefs.getBoolean("flutter.repeated_action_vibration",
-                prefs.getBoolean("repeated_action_vibration", unified.vibrationEnabled))
+            // ✅ CRITICAL: Initialize granular vibration settings - ONLY from Flutter preferences, NO fallback
+            keyPressVibration = flutterPrefs.getBoolean("flutter.key_press_vibration", unified.vibrationEnabled)
+            longPressVibration = flutterPrefs.getBoolean("flutter.long_press_vibration", unified.vibrationEnabled)
+            repeatedActionVibration = flutterPrefs.getBoolean("flutter.repeated_action_vibration", unified.vibrationEnabled)
             
             // If main vibration is disabled, disable all granular settings
             if (!unified.vibrationEnabled) {
@@ -2954,30 +2965,24 @@ class AIKeyboardService : InputMethodService(),
                 repeatedActionVibration = false
             }
             
-            // ✅ CRITICAL: Read sound volume from Flutter preferences (0-100 scale, convert to 0-1)
-            val soundVolumePercent = flutterPrefs.getInt("flutter.sound_volume", 
-                if (prefs.contains("sound_volume")) {
-                    (prefs.getFloat("sound_volume", unified.soundVolume) * 100).toInt()
-                } else {
-                    50 // Default 50%
-                }
-            )
+            // ✅ CRITICAL: Read sound volume ONLY from Flutter preferences (0-100 scale, convert to 0-1) - NO fallback
+            val soundVolumePercent = flutterPrefs.getInt("flutter.sound_volume", 50) // Default 50%
             soundVolume = (soundVolumePercent / 100.0f).coerceIn(0f, 1f)
             Log.d(TAG, "🔊 Loaded sound volume: ${soundVolumePercent}% (${soundVolume})")
             soundIntensity = if (prefs.contains("sound_intensity")) {
-                prefs.getInt("sound_intensity", 2)
+                val intensity = prefs.getInt("sound_intensity", 2)
+                // ✅ CRITICAL: If sound is enabled but intensity is 0, default to medium (2)
+                if (soundEnabled && intensity == 0) 2 else intensity
             } else {
+                // ✅ CRITICAL: Default to medium (2) when sound is enabled, not 0
                 if (soundEnabled) 2 else 0
             }.coerceIn(0, 3)
             visualIntensity = prefs.getInt("visual_intensity", visualIntensity)
             
-            // ✅ CRITICAL: Initialize granular sound settings
-            keyPressSounds = flutterPrefs.getBoolean("flutter.key_press_sounds",
-                prefs.getBoolean("key_press_sounds", unified.soundEnabled))
-            longPressSounds = flutterPrefs.getBoolean("flutter.long_press_sounds",
-                prefs.getBoolean("long_press_sounds", unified.soundEnabled))
-            repeatedActionSounds = flutterPrefs.getBoolean("flutter.repeated_action_sounds",
-                prefs.getBoolean("repeated_action_sounds", unified.soundEnabled))
+            // ✅ CRITICAL: Initialize granular sound settings - ONLY from Flutter preferences, NO fallback
+            keyPressSounds = flutterPrefs.getBoolean("flutter.key_press_sounds", unified.soundEnabled)
+            longPressSounds = flutterPrefs.getBoolean("flutter.long_press_sounds", unified.soundEnabled)
+            repeatedActionSounds = flutterPrefs.getBoolean("flutter.repeated_action_sounds", unified.soundEnabled)
             
             // If main sound is disabled, disable all granular settings
             if (!unified.soundEnabled) {
@@ -3864,10 +3869,14 @@ class AIKeyboardService : InputMethodService(),
         val match = Regex("([\\p{L}']+)$").find(before)
         if (match == null) {
             Log.d(TAG, "🔍 No word found before cursor: '$before'")
-            if (code > 0) {
+            if (code == KEYCODE_SPACE) {
+                // ✅ Use double-space period logic for space even when no word found
+                commitSpaceWithDoublePeriod(ic)
+            } else if (code > 0) {
                 val charStr = String(Character.toChars(code))
                 Log.d(TAG, "💾 Committing separator: '$charStr' (code=$code)")
                 ic.commitText(charStr, 1)
+                lastSpaceTimestamp = 0L
             }
             return true
         }
@@ -4906,29 +4915,79 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun shouldInsertDoubleSpacePeriod(ic: InputConnection, now: Long): Boolean {
-        if (!doubleSpacePeriodEnabled) return false
-        if (lastSpaceTimestamp == 0L) return false
-        if (now - lastSpaceTimestamp > DOUBLE_SPACE_TIMEOUT_MS) return false
-        val before = ic.getTextBeforeCursor(5, 0)?.toString() ?: return false
-        if (!before.endsWith(" ")) return false
-        val trimmed = before.dropLastWhile { it == ' ' }
-        val precedingChar = trimmed.lastOrNull() ?: return false
-        if (!precedingChar.isLetterOrDigit()) return false
+        if (!doubleSpacePeriodEnabled) {
+            Log.d(TAG, "🔍 Double-space period: DISABLED")
+            return false
+        }
+        
+        if (lastSpaceTimestamp == 0L) {
+            Log.d(TAG, "🔍 Double-space period: No previous space timestamp")
+            return false
+        }
+        
+        val timeDiff = now - lastSpaceTimestamp
+        if (timeDiff > DOUBLE_SPACE_TIMEOUT_MS) {
+            Log.d(TAG, "🔍 Double-space period: Timeout exceeded (${timeDiff}ms > ${DOUBLE_SPACE_TIMEOUT_MS}ms)")
+            return false
+        }
+        
+        // Get more context to check for valid double-space scenario
+        val before = ic.getTextBeforeCursor(20, 0)?.toString()
+        if (before == null) {
+            Log.d(TAG, "🔍 Double-space period: Could not get text before cursor")
+            return false
+        }
+        
+        Log.d(TAG, "🔍 Double-space period: Checking text before cursor: '$before'")
+        
+        // Check if text ends with at least one space
+        if (!before.endsWith(" ")) {
+            Log.d(TAG, "🔍 Double-space period: Text does not end with space")
+            return false
+        }
+        
+        // Remove trailing spaces to find the preceding character
+        val trimmed = before.trimEnd()
+        if (trimmed.isEmpty()) {
+            Log.d(TAG, "🔍 Double-space period: Text is empty after trimming spaces")
+            return false
+        }
+        
+        val precedingChar = trimmed.last()
+        
+        // Only insert period if preceding character is a letter or digit
+        // This prevents inserting period after punctuation or other characters
+        if (!precedingChar.isLetterOrDigit()) {
+            Log.d(TAG, "🔍 Double-space period: Preceding char '$precedingChar' is not letter/digit")
+            return false
+        }
+        
+        Log.d(TAG, "✅ Double-space period: All checks passed! Time diff: ${timeDiff}ms")
         return true
     }
     
     private fun commitSpaceWithDoublePeriod(ic: InputConnection) {
         val now = SystemClock.uptimeMillis()
         val shouldConvert = shouldInsertDoubleSpacePeriod(ic, now)
+        
         if (shouldConvert) {
-            Log.d(TAG, "✍️ Double-space detected → inserting period")
-            ic.deleteSurroundingText(1, 0)
-            ic.commitText(". ", 1)
-            lastSpaceTimestamp = 0L
+            Log.d(TAG, "✍️ ✅ Double-space detected → inserting period")
+            // Delete the last space and replace with period + space
+            val deleted = ic.deleteSurroundingText(1, 0)
+            if (deleted) {
+                ic.commitText(". ", 1)
+                Log.d(TAG, "✍️ ✅ Period inserted: '. '")
+            } else {
+                // Fallback: just commit period + space
+                ic.commitText(". ", 1)
+                Log.d(TAG, "✍️ ⚠️ Could not delete previous space, inserted '. ' anyway")
+            }
+            lastSpaceTimestamp = 0L  // Reset timer after conversion
         } else {
+            // Commit space normally and arm the timer for next space
             ic.commitText(" ", 1)
             lastSpaceTimestamp = now
-            Log.d(TAG, "✍️ Space committed (timer armed)")
+            Log.d(TAG, "✍️ Space committed (timer armed: ${now}ms, enabled=$doubleSpacePeriodEnabled)")
         }
     }
 
@@ -5446,6 +5505,21 @@ class AIKeyboardService : InputMethodService(),
                 Log.d(TAG, "📳 vibrateKeyPress skipped: canVibrate=false")
                 return
             }
+            
+            // ✅ CRITICAL: Check vibration permission before attempting to vibrate
+            // On Android 13+ (API 33+), VIBRATE permission needs to be granted at runtime
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                val hasPermission = checkSelfPermission(android.Manifest.permission.VIBRATE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!hasPermission) {
+                    Log.w(TAG, "⚠️ VIBRATE permission not granted (Android 13+) - skipping vibration but keeping user preference")
+                    // Fallback to haptic feedback interface if available
+                    keyboardView?.performHapticFeedback(
+                        android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                        android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+                    )
+                    return
+                }
+            }
 
             val safeDuration = computeVibrationDuration(channel)
             if (safeDuration <= 0) {
@@ -5487,8 +5561,9 @@ class AIKeyboardService : InputMethodService(),
                 vib.vibrate(safeDuration)
             }
         } catch (e: SecurityException) {
-            Log.e(TAG, "Haptic feedback permission denied, disabling vibration", e)
-            vibrationEnabled = false
+            // ✅ CRITICAL: Don't disable vibration setting when permission denied - just skip this vibration
+            // User's preference should remain, they can grant permission later
+            Log.w(TAG, "⚠️ Vibration permission denied - skipping vibration but keeping user preference", e)
             keyboardView?.performHapticFeedback(
                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                 android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
@@ -7396,6 +7471,12 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun startVoiceInput() {
+        // Prevent duplicate starts - check if voice input is already active
+        if (VoiceInputManager.isListening()) {
+            Log.w(TAG, "Voice input already active; ignoring duplicate start request")
+            return
+        }
+        
         try {
             val intent = VoiceInputActivity.createIntent(this, currentLanguage)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -7426,27 +7507,41 @@ class AIKeyboardService : InputMethodService(),
         
         Log.d(TAG, "📝 Received voice input result: '$text' (${text.length} chars)")
         
-        // Commit immediately without delay - activity stays open
-        mainHandler.post {
-            val hasConnection = currentInputConnection != null
+        // Move heavy operations off UI thread
+        CoroutineScope(Dispatchers.Default).launch {
+            // Check connection availability on background thread
+            val hasConnection = withContext(Dispatchers.Main) {
+                currentInputConnection != null
+            }
+            
             Log.d(TAG, "Input connection available: $hasConnection")
             
             if (!hasConnection) {
                 // No connection yet, queue and retry
-                pendingVoiceResult = text
-                Log.w(TAG, "⏳ Voice result queued (no active input connection) - will retry")
-                schedulePendingVoiceFlush()
-                return@post
+                withContext(Dispatchers.Main) {
+                    pendingVoiceResult = text
+                    Log.w(TAG, "⏳ Voice result queued (no active input connection) - will retry")
+                    schedulePendingVoiceFlush()
+                }
+                return@launch
             }
             
-            val committed = commitVoiceResultInternal(text)
+            // Commit on main thread (InputConnection must be accessed on main thread)
+            val committed = withContext(Dispatchers.Main) {
+                commitVoiceResultInternal(text)
+            }
+            
             if (!committed) {
-                pendingVoiceResult = text
-                Log.w(TAG, "⏳ Voice result failed to commit - will retry")
-                schedulePendingVoiceFlush()
+                withContext(Dispatchers.Main) {
+                    pendingVoiceResult = text
+                    Log.w(TAG, "⏳ Voice result failed to commit - will retry")
+                    schedulePendingVoiceFlush()
+                }
             } else {
-                pendingVoiceResult = null
-                Log.d(TAG, "✅ Voice result committed successfully - panel stays open for next input")
+                withContext(Dispatchers.Main) {
+                    pendingVoiceResult = null
+                    Log.d(TAG, "✅ Voice result committed successfully - panel stays open for next input")
+                }
             }
         }
     }
@@ -7457,6 +7552,21 @@ class AIKeyboardService : InputMethodService(),
             // Clear any pending voice results when panel is explicitly closed
             pendingVoiceResult = null
             mainHandler.removeCallbacks(pendingVoiceFlushRunnable)
+            
+            // Mark that we're returning from voice panel to prevent height reset
+            KeyboardHeightManager.markReturningFromVoicePanel()
+            
+            // Force keyboard height recalculation instead of restoring cached value
+            CoroutineScope(Dispatchers.Default).launch {
+                delay(100) // Small delay to ensure voice panel is fully closed
+                withContext(Dispatchers.Main) {
+                    val computedHeight = keyboardHeightManager.calculateKeyboardHeight(
+                        includeToolbar = true,
+                        includeSuggestions = true
+                    )
+                    KeyboardHeightManager.applyKeyboardHeight(this@AIKeyboardService, computedHeight)
+                }
+            }
         }
     }
 
@@ -7509,11 +7619,20 @@ class AIKeyboardService : InputMethodService(),
             Log.e(TAG, "❌ Error committing voice input: ${e.message}", e)
             return false
         } finally {
-            // Update UI state after commit attempt
+            // Update UI state after commit attempt - move heavy work off main thread
             try {
-                mainHandler.post {
-                    ensureCursorStability()
-                    updateAISuggestions()
+                CoroutineScope(Dispatchers.Default).launch {
+                    // Heavy work on background thread
+                    delay(50) // Small delay to let InputConnection stabilize
+                    
+                    // UI updates on main thread
+                    withContext(Dispatchers.Main) {
+                        ensureCursorStability()
+                        // Update suggestions on background thread to avoid blocking UI
+                        CoroutineScope(Dispatchers.Default).launch {
+                            updateAISuggestions()
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error updating UI after voice commit", e)
@@ -8535,13 +8654,16 @@ class AIKeyboardService : InputMethodService(),
                     // Insert the expansion with a space
                     ic.commitText("${expansion.expansion} ", 1)
                     
+                    // ✅ Set space timestamp for double-space period detection
+                    lastSpaceTimestamp = SystemClock.uptimeMillis()
+                    
                     // ✅ Track expansion for backspace undo
                     lastExpansion = word to expansion.expansion
                     
                     // Increment usage count
                     dictionaryManager.incrementUsage(word)
                     
-                    Log.d(TAG, "✅ Dictionary expansion: $word -> ${expansion.expansion}")
+                    Log.d(TAG, "✅ Dictionary expansion: $word -> ${expansion.expansion} (space timestamp set)")
                 } else {
                     Log.w(TAG, "⚠️ Word mismatch: expected '$word' but found '$wordInText' in text field")
                     // Try alternative: finish composing and then replace

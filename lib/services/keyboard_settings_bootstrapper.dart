@@ -99,7 +99,11 @@ class KeyboardSettingsBootstrapper {
         prefs.getInt('visual_intensity'),
         FeedbackIntensity.off,
       );
-      final volume = _readDouble(prefs, 'sound_volume', 0.65).clamp(0.0, 1.0);
+      // ✅ CRITICAL: Read sound volume from flutter.sound_volume (0-100 scale) or sound_volume (0-100 scale)
+      // Convert to 0-1 scale for KeyboardFeedbackSystem
+      final soundVolumePercent = prefs.getInt('flutter.sound_volume') ?? 
+                                 (_readDouble(prefs, 'sound_volume', 50.0).toInt());
+      final volume = (soundVolumePercent / 100.0).clamp(0.0, 1.0);
 
       KeyboardFeedbackSystem.updateSettings(
         haptic: haptic,

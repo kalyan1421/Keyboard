@@ -35,12 +35,12 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   String _selectedSound = 'click.mp3'; // Default sound file name
 
   // Haptic feedback & Vibration Settings
-  bool hapticFeedback = true; // Default to true
+  bool hapticFeedback = false; // ✅ Default to false (OFF) - user must enable it
   String vibrationMode = 'Use haptic feedback interface'; // Default mode
   double vibrationDuration = 50.0; // Default 50ms
-  bool keyPressVibration = true;
-  bool longPressKeyVibration = true;
-  bool repeatedActionKeyVibration = true;
+  bool keyPressVibration = false; // ✅ Default to false
+  bool longPressKeyVibration = false; // ✅ Default to false
+  bool repeatedActionKeyVibration = false; // ✅ Default to false
 
   @override
   void dispose() {
@@ -60,21 +60,53 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       // Sound Settings - use same key as Custom_theme.dart
-      audioFeedback = prefs.getBool('audio_feedback') ?? false;
-      soundVolume = prefs.getDouble('sound_volume') ?? 50.0;
-      keyPressSounds = prefs.getBool('key_press_sounds') ?? true;
-      longPressKeySounds = prefs.getBool('long_press_key_sounds') ?? true;
-      repeatedActionKeySounds = prefs.getBool('repeated_action_key_sounds') ?? true;
+      // ✅ CRITICAL: Read from multiple keys for compatibility
+      audioFeedback = prefs.getBool('audio_feedback') ?? 
+                     prefs.getBool('sound_enabled') ?? 
+                     prefs.getBool('flutter.sound_enabled') ?? 
+                     false;
+      // ✅ CRITICAL: Read from flutter.sound_volume (0-100 INT) first, then fallback to sound_volume
+      final flutterVolume = prefs.getInt('flutter.sound_volume');
+      if (flutterVolume != null) {
+        soundVolume = flutterVolume.toDouble();
+      } else {
+        // Fallback: read sound_volume and handle both 0-1 and 0-100 scales
+        final volumeValue = prefs.getDouble('sound_volume');
+        if (volumeValue != null) {
+          soundVolume = volumeValue > 1.0 ? volumeValue : (volumeValue * 100.0);
+        } else {
+          soundVolume = 50.0; // Default 50%
+        }
+      }
+      keyPressSounds = prefs.getBool('key_press_sounds') ?? 
+                      prefs.getBool('flutter.key_press_sounds') ?? true;
+      longPressKeySounds = prefs.getBool('long_press_key_sounds') ?? 
+                          prefs.getBool('flutter.long_press_key_sounds') ?? true;
+      repeatedActionKeySounds = prefs.getBool('repeated_action_key_sounds') ?? 
+                                prefs.getBool('flutter.repeated_action_key_sounds') ?? true;
       // Use same key as Custom_theme.dart: 'selected_sound'
       _selectedSound = prefs.getString('selected_sound') ?? 'click.mp3';
       
       // Vibration Settings
-      hapticFeedback = prefs.getBool('haptic_feedback') ?? true;
+      // ✅ CRITICAL: Read from multiple keys for compatibility - default to false (OFF)
+      hapticFeedback = prefs.getBool('haptic_feedback') ?? 
+                      prefs.getBool('vibration_enabled') ?? 
+                      prefs.getBool('flutter.vibration_enabled') ?? 
+                      false; // ✅ Default to false (OFF)
       vibrationMode = prefs.getString('vibration_mode') ?? 'Use haptic feedback interface';
-      vibrationDuration = prefs.getDouble('vibration_duration') ?? 50.0;
-      keyPressVibration = prefs.getBool('key_press_vibration') ?? true;
-      longPressKeyVibration = prefs.getBool('long_press_key_vibration') ?? true;
-      repeatedActionKeyVibration = prefs.getBool('repeated_action_key_vibration') ?? true;
+      // ✅ CRITICAL: Read vibration duration from flutter.vibration_ms (INT) first, then fallback
+      final flutterVibrationMs = prefs.getInt('flutter.vibration_ms');
+      if (flutterVibrationMs != null) {
+        vibrationDuration = flutterVibrationMs.toDouble();
+      } else {
+        vibrationDuration = prefs.getDouble('vibration_duration') ?? 50.0;
+      }
+      keyPressVibration = prefs.getBool('key_press_vibration') ?? 
+                         prefs.getBool('flutter.key_press_vibration') ?? false; // ✅ Default to false
+      longPressKeyVibration = prefs.getBool('long_press_key_vibration') ?? 
+                             prefs.getBool('flutter.long_press_key_vibration') ?? false; // ✅ Default to false
+      repeatedActionKeyVibration = prefs.getBool('repeated_action_key_vibration') ?? 
+                                  prefs.getBool('flutter.repeated_action_key_vibration') ?? false; // ✅ Default to false
     });
   }
 
@@ -99,20 +131,38 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
     
     // Save Sound Settings - use same key as Custom_theme.dart
     await prefs.setBool('audio_feedback', audioFeedback);
-    await prefs.setDouble('sound_volume', soundVolume);
+    // ✅ CRITICAL: Also save to sound_enabled for Android service compatibility
+    await prefs.setBool('sound_enabled', audioFeedback);
+    await prefs.setBool('flutter.sound_enabled', audioFeedback);
+    await prefs.setDouble('sound_volume', soundVolume); // 0-100 scale
+    // ✅ CRITICAL: Also save to flutter.sound_volume as INT for Android service
+    await prefs.setInt('flutter.sound_volume', soundVolume.toInt());
     await prefs.setBool('key_press_sounds', keyPressSounds);
+    await prefs.setBool('flutter.key_press_sounds', keyPressSounds);
     await prefs.setBool('long_press_key_sounds', longPressKeySounds);
+    await prefs.setBool('flutter.long_press_key_sounds', longPressKeySounds);
     await prefs.setBool('repeated_action_key_sounds', repeatedActionKeySounds);
+    await prefs.setBool('flutter.repeated_action_key_sounds', repeatedActionKeySounds);
     // Save selected sound using same key as Custom_theme.dart
     await prefs.setString('selected_sound', _selectedSound);
     
     // Save Vibration Settings
     await prefs.setBool('haptic_feedback', hapticFeedback);
+    // ✅ CRITICAL: Also save to flutter.vibration_enabled for Android service compatibility
+    await prefs.setBool('vibration_enabled', hapticFeedback);
+    await prefs.setBool('flutter.vibration_enabled', hapticFeedback);
     await prefs.setString('vibration_mode', vibrationMode);
     await prefs.setDouble('vibration_duration', vibrationDuration);
+    // ✅ CRITICAL: Also save to flutter.vibration_ms for Android service compatibility
+    await prefs.setInt('flutter.vibration_ms', vibrationDuration.toInt());
     await prefs.setBool('key_press_vibration', keyPressVibration);
+    await prefs.setBool('flutter.key_press_vibration', keyPressVibration);
     await prefs.setBool('long_press_key_vibration', longPressKeyVibration);
+    await prefs.setBool('flutter.long_press_key_vibration', longPressKeyVibration);
     await prefs.setBool('repeated_action_key_vibration', repeatedActionKeyVibration);
+    await prefs.setBool('flutter.repeated_action_key_vibration', repeatedActionKeyVibration);
+    // ✅ CRITICAL: Save use_haptic_interface for Android service
+    await prefs.setBool('flutter.use_haptic_interface', vibrationMode == 'Use haptic feedback interface');
     
     debugPrint('✅ Sound & Vibration settings saved (selected_sound: $_selectedSound)');
     
@@ -145,13 +195,15 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   /// Send settings to native keyboard
   Future<void> _sendSettingsToKeyboard() async {
     try {
+      // ✅ CRITICAL: soundEnabled should be based on audioFeedback only
+      // Granular settings (keyPressSounds, etc.) control individual sound types, not main enabled state
       await _channel.invokeMethod('updateSettings', {
-        'soundEnabled': audioFeedback && keyPressSounds,
-        'soundVolume': soundVolume / 100.0,
+        'soundEnabled': audioFeedback, // Use audioFeedback directly, not && keyPressSounds
+        'soundVolume': soundVolume / 100.0, // Convert from 0-100 to 0-1 scale
         'keyPressSounds': keyPressSounds,
         'longPressSounds': longPressKeySounds,
         'repeatedActionSounds': repeatedActionKeySounds,
-        'vibrationEnabled': hapticFeedback && keyPressVibration,
+        'vibrationEnabled': hapticFeedback, // Use hapticFeedback directly, not && keyPressVibration
         'vibrationMs': vibrationDuration.toInt(),
         'useHapticInterface': vibrationMode == 'Use haptic feedback interface',
         'keyPressVibration': keyPressVibration,

@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:ignore="BluetoothPermission" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- ✅ Vibration permission - required for haptic feedback -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     
     <!-- Image cropping permissions -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
