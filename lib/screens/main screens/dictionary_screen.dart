@@ -662,22 +662,37 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                           if (expansionController.text.isNotEmpty &&
                               shortcutController.text.isNotEmpty) {
                             setState(() {
+                              final oldShortcut = entry.shortcut.toLowerCase();
                               final newShortcut = shortcutController.text.toLowerCase();
                               final newExpansion = expansionController.text;
                               
-                              // ✅ FIX: Remove any duplicate shortcuts before updating
+                              // ✅ FIX: Remove any duplicate shortcuts with the new shortcut (except current entry)
                               customWords.removeWhere((e) => 
                                 e.id != entry.id && 
                                 e.shortcut.toLowerCase() == newShortcut
                               );
                               
-                              // Update the entry
+                              // ✅ FIX: If shortcut changed, remove any entry with the old shortcut (including current entry)
+                              // This ensures the old shortcut is completely removed
+                              if (oldShortcut != newShortcut) {
+                                customWords.removeWhere((e) => 
+                                  e.shortcut.toLowerCase() == oldShortcut
+                                );
+                              }
+                              
+                              // Update or add the entry with new shortcut
                               int index = customWords.indexWhere((e) => e.id == entry.id);
                               if (index != -1) {
                                 customWords[index] = entry.copyWith(
                                   shortcut: newShortcut,
                                   expansion: newExpansion,
                                 );
+                              } else {
+                                // If entry was removed (because shortcut changed), add it back with new shortcut
+                                customWords.add(entry.copyWith(
+                                  shortcut: newShortcut,
+                                  expansion: newExpansion,
+                                ));
                               }
                             });
                             await _saveDictionaryEntries();

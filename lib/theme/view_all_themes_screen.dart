@@ -421,7 +421,7 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
     );
   }
 
-  // Gradient Themes
+  // Gradient Themes with Keyboard
   Widget _buildBlueGradient() {
     return Container(
       decoration: BoxDecoration(
@@ -431,6 +431,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
           end: Alignment.bottomCenter,
         ),
         borderRadius: BorderRadius.circular(6),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -445,6 +457,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
         ),
         borderRadius: BorderRadius.circular(6),
       ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -457,6 +481,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(6),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -471,6 +507,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
         ),
         borderRadius: BorderRadius.circular(6),
       ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -483,6 +531,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(6),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -497,6 +557,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
         ),
         borderRadius: BorderRadius.circular(6),
       ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -510,6 +582,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
         ),
         borderRadius: BorderRadius.circular(6),
       ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -522,6 +606,18 @@ class _ViewAllThemesScreenState extends State<ViewAllThemesScreen> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(6),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              Icons.keyboard,
+              color: Colors.white.withOpacity(0.3),
+              size: 40,
+            ),
+          ),
+        ],
       ),
     );
   }

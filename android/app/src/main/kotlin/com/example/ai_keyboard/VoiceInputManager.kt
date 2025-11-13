@@ -34,6 +34,12 @@ class VoiceInputManager(private val context: Context) {
         private const val TAG = "VoiceInputManager"
         private const val EXTERNAL_MODEL_SUBDIR = "model"
         private const val ASSET_MODEL_DIR = "model"
+        
+        // Global flag to prevent duplicate starts across all instances
+        @Volatile
+        private var isGlobalListening = false
+        
+        fun isListening(): Boolean = isGlobalListening
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -64,7 +70,8 @@ class VoiceInputManager(private val context: Context) {
     }
 
     fun startListening(languageTag: String? = null): Boolean {
-        if (listening) {
+        // Check global flag first to prevent duplicate starts across instances
+        if (isGlobalListening || listening) {
             Log.w(TAG, "Voice input already active; ignoring duplicate start.")
             return false
         }
@@ -75,6 +82,9 @@ class VoiceInputManager(private val context: Context) {
             notifyError(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
             return false
         }
+        
+        // Set global flag before starting
+        isGlobalListening = true
 
         languageTag?.takeUnless { it.isBlank() }?.let { currentLanguageTag = it }
 
@@ -92,6 +102,7 @@ class VoiceInputManager(private val context: Context) {
             }
             val started = engine.start()
             if (!started) {
+                isGlobalListening = false
                 notifyError(SpeechRecognizer.ERROR_CLIENT)
             }
             started
@@ -107,11 +118,13 @@ class VoiceInputManager(private val context: Context) {
                 true
             } catch (security: SecurityException) {
                 Log.e(TAG, "SecurityException while starting recognition", security)
+                isGlobalListening = false
                 setListening(false)
                 notifyError(SpeechRecognizer.ERROR_CLIENT)
                 false
             } catch (e: Exception) {
                 Log.e(TAG, "Unable to start voice recognition", e)
+                isGlobalListening = false
                 setListening(false)
                 notifyError(SpeechRecognizer.ERROR_CLIENT)
                 false
@@ -120,9 +133,12 @@ class VoiceInputManager(private val context: Context) {
     }
 
     fun stopListening() {
-        if (!listening) {
+        if (!listening && !isGlobalListening) {
             return
         }
+
+        // Reset global flag first
+        isGlobalListening = false
 
         if (useVosk) {
             voskEngine?.stop()
@@ -141,12 +157,16 @@ class VoiceInputManager(private val context: Context) {
     }
 
     fun destroy() {
+        // Ensure we stop listening and reset global flag
+        isGlobalListening = false
         stopListening()
+        
         if (useVosk) {
             voskEngine?.destroy()
             voskEngine = null
         } else {
             try {
+                speechRecognizer?.cancel()
                 speechRecognizer?.destroy()
             } catch (e: Exception) {
                 Log.w(TAG, "Error destroying speech recognizer", e)

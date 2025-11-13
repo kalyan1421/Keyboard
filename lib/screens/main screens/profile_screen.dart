@@ -7,6 +7,7 @@ import 'package:ai_keyboard/services/firebase_auth_service.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
 import 'package:ai_keyboard/screens/main screens/home_screen.dart';
 import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -25,16 +26,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserInfo();
   }
 
-  void _loadUserInfo() {
+  Future<void> _loadUserInfo() async {
     final user = _authService.currentUser;
+    final prefs = await SharedPreferences.getInstance();
+    
     if (user != null) {
+      // If logged in, use Firebase displayName, fallback to saved name, then email
       setState(() {
-        _displayName = user.displayName ?? user.email?.split('@').first ?? 'User';
+        _displayName = user.displayName ?? 
+                      prefs.getString('user_display_name') ?? 
+                      user.email?.split('@').first ?? 
+                      'User';
         _userEmail = user.email ?? '';
       });
     } else {
+      // If not logged in, use saved name from SharedPreferences
       setState(() {
-        _displayName = 'Guest';
+        _displayName = prefs.getString('user_display_name') ?? 'User';
         _userEmail = '';
       });
     }
@@ -44,47 +52,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleFactor = (screenSize.width + screenSize.height) / 2 / 600; // Base scale factor
+    
     return Scaffold(
       backgroundColor: AppColors.white,
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: EdgeInsets.all(16.0 * scaleFactor),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ReminderCard(
-                onUpgradeTap: () {
-                  if (!_isUserLoggedIn) {
-                    // Navigate to login screen if user is not logged in
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const LoginIllustraionScreen(),
-                      ),
-                    );
-                  } else {
-                    // TODO: Navigate to upgrade/premium screen for logged in users
-                  }
-                },
-              ),
-              const SizedBox(height: 24),
+              // _ReminderCard(
+              //   onUpgradeTap: () {
+              //     if (!_isUserLoggedIn) {
+              //       // Navigate to login screen if user is not logged in
+              //       Navigator.push(
+              //         context,
+              //         MaterialPageRoute(
+              //           builder: (context) => const LoginIllustraionScreen(),
+              //         ),
+              //       );
+              //     } else {
+              //       // TODO: Navigate to upgrade/premium screen for logged in users
+              //     }
+              //   },
+              // ),
+              SizedBox(height: 24 * scaleFactor),
               Text(
                 'Profile',
                 style: AppTextStyle.titleMedium.copyWith(
                   color: AppColors.secondary,
                 ),
               ),
-              const SizedBox(height: 12),
-              // Only show Change Profile Name if user is logged in
-              if (_isUserLoggedIn) ...[
-                _TileOption(
-                  title: 'Change Profile Name',
-                  subtitle: 'Edit or change profile name',
-                  icon: AppIcons.profile_color,
-                  onTap: () => _showChangeNameDialog(context),
-                ),
-                const SizedBox(height: 12),
-              ],
+              SizedBox(height: 12 * scaleFactor),
+              // Always show Change Profile Name option
+              _TileOption(
+                title: 'Change Profile Name',
+                subtitle: _isUserLoggedIn ? 'Edit or change profile name' : 'Set your display name',
+                icon: AppIcons.profile_color,
+                onTap: () => _showChangeNameDialog(context),
+              ),
+              SizedBox(height: 12 * scaleFactor),
               _TileOption(
                 title: 'Theme',
                 subtitle: 'Edit or change theme',
@@ -99,28 +108,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 },
                 isSvgIcon: false,
               ),
-              const SizedBox(height: 12),
-              _TileOption(
-                title: 'Your Plan',
-                subtitle: 'Premium plan was expired 9 day ago',
-                icon: AppIcons.crown_color,
-                onTap: () {},
-              ),
-              const SizedBox(height: 24),
+              SizedBox(height: 12 * scaleFactor),
+              // _TileOption(
+              //   title: 'Your Plan',
+              //   subtitle: 'Premium plan was expired 9 day ago',
+              //   icon: AppIcons.crown_color,
+              //   onTap: () {},
+              // ),
+              SizedBox(height: 24 * scaleFactor),
               Text(
                 'Other',
                 style: AppTextStyle.titleMedium.copyWith(
                   color: AppColors.secondary,
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 12 * scaleFactor),
               _TileOption(
                 title: 'Help Center',
                 subtitle: '24/7 Customer service available',
                 icon: AppIcons.help_center_icon,
                 onTap: () {},
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 12 * scaleFactor),
               _TileOption(
                 title: 'Info App',
                 subtitle: 'Edit or change theme',
@@ -134,14 +143,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               // Only show Log out and Delete Account if user is logged in
               if (_isUserLoggedIn) ...[
-                const SizedBox(height: 12),
+                SizedBox(height: 12 * scaleFactor),
                 _TileOption(
                   title: 'Log out',
                   subtitle: _userEmail,
                   icon: AppIcons.logout_icon,
                   onTap: () => _showLogoutDialog(context),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12 * scaleFactor),
                 _TileOption(
                   title: 'Delete Account',
                   subtitle: 'Delete permanently account',
@@ -149,7 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => _showDeleteDialog(context),
                 ),
               ],
-              const SizedBox(height: 24),
+              SizedBox(height: 24 * scaleFactor),
             ],
           ),
         ),
@@ -195,12 +204,15 @@ class _ReminderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleFactor = (screenSize.width + screenSize.height) / 2 / 600;
+    
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16 * scaleFactor),
       decoration: BoxDecoration(
         color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12 * scaleFactor),
         border: Border(bottom: BorderSide(color: AppColors.secondary)),
       ),
       child: Column(
@@ -214,20 +226,20 @@ class _ReminderCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 40 * scaleFactor,
+                    height: 40 * scaleFactor,
                     decoration: BoxDecoration(
                       color: AppColors.secondary.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(16 * scaleFactor),
                     ),
                     alignment: Alignment.center,
                     child: Icon(
                       Icons.notifications_none,
                       color: AppColors.secondary,
-                      size: 24,
+                      size: 24 * scaleFactor,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8 * scaleFactor),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -235,7 +247,7 @@ class _ReminderCard extends StatelessWidget {
                         'Reminder for your Premium Expired',
                         style: AppTextStyle.titleSmall,
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4 * scaleFactor),
                       SizedBox(
                         width: MediaQuery.of(context).size.width * 0.5,
                         child: Text(
@@ -243,23 +255,23 @@ class _ReminderCard extends StatelessWidget {
                           style: AppTextStyle.bodySmall,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12 * scaleFactor),
                       Align(
                         alignment: Alignment.centerLeft,
                         child: SizedBox(
-                          height: 40,
+                          height: 40 * scaleFactor,
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               elevation: 0,
                               backgroundColor: Color(0xffFFF4DE),
                               foregroundColor: AppColors.secondary,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 8,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 16 * scaleFactor,
+                                vertical: 8 * scaleFactor,
                               ),
                               shape: RoundedRectangleBorder(
                                 side: BorderSide(color: AppColors.secondary),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(8 * scaleFactor),
                               ),
                             ),
                             onPressed: onUpgradeTap,
@@ -308,18 +320,34 @@ class _TileOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleFactor = (screenSize.width + screenSize.height) / 2 / 600;
+    
     return ListTile(
       onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-      minTileHeight: 72,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 24 * scaleFactor,
+        vertical: 4 * scaleFactor,
+      ),
+      minTileHeight: 72 * scaleFactor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12 * scaleFactor),
+      ),
       tileColor: AppColors.lightGrey,
       leading: isSvgIcon
-          ? SizedBox(width: 28, height: 28, child: _SvgIcon(path: icon))
-          : Image.asset(icon, width: 24, height: 28),
+          ? SizedBox(
+              width: 28 * scaleFactor,
+              height: 28 * scaleFactor,
+              child: _SvgIcon(path: icon),
+            )
+          : Image.asset(
+              icon,
+              width: 24 * scaleFactor,
+              height: 28 * scaleFactor,
+            ),
       title: Text(title, style: AppTextStyle.headlineSmall),
       subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right),
+      trailing: Icon(Icons.chevron_right, size: 24 * scaleFactor),
     );
   }
 }
@@ -362,20 +390,23 @@ class _LogoutConfirmationDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleFactor = (screenSize.width + screenSize.height) / 2 / 600;
+    
     return Container(
       // height: 200,
       width: double.infinity,
 
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
+      padding: EdgeInsets.all(24 * scaleFactor),
+      decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(16),
-          topRight: Radius.circular(16),
+          topLeft: Radius.circular(16 * scaleFactor),
+          topRight: Radius.circular(16 * scaleFactor),
         ),
       ),
       child: Column(
-        spacing: 24,
+        spacing: 24 * scaleFactor,
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -387,22 +418,22 @@ class _LogoutConfirmationDialog extends StatelessWidget {
               color: AppColors.black,
             ),
           ),
-          // const SizedBox(height: 16),
+          // SizedBox(height: 16 * scaleFactor),
           // Confirmation message
           Text(
             'Are you sure want to log out?',
             style: AppTextStyle.bodyLarge.copyWith(color: AppColors.secondary),
             textAlign: TextAlign.center,
           ),
-          // const SizedBox(height: 24),
+          // SizedBox(height: 24 * scaleFactor),
           // Buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Cancel button
               Container(
-                height: 48,
-                width: 120,
+                height: 48 * scaleFactor,
+                width: 120 * scaleFactor,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -414,24 +445,24 @@ class _LogoutConfirmationDialog extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     // stops: [0.5, 1.0],
                   ),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(24 * scaleFactor),
                 ),
                 child: TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: TextButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(24 * scaleFactor),
                     ),
                     padding: EdgeInsets.zero,
                   ),
                   child: Text('Cancel', style: AppTextStyle.buttonPrimary),
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12 * scaleFactor),
               // Log out button
               Container(
-                height: 48,
-                width: 120,
+                height: 48 * scaleFactor,
+                width: 120 * scaleFactor,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -441,7 +472,7 @@ class _LogoutConfirmationDialog extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                   ),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(24 * scaleFactor),
                 ),
                 child: TextButton(
                   onPressed: () async {
@@ -450,7 +481,7 @@ class _LogoutConfirmationDialog extends StatelessWidget {
                   },
                   style: TextButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(24 * scaleFactor),
                     ),
                     padding: EdgeInsets.zero,
                   ),
@@ -459,7 +490,7 @@ class _LogoutConfirmationDialog extends StatelessWidget {
               ),
             ],
           ),
-          SizedBox(height: 24),
+          SizedBox(height: 24 * scaleFactor),
         ],
       ),
     );
@@ -471,19 +502,22 @@ class _DeleteConfirmationDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleFactor = (screenSize.width + screenSize.height) / 2 / 600;
+    
     return Container(
       // height: 200,
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
+      padding: EdgeInsets.all(24 * scaleFactor),
+      decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(16),
-          topRight: Radius.circular(16),
+          topLeft: Radius.circular(16 * scaleFactor),
+          topRight: Radius.circular(16 * scaleFactor),
         ),
       ),
       child: Column(
-        spacing: 24,
+        spacing: 24 * scaleFactor,
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -495,31 +529,31 @@ class _DeleteConfirmationDialog extends StatelessWidget {
               color: AppColors.black,
             ),
           ),
-          // const SizedBox(height: 16),
+          // SizedBox(height: 16 * scaleFactor),
           // Confirmation message
           Text(
             'Are you sure want to delete account?',
             style: AppTextStyle.bodyLarge.copyWith(color: AppColors.grey),
             textAlign: TextAlign.center,
           ),
-          // const SizedBox(height: 24),
+          // SizedBox(height: 24 * scaleFactor),
           // Buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Cancel button
               Container(
-                height: 48,
-                width: 120,
+                height: 48 * scaleFactor,
+                width: 120 * scaleFactor,
                 decoration: BoxDecoration(
                   border: Border.all(color: AppColors.black),
-                  borderRadius: BorderRadius.circular(8), // Square corners
+                  borderRadius: BorderRadius.circular(8 * scaleFactor), // Square corners
                 ),
                 child: TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: TextButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8), // Square corners
+                      borderRadius: BorderRadius.circular(8 * scaleFactor), // Square corners
                     ),
                     padding: EdgeInsets.zero,
                   ),
@@ -531,14 +565,14 @@ class _DeleteConfirmationDialog extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12 * scaleFactor),
               // Delete button
               Container(
-                height: 48,
-                width: 120,
+                height: 48 * scaleFactor,
+                width: 120 * scaleFactor,
                 decoration: BoxDecoration(
                   color: AppColors.secondary,
-                  borderRadius: BorderRadius.circular(8), // Square corners
+                  borderRadius: BorderRadius.circular(8 * scaleFactor), // Square corners
                 ),
                 child: TextButton(
                   onPressed: () {
@@ -548,7 +582,7 @@ class _DeleteConfirmationDialog extends StatelessWidget {
                   },
                   style: TextButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8), // Square corners
+                      borderRadius: BorderRadius.circular(8 * scaleFactor), // Square corners
                     ),
                     padding: EdgeInsets.zero,
                   ),
@@ -558,7 +592,7 @@ class _DeleteConfirmationDialog extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 24),
+          SizedBox(height: 24 * scaleFactor),
         ],
       ),
     );
@@ -579,10 +613,21 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
   @override
   void initState() {
     super.initState();
-    // Set initial value to current user's name
+    _loadInitialName();
+  }
+
+  Future<void> _loadInitialName() async {
+    final prefs = await SharedPreferences.getInstance();
     final user = _authService.currentUser;
+    
+    // Load name: Firebase displayName > Saved name > Email > Default
     if (user != null) {
-      _nameController.text = user.displayName ?? user.email?.split('@').first ?? 'User';
+      _nameController.text = user.displayName ?? 
+                            prefs.getString('user_display_name') ?? 
+                            user.email?.split('@').first ?? 
+                            'User';
+    } else {
+      _nameController.text = prefs.getString('user_display_name') ?? 'User';
     }
   }
 
@@ -605,7 +650,17 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
     }
 
     try {
-      await _authService.currentUser?.updateDisplayName(newName);
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Always save to SharedPreferences for local storage
+      await prefs.setString('user_display_name', newName);
+      
+      // If user is logged in, also update Firebase
+      final user = _authService.currentUser;
+      if (user != null) {
+        await user.updateDisplayName(newName);
+      }
+      
       if (context.mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -633,14 +688,17 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleFactor = (screenSize.width + screenSize.height) / 2 / 600;
+    
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
         width: MediaQuery.of(context).size.width * 0.9,
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24 * scaleFactor),
         decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(16 * scaleFactor),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -649,24 +707,30 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Change Profile Name',
-                  style: AppTextStyle.headlineMedium.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 24,
-                    color: AppColors.black,
+                Flexible(
+                  child: Text(
+                    'Change Profile Name',
+                    style: AppTextStyle.headlineMedium.copyWith(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20 * scaleFactor,
+                      color: AppColors.black,
+                    ),
                   ),
                 ),
                 GestureDetector(
                   onTap: () => Navigator.of(context).pop(),
                   child: Container(
-                    width: 32,
-                    height: 32,
+                    width: 32 * scaleFactor,
+                    height: 32 * scaleFactor,
                     decoration: BoxDecoration(
                       color: AppColors.lightGrey,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.close, color: AppColors.black, size: 20),
+                    child: Icon(
+                      Icons.close,
+                      color: AppColors.black,
+                      size: 20 * scaleFactor,
+                    ),
                   ),
                 ),
               ],
@@ -683,7 +747,7 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8 * scaleFactor),
             // Input field
             TextField(
               controller: _nameController,
@@ -695,34 +759,34 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
                 filled: true,
                 fillColor: AppColors.lightGrey,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(8 * scaleFactor),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 16 * scaleFactor,
+                  vertical: 12 * scaleFactor,
                 ),
               ),
               style: AppTextStyle.bodyMedium.copyWith(color: AppColors.black),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24 * scaleFactor),
             // Buttons
             Row(
               children: [
                 // Cancel button
                 Expanded(
                   child: Container(
-                    height: 48,
+                    height: 48 * scaleFactor,
                     decoration: BoxDecoration(
                       color: AppColors.white,
                       border: Border.all(color: AppColors.grey),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(24 * scaleFactor),
                     ),
                     child: TextButton(
                       onPressed: () => Navigator.of(context).pop(),
                       style: TextButton.styleFrom(
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(24 * scaleFactor),
                         ),
                         padding: EdgeInsets.zero,
                       ),
@@ -735,20 +799,20 @@ class _ChangeNameDialogState extends State<_ChangeNameDialog> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12 * scaleFactor),
                 // Save button
                 Expanded(
                   child: Container(
-                    height: 48,
+                    height: 48 * scaleFactor,
                     decoration: BoxDecoration(
                       color: AppColors.secondary,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(24 * scaleFactor),
                     ),
                     child: TextButton(
                       onPressed: () => _saveName(context),
                       style: TextButton.styleFrom(
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(24 * scaleFactor),
                         ),
                         padding: EdgeInsets.zero,
                       ),

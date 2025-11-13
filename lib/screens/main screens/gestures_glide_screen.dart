@@ -161,6 +161,11 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
       swipeVelocityThreshold = prefs.getDouble('gestures.swipe_velocity_threshold') ?? swipeVelocityThreshold;
       swipeDistanceThreshold = prefs.getDouble('gestures.swipe_distance_threshold') ?? swipeDistanceThreshold;
 
+      // ✅ If glide typing is off, turn off show glide trail
+      if (!glideTyping) {
+        showGlideTrail = false;
+      }
+
       swipeUpAction = _validateAction(prefs.getString('gestures.swipe_up_action'), swipeUpAction);
       swipeDownAction = _validateAction(prefs.getString('gestures.swipe_down_action'), swipeDownAction);
       swipeLeftAction = _validateAction(prefs.getString('gestures.swipe_left_action'), swipeLeftAction);
@@ -310,7 +315,13 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
               description: 'Enabled',
               value: glideTyping,
               onChanged: (value) {
-                setState(() => glideTyping = value);
+                setState(() {
+                  glideTyping = value;
+                  // ✅ If glide typing is turned off, automatically turn off show glide trail
+                  if (!value) {
+                    showGlideTrail = false;
+                  }
+                });
                 _saveSettings();
               },
             ),
@@ -320,29 +331,35 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
             // Show glide trail
             _buildToggleSetting(
               title: 'Show glide trail',
-              description: 'Enabled',
+              description: glideTyping ? 'Enabled' : 'Disabled (requires glide typing)',
               value: showGlideTrail,
-              onChanged: (value) {
+              onChanged: glideTyping ? (value) {
                 setState(() => showGlideTrail = value);
                 _saveSettings();
-              },
+              } : null, // Disable when glide typing is off
             ),
 
             const SizedBox(height: 12),
 
             // Glide trail fade time
-            _buildSliderSetting(
-              title: 'Glide trail fade time',
-              portraitValue: glideTrailFadeTime,
-              onPortraitChanged: (value) {
-                setState(() => glideTrailFadeTime = value);
-                _saveSettings();
-              },
-              min: 100.0,
-              max: 1000.0,
-              unit: 'ms',
-              portraitLabel: 'Time',
-              showLandscape: false,
+            Opacity(
+              opacity: glideTyping ? 1.0 : 0.5,
+              child: AbsorbPointer(
+                absorbing: !glideTyping,
+                child: _buildSliderSetting(
+                  title: 'Glide trail fade time',
+                  portraitValue: glideTrailFadeTime,
+                  onPortraitChanged: glideTyping ? (value) {
+                    setState(() => glideTrailFadeTime = value);
+                    _saveSettings();
+                  } : null, // Disable when glide typing is off
+                  min: 100.0,
+                  max: 1000.0,
+                  unit: 'ms',
+                  portraitLabel: 'Time',
+                  showLandscape: false,
+                ),
+              ),
             ),
 
             const SizedBox(height: 12),
@@ -541,43 +558,50 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
     required String title,
     required String description,
     required bool value,
-    required ValueChanged<bool> onChanged,
+    ValueChanged<bool>? onChanged,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.lightGrey,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppTextStyle.titleLarge.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
-                ),
-              ],
-            ),
+    final isEnabled = onChanged != null;
+    return Opacity(
+      opacity: isEnabled ? 1.0 : 0.5,
+      child: AbsorbPointer(
+        absorbing: !isEnabled,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.lightGrey,
+            borderRadius: BorderRadius.circular(12),
           ),
-          CustomToggleSwitch(
-            value: value,
-            onChanged: onChanged,
-            width: 48.0,
-            height: 16.0,
-            knobSize: 24.0,
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTextStyle.titleLarge.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              CustomToggleSwitch(
+                value: value,
+                onChanged: onChanged ?? (_) {}, // Provide no-op callback when disabled
+                width: 48.0,
+                height: 16.0,
+                knobSize: 24.0,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -586,7 +610,7 @@ class _GesturesGlideScreenState extends State<GesturesGlideScreen> {
     required String title,
     required double portraitValue,
     double? landscapeValue,
-    required ValueChanged<double> onPortraitChanged,
+    required ValueChanged<double>? onPortraitChanged,
     ValueChanged<double>? onLandscapeChanged,
     required double min,
     required double max,

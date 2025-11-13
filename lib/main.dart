@@ -20,6 +20,7 @@ import 'theme/theme_editor_v2.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/clipboard_service.dart';
 import 'services/keyboard_settings_bootstrapper.dart';
+import 'services/fcm_token_service.dart';
 import 'widgets/account_section.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/main%20screens/mainscreen.dart';
@@ -210,6 +211,14 @@ void main() async {
     debugPrint('✅ ClipboardService initialized');
   } catch (e) {
     debugPrint('⚠️ Error initializing ClipboardService: $e');
+  }
+
+  // Initialize FCM token service for notifications
+  try {
+    await FCMTokenService.initialize();
+    debugPrint('✅ FCMTokenService initialized');
+  } catch (e) {
+    debugPrint('⚠️ Error initializing FCMTokenService: $e');
   }
   
   runApp(const AIKeyboardApp());

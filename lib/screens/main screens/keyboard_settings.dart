@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/widgets/custom_toggle_switch.dart';
-import 'package:ai_keyboard/keyboard_feedback_system.dart';
 import 'package:ai_keyboard/services/keyboard_cloud_sync.dart';
 import 'dart:async';
 
@@ -53,33 +52,10 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
   // Feature Settings
   bool _aiSuggestionsEnabled = true;
   bool _swipeTypingEnabled = true;
-  bool _vibrationEnabled = true;
   bool _keyPreviewEnabled = false;
   bool _shiftFeedbackEnabled = false;
-  bool _soundEnabled = false;
   bool _personalizedSuggestionsEnabled = true;
   bool _autoCorrectEnabled = true; // ✅ NEW: Auto-Correct toggle
-
-  // Advanced feedback settings
-  FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
-  FeedbackIntensity _soundIntensity = FeedbackIntensity.off;
-  FeedbackIntensity _visualIntensity = FeedbackIntensity.off;
-  double _soundVolume = 0.0;
-  static const List<Map<String, String>> _soundOptions = [
-    {'value': 'silent', 'label': 'Silent'},
-    {'value': 'classic', 'label': 'Classic Click'},
-    {'value': 'pop', 'label': 'Soft Pop'},
-    {'value': 'mech', 'label': 'Mechanical'},
-    {'value': 'bubble', 'label': 'Bubble'},
-  ];
-  static const List<Map<String, String>> _effectOptions = [
-    {'value': 'none', 'label': 'None'},
-    {'value': 'ripple', 'label': 'Ripple'},
-    {'value': 'glow', 'label': 'Glow'},
-    {'value': 'bounce', 'label': 'Bounce'},
-  ];
-  String _soundType = 'silent';
-  String _effectType = 'none';
   static const double _defaultPortraitHeightPercent = 28.0;
   static const double _defaultMinGridHeightDp = 234.0;
   static const double _minGridHeightDpFloor = 140.0;
@@ -153,34 +129,13 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       // Feature Settings
       _aiSuggestionsEnabled = prefs.getBool('ai_suggestions') ?? true;
       _swipeTypingEnabled = prefs.getBool('swipe_typing') ?? true;
-      _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _keyPreviewEnabled = prefs.getBool('key_preview_enabled') ?? false;
       _shiftFeedbackEnabled = prefs.getBool('show_shift_feedback') ?? false;
-      _soundEnabled = prefs.getBool('sound_enabled') ?? true;
       _personalizedSuggestionsEnabled =
           prefs.getBool('personalized_enabled') ?? true;
       _autoCorrectEnabled =
           prefs.getBool('auto_correct') ?? true; // ✅ Load auto-correct setting
-
-      // Advanced feedback settings
-      _hapticIntensity =
-          FeedbackIntensity.values[prefs.getInt('haptic_intensity') ?? 2];
-      _soundIntensity =
-          FeedbackIntensity.values[prefs.getInt('sound_intensity') ?? 2];
-      _visualIntensity =
-          FeedbackIntensity.values[prefs.getInt('visual_intensity') ?? 0];
-      _soundVolume = prefs.getDouble('sound_volume') ?? 0.65;
-      _soundType = prefs.getString('flutter.sound.type') ?? 'default';
-      _effectType = prefs.getString('flutter.effect.type') ?? 'none';
     });
-
-    // Update feedback system
-    KeyboardFeedbackSystem.updateSettings(
-      haptic: _hapticIntensity,
-      sound: _soundIntensity,
-      visual: _visualIntensity,
-      volume: _soundVolume,
-    );
   }
 
   /// Save settings with proper debouncing
@@ -436,10 +391,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
 
     await prefs.setBool('ai_suggestions', _aiSuggestionsEnabled);
     await prefs.setBool('swipe_typing', _swipeTypingEnabled);
-    await prefs.setBool('vibration_enabled', _vibrationEnabled);
     await prefs.setBool('key_preview_enabled', _keyPreviewEnabled);
     await prefs.setBool('show_shift_feedback', _shiftFeedbackEnabled);
-    await prefs.setBool('sound_enabled', _soundEnabled);
     await prefs.setBool(
       'personalized_enabled',
       _personalizedSuggestionsEnabled,
@@ -449,23 +402,8 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       _autoCorrectEnabled,
     ); // ✅ Save auto-correct setting
 
-    await prefs.setInt('haptic_intensity', _hapticIntensity.index);
-    await prefs.setInt('sound_intensity', _soundIntensity.index);
-    await prefs.setInt('visual_intensity', _visualIntensity.index);
-    await prefs.setDouble('sound_volume', _soundVolume);
-    await prefs.setString('flutter.sound.type', _soundType);
-    await prefs.setString('flutter.effect.type', _effectType);
-
     debugPrint(
       '✅ Keyboard settings saved (fontScale portrait=${portraitScale.toStringAsFixed(2)}, landscape=${landscapeScale.toStringAsFixed(2)})',
-    );
-
-    // Update feedback system
-    KeyboardFeedbackSystem.updateSettings(
-      haptic: _hapticIntensity,
-      sound: _soundIntensity,
-      visual: _visualIntensity,
-      volume: _soundVolume,
     );
 
     await _applyOneHandedModeNative();
@@ -509,12 +447,6 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
         'dictionaryEnabled': true, // ✅ Dictionary ON
         'autoCapitalization': true,
         'doubleSpacePeriod': true,
-        'soundEnabled': _soundEnabled,
-        'soundVolume': _soundVolume,
-        'soundType': _soundType,
-        'effectType': _effectType,
-        'vibrationEnabled': _vibrationEnabled,
-        'vibrationMs': 50,
         // Advanced settings
         'numberRow': numberRow,
         'hintedSymbols': hintedSymbols,
@@ -539,14 +471,10 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
         'aiSuggestions': _aiSuggestionsEnabled,
         'autoCorrect': _autoCorrectEnabled, // ✅ Send auto-correct setting
         'swipeTyping': _swipeTypingEnabled,
-        'vibration': _vibrationEnabled,
         'keyPreview': _keyPreviewEnabled,
         'shiftFeedback': _shiftFeedbackEnabled,
         'showNumberRow': numberRow,
         'showUtilityKey': showUtilityKey, // ✅ Send utility key setting
-        'soundEnabled': _soundEnabled,
-        'soundType': _soundType,
-        'effectType': _effectType,
       });
     } catch (e) {
       debugPrint('⚠ Error sending settings: $e');
@@ -1229,74 +1157,6 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     );
   }
 
-  Widget _buildIntensitySelector(
-    String title,
-    String subtitle,
-    FeedbackIntensity value,
-    ValueChanged<FeedbackIntensity> onChanged,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.lightGrey,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: AppTextStyle.titleSmall.copyWith(
-              color: AppColors.black,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: FeedbackIntensity.values.map((intensity) {
-              final isSelected = value == intensity;
-              return GestureDetector(
-                onTap: () => onChanged(intensity),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.secondary
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isSelected ? AppColors.secondary : AppColors.grey,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    _getIntensityLabel(intensity),
-                    style: AppTextStyle.bodySmall.copyWith(
-                      color: isSelected ? AppColors.white : AppColors.grey,
-                      fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildChipSelector({
     required String title,
@@ -1370,76 +1230,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
     );
   }
 
-  Widget _buildVolumeSlider() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.lightGrey,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Sound Volume',
-            style: AppTextStyle.titleSmall.copyWith(
-              color: AppColors.black,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Adjust keyboard sound volume level',
-            style: AppTextStyle.bodySmall.copyWith(color: AppColors.grey),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Icon(Icons.volume_down, color: AppColors.grey, size: 20),
-              Expanded(
-                child: Slider(
-                  value: _soundVolume,
-                  min: 0.0,
-                  max: 1.0,
-                  divisions: 10,
-                  onChanged: (value) {
-                    setState(() => _soundVolume = value);
-                    _saveSettings();
-                  },
-                  activeColor: AppColors.secondary,
-                  inactiveColor: AppColors.white,
-                  thumbColor: AppColors.white,
-                ),
-              ),
-              const Icon(Icons.volume_up, color: AppColors.grey, size: 20),
-            ],
-          ),
-          Center(
-            child: Text(
-              '${(_soundVolume * 100).round()}%',
-              style: AppTextStyle.bodySmall.copyWith(
-                color: AppColors.black,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  String _getIntensityLabel(FeedbackIntensity intensity) {
-    switch (intensity) {
-      case FeedbackIntensity.off:
-        return 'OFF';
-      case FeedbackIntensity.light:
-        return 'Light';
-      case FeedbackIntensity.medium:
-        return 'Medium';
-      case FeedbackIntensity.strong:
-        return 'Strong';
-    }
-  }
 
   Widget _buildSideSelector() {
     return Container(

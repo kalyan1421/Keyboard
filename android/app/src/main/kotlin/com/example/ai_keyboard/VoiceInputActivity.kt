@@ -149,9 +149,11 @@ class VoiceInputActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        // Stop listening immediately when paused to prevent background processing
         if (::voiceInputManager.isInitialized) {
             voiceInputManager.stopListening()
             if (isFinishing) {
+                // Ensure complete cleanup if finishing
                 voiceInputManager.destroy()
             }
         }
@@ -159,9 +161,12 @@ class VoiceInputActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Ensure complete cleanup before destroying
         if (::voiceInputManager.isInitialized) {
+            voiceInputManager.stopListening()
             voiceInputManager.destroy()
         }
+        // Notify service that voice input is closed
         AIKeyboardService.getInstance()?.onVoiceInputClosed()
     }
 
@@ -222,6 +227,11 @@ class VoiceInputActivity : Activity() {
             
             // Reset UI and automatically start listening again for next input
             uiHandler.postDelayed({
+                // Check if activity is still valid before proceeding
+                if (isFinishing || isDestroyed) {
+                    return@postDelayed
+                }
+                
                 retryCount = 0
                 statusFromError = false
                 
@@ -230,15 +240,14 @@ class VoiceInputActivity : Activity() {
                 
                 // Auto-restart recognition after brief pause
                 uiHandler.postDelayed({
-                    if (!isFinishing && !recognitionInProgress) {
+                    if (!isFinishing && !isDestroyed && !recognitionInProgress) {
                         startRecognition()
                     }
                 }, 800) // 800ms pause before auto-restart
             }, 100)
         } else {
-            // Toast removed - voice input error logged only
-            finish()
-            overridePendingTransition(0, 0)
+            // Service not available, close activity
+            finishWithCancellation()
         }
     }
 
@@ -279,11 +288,17 @@ class VoiceInputActivity : Activity() {
     }
 
     private fun finishWithCancellation() {
+        // Stop listening and cleanup before closing
         if (::voiceInputManager.isInitialized) {
             voiceInputManager.stopListening()
+            voiceInputManager.destroy()
         }
         statusFromError = false
+        recognitionInProgress = false
         AIKeyboardService.getInstance()?.onVoiceInputClosed()
+        
+        // Properly finish the activity
+        setResult(RESULT_CANCELED)
         finish()
         overridePendingTransition(0, 0)
     }

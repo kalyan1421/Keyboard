@@ -1,6 +1,10 @@
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/notification_service.dart';
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({Key? key}) : super(key: key);
@@ -13,6 +17,7 @@ class _NotificationScreenState extends State<NotificationScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _selectedTabIndex = 0;
+  String? _deviceToken;
 
   @override
   void initState() {
@@ -22,6 +27,15 @@ class _NotificationScreenState extends State<NotificationScreen>
       setState(() {
         _selectedTabIndex = _tabController.index;
       });
+    });
+    _loadDeviceToken();
+  }
+
+  Future<void> _loadDeviceToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('fcm_token_saved');
+    setState(() {
+      _deviceToken = token;
     });
   }
 
@@ -117,35 +131,155 @@ class _NotificationScreenState extends State<NotificationScreen>
   }
 
   Widget _buildRecentActivityTab() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildNotificationSection('Today', _getTodayNotifications()),
-          _buildNotificationSection('Yesterday', _getYesterdayNotifications()),
-        ],
-      ),
+    if (_deviceToken == null) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('userNotifications')
+          .doc(_deviceToken)
+          .collection('notifications')
+          .orderBy('receivedAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        final notifications = snapshot.data?.docs ?? [];
+        if (notifications.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.notifications_none, size: 64, color: AppColors.grey),
+                const SizedBox(height: 16),
+                Text(
+                  'No notifications yet',
+                  style: AppTextStyle.titleMedium.copyWith(color: AppColors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final grouped = _groupNotificationsByDate(notifications);
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: grouped.entries.map((entry) {
+              return _buildNotificationSection(entry.key, entry.value);
+            }).toList(),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildUnreadTab() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildNotificationSection('Today', _getUnreadTodayNotifications()),
-          _buildNotificationSection(
-            'Yesterday',
-            _getUnreadYesterdayNotifications(),
+    if (_deviceToken == null) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('userNotifications')
+          .doc(_deviceToken)
+          .collection('notifications')
+          .where('isRead', isEqualTo: false)
+          .orderBy('receivedAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        final notifications = snapshot.data?.docs ?? [];
+        if (notifications.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle_outline, size: 64, color: AppColors.grey),
+                const SizedBox(height: 16),
+                Text(
+                  'No unread notifications',
+                  style: AppTextStyle.titleMedium.copyWith(color: AppColors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final grouped = _groupNotificationsByDate(notifications);
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: grouped.entries.map((entry) {
+              return _buildNotificationSection(entry.key, entry.value);
+            }).toList(),
           ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  Map<String, List<DocumentSnapshot<Map<String, dynamic>>>> _groupNotificationsByDate(
+    List<DocumentSnapshot<Map<String, dynamic>>> notifications,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    final Map<String, List<DocumentSnapshot<Map<String, dynamic>>>> grouped = {
+      'Today': [],
+      'Yesterday': [],
+      'Older': [],
+    };
+
+    for (var notification in notifications) {
+      final data = notification.data();
+      final receivedAt = data?['receivedAt'] as Timestamp?;
+      
+      if (receivedAt == null) continue;
+
+      final date = receivedAt.toDate();
+      final notificationDate = DateTime(date.year, date.month, date.day);
+
+      if (notificationDate == today) {
+        grouped['Today']!.add(notification);
+      } else if (notificationDate == yesterday) {
+        grouped['Yesterday']!.add(notification);
+      } else {
+        grouped['Older']!.add(notification);
+      }
+    }
+
+    // Remove empty groups
+    grouped.removeWhere((key, value) => value.isEmpty);
+    return grouped;
   }
 
   Widget _buildNotificationSection(
     String title,
-    List<Map<String, dynamic>> notifications,
+    List<DocumentSnapshot<Map<String, dynamic>>> notifications,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,78 +295,119 @@ class _NotificationScreenState extends State<NotificationScreen>
           ),
         ),
         ...notifications.map(
-          (notification) => _buildNotificationCard(notification),
+          (notification) => _buildNotificationCardFromDoc(notification),
         ),
       ],
     );
   }
 
-  Widget _buildNotificationCard(Map<String, dynamic> notification) {
-    bool isUnread = notification['isUnread'] ?? false;
+  Widget _buildNotificationCardFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    if (data == null) return const SizedBox.shrink();
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: isUnread
-            ? Border(bottom: BorderSide(color: AppColors.secondary, width: 3))
-            : null,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildNotificationIcon(notification['iconType']),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      notification['title'],
-                      style: AppTextStyle.titleMedium.copyWith(
-                        fontWeight: FontWeight.w600,
+    final title = data['title'] ?? 'Notification';
+    final body = data['body'] ?? '';
+    final isRead = data['isRead'] ?? false;
+    final link = data['link'] as String?;
+    final receivedAt = data['receivedAt'] as Timestamp?;
+    final iconType = NotificationService.getIconType(data);
+
+    return GestureDetector(
+      onTap: () {
+        if (!isRead) {
+          NotificationService.markAsRead(doc.id);
+        }
+        if (link != null && link.isNotEmpty) {
+          // Handle deep link navigation
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Opening: $link')),
+          );
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: !isRead
+              ? Border(bottom: BorderSide(color: AppColors.secondary, width: 3))
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildNotificationIcon(iconType),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: AppTextStyle.titleMedium.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      notification['description'],
-                      style: AppTextStyle.bodyMedium.copyWith(
-                        color: AppColors.grey,
+                      const SizedBox(height: 4),
+                      Text(
+                        body,
+                        style: AppTextStyle.bodyMedium.copyWith(
+                          color: AppColors.grey,
+                        ),
                       ),
-                    ),
-                    if (notification['hasAction'] == true) ...[
-                      const SizedBox(height: 16),
-                      _buildActionButton(notification['actionText']),
+                      if (link != null && link.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _buildActionButton('Open', link),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              Text(
-                notification['time'],
-                style: AppTextStyle.bodySmall.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w600,
+                Text(
+                  _formatTime(receivedAt),
+                  style: AppTextStyle.bodySmall.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
       ),
     );
+  }
+
+  String _formatTime(Timestamp? timestamp) {
+    if (timestamp == null) return 'Just now';
+
+    final date = timestamp.toDate();
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}min ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return DateFormat('MMM d, y').format(date);
+    }
   }
 
   Widget _buildNotificationIcon(String iconType) {
@@ -288,15 +463,21 @@ class _NotificationScreenState extends State<NotificationScreen>
     }
   }
 
-  Widget _buildActionButton(String actionText) {
+  Widget _buildActionButton(String actionText, String? link) {
     return SizedBox(
-      // width: double.infinity,
       child: ElevatedButton(
         onPressed: () {
-          // Handle action button press
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('$actionText pressed')));
+          if (link != null && link.isNotEmpty) {
+            // Handle deep link navigation
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Opening: $link')),
+            );
+            // You can add actual navigation logic here
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('$actionText pressed')),
+            );
+          }
         },
         style: ElevatedButton.styleFrom(
           elevation: 0,
@@ -318,100 +499,4 @@ class _NotificationScreenState extends State<NotificationScreen>
     );
   }
 
-  List<Map<String, dynamic>> _getTodayNotifications() {
-    return [
-      {
-        'title': 'Reminder for your Premium Expired',
-        'time': '9min ago',
-        'description':
-            'Your premium was expired, Renew or upgrade premium for better experience.',
-        'iconType': 'premium',
-        'hasAction': true,
-        'actionText': 'Upgrade Now',
-        'isUnread': false,
-      },
-      {
-        'title': 'Profile Picture was Updated',
-        'time': '14min ago',
-        'description': 'Your Profile Picture was updated with new picture',
-        'iconType': 'profile',
-        'hasAction': false,
-        'isUnread': false,
-      },
-      {
-        'title': 'Natural Theme was Launched',
-        'time': '9min ago',
-        'description': 'Experience new natural theme of keyboard',
-        'iconType': 'theme',
-        'hasAction': false,
-        'isUnread': false,
-      },
-    ];
-  }
-
-  List<Map<String, dynamic>> _getYesterdayNotifications() {
-    return [
-      {
-        'title': 'Natural Theme was Launched',
-        'time': '09:45 AM',
-        'description': 'Experience new natural theme of keyboard',
-        'iconType': 'theme',
-        'hasAction': false,
-        'isUnread': false,
-      },
-      {
-        'title': 'Red Rose Theme was updated',
-        'time': '08:11 AM',
-        'description': 'Experience new pink rose theme of keyboard',
-        'iconType': 'theme',
-        'hasAction': false,
-        'isUnread': false,
-      },
-      {
-        'title': 'Pink Rose Theme was updated',
-        'time': '07:15 AM',
-        'description': 'Experience new pink rose theme of keyboard',
-        'iconType': 'theme',
-        'hasAction': false,
-        'isUnread': false,
-      },
-    ];
-  }
-
-  List<Map<String, dynamic>> _getUnreadTodayNotifications() {
-    return [
-      {
-        'title': 'Reminder for your Premium Expired',
-        'time': '9min ago',
-        'description':
-            'Your premium was expired, Renew or upgrade premium for better experience.',
-        'iconType': 'premium',
-        'hasAction': true,
-        'actionText': 'Upgrade Now',
-        'isUnread': true,
-      },
-      {
-        'title': 'Natural Theme was Launched',
-        'time': '9min ago',
-        'description': 'Experience new natural theme of keyboard',
-        'iconType': 'theme',
-        'hasAction': true,
-        'actionText': 'Got it',
-        'isUnread': true,
-      },
-    ];
-  }
-
-  List<Map<String, dynamic>> _getUnreadYesterdayNotifications() {
-    return [
-      {
-        'title': 'Red Rose Theme was updated',
-        'time': '08:11 AM',
-        'description': 'Experience new pink rose theme of keyboard',
-        'iconType': 'theme',
-        'hasAction': false,
-        'isUnread': true,
-      },
-    ];
-  }
 }

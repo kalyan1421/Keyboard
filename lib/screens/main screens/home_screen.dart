@@ -236,8 +236,11 @@ class _HomeScreenState extends State<HomeScreen> {
   SizedBox _buildThemes(BuildContext context, double scaleFactor, Size mediaSize) {
     final double sectionSpacing = (8 * scaleFactor).clamp(6.0, 16.0);
     final double cardPadding = (12 * scaleFactor).clamp(10.0, 18.0);
-    final double cardHeight =
-        (mediaSize.height * 0.18).clamp(150.0, mediaSize.height * 0.22);
+    // ✅ FIX: Ensure min <= max for clamp - handle edge cases
+    final double calculatedHeight = mediaSize.height * 0.18;
+    final double minHeight = 120.0;
+    final double maxHeight = (mediaSize.height * 0.22).clamp(minHeight, double.infinity);
+    final double cardHeight = calculatedHeight.clamp(minHeight, maxHeight);
     final double borderRadius = (12 * scaleFactor).clamp(10.0, 18.0);
 
     Widget buildThemeCard({
@@ -317,9 +320,99 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(height: sectionSpacing),
           LayoutBuilder(
             builder: (context, constraints) {
-              final bool canShowSideBySide = constraints.maxWidth >= 360;
+              final screenWidth = constraints.maxWidth;
+              final screenHeight = MediaQuery.of(context).size.height;
+              
+              // Calculate responsive spacing based on screen size
+              final horizontalSpacing = (screenWidth * 0.04).clamp(12.0, 20.0);
+              final verticalSpacing = (screenHeight * 0.02).clamp(12.0, 20.0);
+              
+              // Determine if cards should be side-by-side based on available width
+              final bool canShowSideBySide = screenWidth >= 360;
+              
+              // Calculate responsive text size based on screen width
+              final double titleFontSize = (screenWidth * 0.055).clamp(14.0, 28.0);
+              final double priceFontSize = (screenWidth * 0.055).clamp(14.0, 28.0);
+              
+              // Calculate responsive card height based on screen size
+              // ✅ FIX: Ensure min <= max for clamp to prevent ArgumentError
+              final double sideBySideCalculated = screenHeight * 0.18;
+              final double sideBySideMin = 120.0;
+              final double sideBySideMax = (screenHeight * 0.22).clamp(sideBySideMin, double.infinity);
+              
+              final double stackedCalculated = screenHeight * 0.16;
+              final double stackedMin = 110.0;
+              final double stackedMax = (screenHeight * 0.20).clamp(stackedMin, double.infinity);
+              
+              final double responsiveCardHeight = canShowSideBySide
+                  ? sideBySideCalculated.clamp(sideBySideMin, sideBySideMax)
+                  : stackedCalculated.clamp(stackedMin, stackedMax);
+              
+              // Calculate responsive padding based on screen size
+              final double responsivePadding = (screenWidth * 0.032).clamp(10.0, 18.0);
+              final double responsiveImageSpacing = (screenHeight * 0.01).clamp(4.0, 12.0);
+              
+              Widget buildResponsiveThemeCard({
+                required VoidCallback onTap,
+                required String title,
+                required String asset,
+                required TextStyle titleStyle,
+                required Color background,
+                required Color priceColor,
+              }) {
+                return GestureDetector(
+                  onTap: onTap,
+                  child: Container(
+                    padding: EdgeInsets.all(responsivePadding),
+                    height: responsiveCardHeight,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(borderRadius),
+                      color: background,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            child: Image.asset(asset),
+                          ),
+                        ),
+                        SizedBox(height: responsiveImageSpacing),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: titleStyle.copyWith(
+                                  fontSize: titleFontSize,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            SizedBox(width: (screenWidth * 0.02).clamp(4.0, 8.0)),
+                            Text(
+                              'Free',
+                              style: AppTextStyle.buttonSecondary.copyWith(
+                                fontSize: priceFontSize,
+                                color: priceColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              
               final cards = [
-                buildThemeCard(
+                buildResponsiveThemeCard(
                   onTap: () => _applyTheme(KeyboardThemeV2.createWhiteTheme()),
                   title: 'Light',
                   asset: Appkeyboards.keyboard_white,
@@ -327,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   background: AppColors.grey.withOpacity(0.2),
                   priceColor: AppColors.secondary,
                 ),
-                buildThemeCard(
+                buildResponsiveThemeCard(
                   onTap: () => _applyTheme(KeyboardThemeV2.createDarkTheme()),
                   title: 'Dark',
                   asset: Appkeyboards.keyboard_black,
@@ -342,7 +435,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(child: cards[0]),
-                    SizedBox(width: (16 * scaleFactor).clamp(12.0, 20.0)),
+                    SizedBox(width: horizontalSpacing),
                     Expanded(child: cards[1]),
                   ],
                 );
@@ -351,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return Column(
                 children: [
                   cards[0],
-                  SizedBox(height: (16 * scaleFactor).clamp(12.0, 20.0)),
+                  SizedBox(height: verticalSpacing),
                   cards[1],
                 ],
               );

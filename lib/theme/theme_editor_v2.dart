@@ -106,7 +106,7 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
             _buildCategorySection('Colour', ['theme_yellow', 'theme_red']),
             
             // // Gradients Section
-            // _buildCategorySection('Gradients', ['theme_gradient', 'theme_galaxy']),
+            _buildCategorySection('Gradients', ['theme_gradient', 'theme_galaxy']),
             
             // // Picture Section
             // _buildCategorySection('Picture', ['theme_picture', 'theme_picture']),
@@ -188,28 +188,54 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
   Widget _buildThemeCard(KeyboardThemeV2 theme) {
     final isOwned = _ownedThemes.contains(theme.id);
     
+    // Build decoration based on background type
+    BoxDecoration decoration;
+    if (theme.background.type == 'gradient' && theme.background.gradient != null) {
+      final gradient = theme.background.gradient!;
+      decoration = BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient.colors,
+          begin: _gradientBegin(gradient.orientation),
+          end: _gradientEnd(gradient.orientation),
+          stops: gradient.stops,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      );
+    } else {
+      // Solid color background
+      final bgColor = theme.background.color ?? Colors.grey[300]!;
+      decoration = BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            bgColor,
+            bgColor.withOpacity(0.8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      );
+    }
+    
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () => _applyTheme(theme),
       child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              theme.background.color ?? Colors.grey[300]!,
-              (theme.background.color ?? Colors.grey[300]!).withOpacity(0.8),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+        decoration: decoration,
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Column(
@@ -266,6 +292,41 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
     );
   }
 
+  // Helper function to convert gradient orientation to Flutter Alignment
+  Alignment _gradientBegin(String orientation) {
+    switch (orientation) {
+      case 'LEFT_RIGHT':
+        return Alignment.centerLeft;
+      case 'TL_BR':
+        return Alignment.topLeft;
+      case 'TR_BL':
+        return Alignment.topRight;
+      case 'BR_TL':
+        return Alignment.bottomRight;
+      case 'BL_TR':
+        return Alignment.bottomLeft;
+      default:
+        return Alignment.topCenter;
+    }
+  }
+
+  Alignment _gradientEnd(String orientation) {
+    switch (orientation) {
+      case 'LEFT_RIGHT':
+        return Alignment.centerRight;
+      case 'TL_BR':
+        return Alignment.bottomRight;
+      case 'TR_BL':
+        return Alignment.bottomLeft;
+      case 'BR_TL':
+        return Alignment.topLeft;
+      case 'BL_TR':
+        return Alignment.topRight;
+      default:
+        return Alignment.bottomCenter;
+    }
+  }
+
   // Helper function to get keyboard preview based on theme ID
   Widget _getKeyboardPreview(String themeId) {
     switch (themeId) {
@@ -303,6 +364,22 @@ class _ThemeGalleryScreenState extends State<ThemeGalleryScreen> {
           fit: BoxFit.contain,
           width: double.infinity,
           height: double.infinity,
+        );
+      case 'theme_gradient':
+      case 'theme_galaxy':
+        // For gradient themes, show a keyboard icon overlay on gradient background
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Gradient background will be shown by parent container
+            Center(
+              child: Icon(
+                Icons.keyboard,
+                color: Colors.white.withOpacity(0.3),
+                size: 40,
+              ),
+            ),
+          ],
         );
       default:
         // Default fallback for themes without specific images

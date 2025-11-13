@@ -12,6 +12,12 @@ import 'package:ai_keyboard/screens/main screens/mainscreen.dart';
 import 'package:ai_keyboard/screens/main screens/choose_base_theme_screen.dart';
 import 'package:ai_keyboard/screens/main screens/button_style_selector_screen.dart'
     as button_styles;
+import 'package:ai_keyboard/screens/main screens/effect_style_selector_screen.dart'
+    as effect_styles;
+import 'package:ai_keyboard/screens/main screens/font_style_selector_screen.dart'
+    as font_styles;
+import 'package:ai_keyboard/screens/main screens/sound_style_selector_screen.dart'
+    as sound_styles;
 import 'package:ai_keyboard/widgets/font_picker.dart';
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
@@ -60,26 +66,28 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       label: 'Sparkle',
       icon: Icons.auto_awesome,
       gradientColors: [
-        Color(0xFF7F7FD5),
-        Color(0xFF86A8E7),
+        Color(0xFFFFF6C3),
+        Color(0xFFFFD452),
       ],
+      assetIcon: AppIcons.sparkle_icon,
     ),
     _EffectOption(
       id: 'stars',
-      label: 'Stars',
+      label: 'Starfall',
       icon: Icons.star,
       gradientColors: [
-        Color(0xFFFFC371),
-        Color(0xFFFF5F6D),
+        Color(0xFF89F7FE),
+        Color(0xFF66A6FF),
       ],
+      assetIcon: AppIcons.diamond_image,
     ),
     _EffectOption(
       id: 'hearts',
       label: 'Hearts',
       icon: Icons.favorite,
       gradientColors: [
-        Color(0xFFFF758C),
         Color(0xFFFF7EB3),
+        Color(0xFFFF3D68),
       ],
     ),
     _EffectOption(
@@ -90,6 +98,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
         Color(0xFF56E4FF),
         Color(0xFF5B9DF9),
       ],
+      assetIcon: AppIcons.image_icon,
     ),
     _EffectOption(
       id: 'leaves',
@@ -102,7 +111,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     ),
     _EffectOption(
       id: 'snow',
-      label: 'Snow',
+      label: 'Snowfall',
       icon: Icons.ac_unit,
       gradientColors: [
         Color(0xFF8EC5FC),
@@ -117,6 +126,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
         Color(0xFFFFF000),
         Color(0xFFFFA500),
       ],
+      assetIcon: AppIcons.sound_vibration_icon,
     ),
     _EffectOption(
       id: 'confetti',
@@ -126,6 +136,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
         Color(0xFFFF6CAB),
         Color(0xFF7366FF),
       ],
+      assetIcon: AppIcons.crown_color,
     ),
     _EffectOption(
       id: 'butterflies',
@@ -606,18 +617,27 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       _previewOverlayEntry = OverlayEntry(
         builder: (context) {
           final theme = _overlayTheme ?? _currentTheme;
-          final bottomPadding = MediaQuery.of(context).padding.bottom;
+          final controls =
+              _buildStickyControls(context: context, floating: true);
           return Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: _RealKeyboardWidget(
-              key: ValueKey('keyboard_preview_${theme.id}_${theme.keys.font.family}'),
-              theme: theme,
-              onThemeChanged: (newTheme) {
-                // Apply theme when it changes
-                ThemeManagerV2.saveThemeV2(newTheme);
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (controls != null) controls,
+                _RealKeyboardWidget(
+                  key: ValueKey(
+                    'keyboard_preview_${theme.id}_${theme.keys.font.family}',
+                  ),
+                  theme: theme,
+                  onThemeChanged: (newTheme) {
+                    // Apply theme when it changes
+                    ThemeManagerV2.saveThemeV2(newTheme);
+                  },
+                ),
+              ],
             ),
           );
         },
@@ -678,9 +698,31 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     }
   }
 
+  // Helper method to calculate responsive sizes
+  double _getResponsiveSize(BuildContext context, double baseSize, {double min = 0, double max = double.infinity}) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final scaleFactor = (screenWidth / 360).clamp(0.8, 1.5); // Base on 360dp width
+    final responsiveSize = baseSize * scaleFactor;
+    return responsiveSize.clamp(min, max);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final Widget tabContent = _tabs[_currentTabIndex].builder();
+    final mediaQuery = MediaQuery.of(context);
+    final bool isKeyboardVisible = mediaQuery.viewInsets.bottom > 0;
+    final bool canShowSticky =
+        !_currentTheme.advanced.livePreview && isKeyboardVisible;
+
+    final Widget? inlineControls = canShowSticky
+        ? _buildStickyControls(context: context, floating: true)
+        : null;
+    final double contentBottomPadding = inlineControls == null ? 32 : 180;
+    final Widget paddedTabContent = Padding(
+      padding: EdgeInsets.only(bottom: contentBottomPadding),
+      child: _tabs[_currentTabIndex].builder(),
+    );
+
     return Scaffold(
       backgroundColor: AppColors.lightGrey,
       appBar: AppBar(
@@ -699,7 +741,8 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
               style: _noShadowButtonStyle(
                 backgroundColor: AppColors.white,
                 foregroundColor: AppColors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
               child: Text(
                 'Save',
@@ -720,36 +763,57 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
           child: _buildTabNavigation(),
         ),
       ),
-      body: Column(
+      body: Stack(
         children: [
-          SizedBox(
-            height: 1,
-            child: TextField(
-              focusNode: _keyboardFocusNode,
-              autofocus: true,
-              readOnly: true,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
+          Column(
+            children: [
+              SizedBox(
+                height: 1,
+                child: TextField(
+                  focusNode: _keyboardFocusNode,
+                  autofocus: true,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  style: const TextStyle(color: Colors.transparent, fontSize: 1),
+                ),
               ),
-              style: const TextStyle(color: Colors.transparent, fontSize: 1),
-            ),
+              Expanded(
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(color: AppColors.lightGrey),
+                  child: paddedTabContent,
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: DecoratedBox(
-              decoration: const BoxDecoration(color: AppColors.lightGrey),
-              child: tabContent,
+          if (inlineControls != null)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: inlineControls,
             ),
-          ),
-          // _buildPreviewSection(),
         ],
       ),
     );
   }
 
   Widget _buildTabNavigation() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final scaleFactor = (screenWidth / 360).clamp(0.8, 1.3);
+    
+    final iconSize = (50 * scaleFactor).clamp(40.0, 60.0);
+    final iconInnerSize = (24 * scaleFactor).clamp(20.0, 28.0);
+    final borderRadius = (8 * scaleFactor).clamp(6.0, 12.0);
+    final horizontalPadding = (16 * scaleFactor).clamp(12.0, 20.0);
+    final verticalPadding = (12 * scaleFactor).clamp(8.0, 16.0);
+    final spacing = (4 * scaleFactor).clamp(2.0, 6.0);
+    final indicatorWidth = (24 * scaleFactor).clamp(20.0, 30.0);
+    final textSize = (12 * scaleFactor).clamp(10.0, 14.0);
+    
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
       color: AppColors.primary,
       child: Row(
         children: List.generate(_tabs.length, (index) {
@@ -758,39 +822,43 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
           return Expanded(
             child: GestureDetector(
               onTap: () {
-                setState(() {
-                  _currentTabIndex = index;
-                });
+                if (_currentTabIndex != index) {
+                  setState(() {
+                    _currentTabIndex = index;
+                  });
+                  _previewOverlayEntry?.markNeedsBuild();
+                }
               },
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 50,
-                    height: 50,
+                    width: iconSize,
+                    height: iconSize,
                     decoration: BoxDecoration(
                       color: isSelected ? AppColors.secondary : const Color(0xFF1C3453),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(borderRadius),
                     ),
                     child: Icon(
                       tab.icon,
                       color: isSelected ? AppColors.primary : AppColors.white,
-                      size: 24,
+                      size: iconInnerSize,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: spacing),
                   Text(
                     tab.label,
                     style: AppTextStyle.bodySmall.copyWith(
                       color: isSelected ? AppColors.secondary : AppColors.white,
                       fontWeight: FontWeight.w500,
+                      fontSize: textSize,
                     ),
                   ),
                   if (isSelected)
                     Container(
-                      margin: const EdgeInsets.only(top: 4),
+                      margin: EdgeInsets.only(top: spacing),
                       height: 2,
-                      width: 24,
+                      width: indicatorWidth,
                       decoration: BoxDecoration(
                         color: AppColors.secondary,
                         borderRadius: BorderRadius.circular(1),
@@ -803,6 +871,309 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
         }),
       ),
     );
+  }
+
+  Widget? _buildStickyControls({
+    required BuildContext context,
+    required bool floating,
+  }) {
+    final Widget? content = _buildControlContent(context);
+    if (content == null) {
+      return null;
+    }
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final verticalPadding = floating ? 8.0 : 20.0;
+    final bottomPadding = bottomInset + (floating ? 16.0 : 24.0);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(5, verticalPadding, 5, bottomPadding),
+        child: content,
+      ),
+    );
+  }
+
+  Widget? _buildControlContent(BuildContext context) {
+    if (_tabs.isEmpty) return null;
+    final label = _tabs[_currentTabIndex].label;
+    switch (label) {
+      case 'Image':
+        return _buildSliderControl(
+          context: context,
+          icon: Icons.photo_outlined,
+          title: 'Brightness',
+          value: _currentTheme.background.imageOpacity,
+          min: 0.3,
+          max: 1.0,
+          divisions: 14,
+          onChanged: (value) {
+            _updateTheme(_currentTheme.copyWith(
+              background: _currentTheme.background.copyWith(imageOpacity: value),
+            ));
+          },
+          valueLabel:
+              '${(_currentTheme.background.imageOpacity * 100).round()}%',
+        );
+      case 'Button':
+        final keyOpacity = _currentTheme.keys.bg.opacity.clamp(0.2, 1.0);
+        return _buildSliderControl(
+          context: context,
+          icon: Icons.opacity_rounded,
+          title: 'Button \nOpacity',
+          value: keyOpacity,
+          min: 0.2,
+          max: 1.0,
+          divisions: 16,
+          onChanged: (value) {
+            final bgColor = _currentTheme.keys.bg.withOpacity(value);
+            _updateTheme(_currentTheme.copyWith(
+              keys: _currentTheme.keys.copyWith(bg: bgColor),
+            ));
+          },
+          valueLabel: '${(keyOpacity * 100).round()}%',
+        );
+      case 'Effect':
+        return _buildSliderControl(
+          context: context,
+          icon: Icons.auto_awesome,
+          title: 'Effect \nOpacity',
+          value: _currentTheme.effects.opacity.clamp(0.0, 1.0),
+          min: 0.0,
+          max: 1.0,
+          divisions: 20,
+          onChanged: (value) {
+            _updateTheme(_currentTheme.copyWith(
+              effects: _currentTheme.effects.copyWith(opacity: value),
+            ));
+          },
+          valueLabel: '${(_currentTheme.effects.opacity * 100).round()}%',
+        );
+      case 'Font':
+        return _buildFontColorControl(context);
+      case 'Sound':
+        return _buildSliderControl(
+          context: context,
+          icon: Icons.volume_up_rounded,
+          title: 'Key Volume',
+          value: _currentTheme.sounds.volume.clamp(0.0, 1.0),
+          min: 0.0,
+          max: 1.0,
+          divisions: 10,
+          onChanged: (value) {
+            _updateTheme(_currentTheme.copyWith(
+              sounds: _currentTheme.sounds.copyWith(volume: value),
+            ));
+          },
+          valueLabel: '${(_currentTheme.sounds.volume * 100).round()}%',
+        );
+      case 'Stickers':
+        return _buildSliderControl(
+          context: context,
+          icon: Icons.filter_none,
+          title: 'Sticker Opacity',
+          value: _currentTheme.stickers.opacity.clamp(0.0, 1.0),
+          min: 0.0,
+          max: 1.0,
+          divisions: 20,
+          onChanged: (value) {
+            _updateTheme(_currentTheme.copyWith(
+              stickers: _currentTheme.stickers.copyWith(opacity: value),
+            ));
+          },
+          valueLabel: '${(_currentTheme.stickers.opacity * 100).round()}%',
+        );
+      default:
+        return null;
+    }
+  }
+
+  Widget _buildSliderControl({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+    int? divisions,
+    String? valueLabel,
+    Color? accentColor,
+  }) {
+    final normalizedValue = value.isNaN ? min : value.clamp(min, max);
+    final displayValue = valueLabel ?? '${(normalizedValue * 100).round()}%';
+    final color = accentColor ?? AppColors.secondary;
+
+    return _buildControlSurface(
+      child: 
+         
+          Row(
+            children: [Text(
+                  title,
+                  style: AppTextStyle.titleMedium.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: color,
+              inactiveTrackColor: color.withOpacity(0.2),
+              thumbColor: color,
+              trackHeight: 4,
+            ),
+            child: Slider(
+              value: normalizedValue,
+              onChanged: onChanged,
+              min: min,
+              max: max,
+              divisions: divisions,
+            ),
+          ),
+              Text(
+                displayValue,
+                style: AppTextStyle.titleMedium.copyWith(
+                  color: AppColors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),]),
+          
+      
+      
+    );
+  }
+
+  Widget _buildFontColorControl(BuildContext context) {
+    final currentColor = _currentTheme.keys.text;
+    final hsv = HSVColor.fromColor(currentColor);
+    final sliderValue = (hsv.hue.isNaN ? 0.0 : hsv.hue / 360).clamp(0.0, 1.0);
+    const gradientColors = [
+      Color(0xFFFF4E50),
+      Color(0xFFF9D423),
+      Color(0xFF24FE41),
+      Color(0xFF24C6DC),
+      Color(0xFF0099F7),
+      Color(0xFF8A2BE2),
+      Color(0xFFFF4E50),
+    ];
+
+    return _buildControlSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: currentColor.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.text_fields_rounded,
+                    color: AppColors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Color',
+                  style: AppTextStyle.titleMedium.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.black12),
+                  color: currentColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                height: 6,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  gradient: const LinearGradient(colors: gradientColors),
+                ),
+              ),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 0,
+                  inactiveTrackColor: Colors.transparent,
+                  activeTrackColor: Colors.transparent,
+                  thumbColor: currentColor,
+                  overlayShape: SliderComponentShape.noOverlay,
+                ),
+                child: Slider(
+                  min: 0,
+                  max: 1,
+                  value: sliderValue,
+                  onChanged: (position) {
+                    final hue =
+                        (position * 360).clamp(0.0, 360.0).toDouble();
+                    final saturation =
+                        hsv.saturation.clamp(0.4, 1.0).toDouble();
+                    final brightness =
+                        hsv.value.clamp(0.4, 1.0).toDouble();
+                    final newColor = HSVColor.fromAHSV(
+                      1,
+                      hue,
+                      saturation,
+                      brightness,
+                    ).toColor();
+                    _updateTheme(_currentTheme.copyWith(
+                      keys: _currentTheme.keys.copyWith(text: newColor),
+                    ));
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _colorToHex(currentColor),
+            style: AppTextStyle.labelMedium.copyWith(
+              color: AppColors.grey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlSurface({required Widget child}) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.black.withOpacity(0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        child: child,
+      ),
+    );
+  }
+
+  String _colorToHex(Color color) {
+    final value = color.value & 0xFFFFFF;
+    return '#${value.toRadixString(16).padLeft(6, '0').toUpperCase()}';
   }
 
   Widget _buildPreviewSection() {
@@ -1480,7 +1851,7 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
 
   Widget _buildImageTab() {
     final List<String> imageThemes = [
-      'assets/image_theme/Sky1.jpg',
+      'assets/image_theme/Sky1.png',
       'assets/image_theme/Sky2.jpg',
       'assets/image_theme/Sky3.jpg',
       'assets/image_theme/Sky4.jpg',
@@ -1495,42 +1866,6 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Brightness Control
-          _buildSection('Brightness', [
-            Row(
-              children: [
-                Expanded(
-                  child: Slider(
-                    value: _currentTheme.background.imageOpacity,
-                    min: 0.3,
-                    max: 1.0,
-                    divisions: 14,
-                    label: '${(_currentTheme.background.imageOpacity * 100).round()}%',
-                    activeColor: AppColors.secondary,
-                    onChanged: (value) {
-                      _updateTheme(_currentTheme.copyWith(
-                        background: _currentTheme.background.copyWith(imageOpacity: value),
-                      ));
-                    },
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.secondary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${(_currentTheme.background.imageOpacity * 100).round()}%',
-                    style: TextStyle(
-                      color: AppColors.secondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ]),
           // Upload Photo Section
           GestureDetector(
             onTap: _uploadCustomImageForTheme,
@@ -2429,60 +2764,33 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
   }
 
   Widget _buildEffectsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // _buildSection('Press Effect', [
-          //   DropdownButtonFormField<String>(
-          //     value: _currentTheme.effects.pressAnimation,
-          //     decoration: const InputDecoration(
-          //       labelText: 'Effect Type',
-          //       border: OutlineInputBorder(),
-          //     ),
-          //     items: const [
-          //       DropdownMenuItem(value: 'none', child: Text('None')),
-          //       DropdownMenuItem(value: 'ripple', child: Text('Ripple')),
-          //       DropdownMenuItem(value: 'bounce', child: Text('Bounce')),
-          //       DropdownMenuItem(value: 'glow', child: Text('Glow')),
-          //     ],
-          //     onChanged: (value) {
-          //       if (value != null) {
-          //         _updateTheme(_currentTheme.copyWith(
-          //           effects: _currentTheme.effects.copyWith(pressAnimation: value),
-          //         ));
-          //       }
-          //     },
-          //   ),
-          // ]),
-          const SizedBox(height: 16),
-          _buildSection('Overlay Effects', [
-            _buildEffectGrid(),
-            const SizedBox(height: 12),
-            Text(
-              'Tap an overlay to preview it. Choose “None” to keep the keyboard clean.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey[600],
-                  ),
-            ),
-          ]),
-        ],
-      ),
+    // Use the new visual effect selector without AppBar (already in a tab)
+    return effect_styles.EffectStyleSelectorScreen(
+      currentTheme: _currentTheme,
+      onThemeUpdated: (theme) {
+        _updateTheme(theme);
+      },
+      showAppBar: false,
     );
   }
 
   Widget _buildEffectGrid() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final scaleFactor = (screenWidth / 240).clamp(0.8, 1.3);
+    
+    final gridSpacing = (12 * scaleFactor).clamp(4.0, 8.0);
+    final crossAxisCount = screenWidth < 360 ? 4 : (screenWidth < 520 ? 5 : 5);
+    
     final activeEffects = _currentTheme.effects.globalEffects;
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.85,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        mainAxisSpacing: gridSpacing,
+        crossAxisSpacing: gridSpacing,
+        childAspectRatio: .55,
       ),
       itemCount: _effectOptions.length,
       itemBuilder: (context, index) {
@@ -2530,46 +2838,31 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
 
 
   Widget _buildFontTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Choose Font Style',
-            style: AppTextStyle.titleMedium.copyWith(
-              color: AppColors.black,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _fontOptions.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 5,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.85,
-            ),
-            itemBuilder: (context, index) {
-              final option = _fontOptions[index];
-              final isSelected = option.id == _selectedFontId;
-              return _buildFontOptionTile(option, isSelected);
-            },
-          ),
-          const SizedBox(height: 24),
-          _buildSection('Fine-tune Font', [
-            _buildFontSizeControl(),
-          ]),
-           const SizedBox(height: 124),
-        ],
-      ),
+    // Use the new visual font selector without AppBar (already in a tab)
+    return font_styles.FontStyleSelectorScreen(
+      currentTheme: _currentTheme,
+      onThemeUpdated: (theme) {
+        _updateTheme(theme);
+        // Update the selected font ID to match the new theme
+        _selectedFontId = _resolveFontOptionId(theme.keys.font.family);
+      },
+      showAppBar: false,
     );
   }
 
   Widget _buildFontOptionTile(_FontOption option, bool isSelected) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final scaleFactor = (screenWidth / 360).clamp(0.8, 1.3);
+    
+    final circleSize = (68 * scaleFactor).clamp(56.0, 80.0);
+    final borderWidth = isSelected ? (3 * scaleFactor).clamp(2.5, 4.0) : (2 * scaleFactor).clamp(1.5, 3.0);
+    final checkSize = (22 * scaleFactor).clamp(18.0, 26.0);
+    final checkIconSize = (14 * scaleFactor).clamp(12.0, 16.0);
+    final checkOffset = (-6 * scaleFactor).clamp(-8.0, -4.0);
+    final shadowBlur = (12 * scaleFactor).clamp(8.0, 16.0);
+    final shadowOffset = (6 * scaleFactor).clamp(4.0, 8.0);
+    final spacing = (6 * scaleFactor).clamp(4.0, 8.0);
+    
     final previewStyle = option.previewStyleBuilder(isSelected).copyWith(
       color: AppColors.black,
     );
@@ -2583,20 +2876,20 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
             children: [
               AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                width: 68,
-                height: 68,
+                width: circleSize,
+                height: circleSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white,
                   border: Border.all(
                     color: isSelected ? AppColors.secondary : Colors.transparent,
-                    width: isSelected ? 3 : 2,
+                    width: borderWidth,
                   ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.08),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
+                      blurRadius: shadowBlur,
+                      offset: Offset(0, shadowOffset),
                     ),
                   ],
                 ),
@@ -2609,21 +2902,21 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
               ),
               if (isSelected)
                 Positioned(
-                  bottom: -6,
-                  right: -6,
+                  bottom: checkOffset,
+                  right: checkOffset,
                   child: Container(
-                    width: 22,
-                    height: 22,
+                    width: checkSize,
+                    height: checkSize,
                     decoration: const BoxDecoration(
                       shape: BoxShape.circle,
                       color: AppColors.secondary,
                     ),
-                    child: const Icon(Icons.check, color: Colors.white, size: 14),
+                    child: Icon(Icons.check, color: Colors.white, size: checkIconSize),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: spacing),
           // SizedBox(
           //   width: 68,
           //   child: Text(
@@ -2865,71 +3158,13 @@ class _ThemeEditorScreenV2State extends State<ThemeEditorScreenV2>
     );
   }
   Widget _buildSoundTab() {
-    final sounds = [
-      {'icon': Icons.music_note, 'name': 'Click Classic', 'file': 'click.mp3'},
-      {'icon': Icons.music_video, 'name': 'Water Drop', 'file': 'water_drop.mp3'},
-      {'icon': Icons.volume_up, 'name': 'Pop', 'file': 'ball.mp3'},
-      {'icon': Icons.circle, 'name': 'Soft Tap', 'file': 'key_press.wav'},
-      {'icon': Icons.favorite, 'name': 'Heart Beat', 'file': 'heartbeat.mp3'},
-    ];
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1,
-      ),
-      itemCount: sounds.length,
-      itemBuilder: (context, index) {
-        final sound = sounds[index];
-        final isSelected = _selectedSound == sound['file'];
-
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              _selectedSound = sound['file'] as String;
-            });
-            _setKeyboardSound(sound['file'] as String);
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: isSelected ? Colors.blue.shade100 : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected ? Colors.blue : Colors.grey.shade300,
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  sound['icon'] as IconData,
-                  size: 32,
-                  color: isSelected ? Colors.blue : Colors.black54,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  sound['name'] as String,
-                  style: const TextStyle(fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        );
+    // Use the new visual sound selector without AppBar (already in a tab)
+    return sound_styles.SoundStyleSelectorScreen(
+      currentTheme: _currentTheme,
+      onThemeUpdated: (theme) {
+        _updateTheme(theme);
       },
+      showAppBar: false,
     );
   }
 
@@ -3247,6 +3482,9 @@ class _EffectOption {
   final IconData icon;
   final List<Color> gradientColors;
   final Color? iconColor;
+  final String? assetIcon;
+  final Color? backgroundColor;
+  final Color? borderColor;
 
   const _EffectOption({
     required this.id,
@@ -3254,6 +3492,9 @@ class _EffectOption {
     required this.icon,
     required this.gradientColors,
     this.iconColor,
+    this.assetIcon,
+    this.backgroundColor,
+    this.borderColor,
   });
 }
 
@@ -3290,14 +3531,28 @@ class _EffectOptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final scaleFactor = (screenWidth / 360).clamp(0.8, 1.3);
+    
+    final circleSize = (72 * scaleFactor).clamp(60.0, 88.0);
+    final borderWidth = (3 * scaleFactor).clamp(2.5, 4.0);
+    final borderRadius = (20 * scaleFactor).clamp(16.0, 24.0);
+    final iconSize = (28 * scaleFactor).clamp(22.0, 34.0);
+    final shadowBlur = (16 * scaleFactor).clamp(12.0, 20.0);
+    final shadowOffset = (8 * scaleFactor).clamp(6.0, 10.0);
+    final checkSize = (14 * scaleFactor).clamp(12.0, 16.0);
+    final checkPadding = (3 * scaleFactor).clamp(2.0, 4.0);
+    final checkPosition = (6 * scaleFactor).clamp(4.0, 8.0);
+    final spacing = (8 * scaleFactor).clamp(6.0, 10.0);
+    
     final colorScheme = Theme.of(context).colorScheme;
     final gradient = option.gradientColors;
     final gradientPainter = gradient.length > 1 ? LinearGradient(colors: gradient) : null;
-    final fallbackColor = gradient.first;
+    final fallbackColor = option.backgroundColor ?? gradient.first;
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(borderRadius),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -3307,58 +3562,71 @@ class _EffectOptionTile extends StatelessWidget {
               AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeInOut,
-                width: 64,
-                height: 64,
+                width: circleSize,
+                height: circleSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: gradientPainter,
                   color: gradientPainter == null ? fallbackColor : null,
                   border: Border.all(
-                    color: isSelected ? colorScheme.primary : Colors.transparent,
-                    width: 3,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : (option.borderColor ?? Colors.transparent),
+                    width: borderWidth,
                   ),
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
                             color: colorScheme.primary.withOpacity(0.28),
-                            blurRadius: 16,
-                            offset: const Offset(0, 8),
+                            blurRadius: shadowBlur,
+                            offset: Offset(0, shadowOffset),
                           ),
                         ]
                       : [],
                 ),
-                child: Icon(
-                  option.icon,
-                  color: option.iconColor ?? Colors.white,
-                  size: 28,
-                ),
+                child: option.assetIcon != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Image.asset(
+                          option.assetIcon!,
+                          fit: BoxFit.contain,
+                        ),
+                      )
+                    : Icon(
+                        option.icon,
+                        color: option.iconColor ?? Colors.white,
+                        size: iconSize,
+                      ),
               ),
               if (isSelected)
                 Positioned(
-                  right: 6,
-                  top: 6,
+                  right: checkPosition,
+                  top: checkPosition,
                   child: Container(
                     decoration: const BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    padding: const EdgeInsets.all(3),
+                    padding: EdgeInsets.all(checkPadding),
                     child: Icon(
                       Icons.check,
-                      size: 14,
+                      size: checkSize,
                       color: colorScheme.primary,
                     ),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: spacing),
           // Text(
           //   option.label,
           //   maxLines: 1,
           //   overflow: TextOverflow.ellipsis,
           //   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          //         fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          //         fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+          //         color: isSelected
+          //             ? colorScheme.primary
+          //             : AppColors.black.withOpacity(0.8),
           //       ),
           //   textAlign: TextAlign.center,
           // ),
@@ -3453,10 +3721,12 @@ extension ThemeEffectsCopyWith on ThemeEffects {
   ThemeEffects copyWith({
     String? pressAnimation,
     List<String>? globalEffects,
+    double? opacity,
   }) {
     return ThemeEffects(
       pressAnimation: pressAnimation ?? this.pressAnimation,
       globalEffects: globalEffects ?? this.globalEffects,
+      opacity: opacity ?? this.opacity,
     );
   }
 }
@@ -3697,11 +3967,13 @@ class _RealKeyboardWidgetState extends State<_RealKeyboardWidget> {
             ),
             // Spacer to push keyboard to bottom
             if (!_keyboardVisible)
-              SizedBox(
+              Row(children: [
+                Text('Hello'),
+                SizedBox(
                 height: MediaQuery.of(context).viewInsets.bottom > 0 
                     ? 0 
                     : 300, // Approximate keyboard height when not visible
-              ),
+              ),])
           ],
         ),
       ),

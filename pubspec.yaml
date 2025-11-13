@@ -33,6 +33,7 @@ dependencies:
   shared_preferences: ^2.2.2
   http: ^1.0.0
   json_annotation: ^4.8.1
+  intl: ^0.19.0
   
   # Advanced animation and feedback dependencies
   audioplayers: ^6.0.0 # For sound feedback
@@ -57,6 +58,7 @@ dependencies:
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.3
   firebase_storage: ^12.3.3
+  firebase_messaging: ^15.1.3
   google_sign_in: ^6.2.1
   flutter_colorpicker: ^1.1.0
 

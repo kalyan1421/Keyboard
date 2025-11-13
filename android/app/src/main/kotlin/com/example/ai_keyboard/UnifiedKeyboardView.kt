@@ -71,8 +71,17 @@ class KeyboardHeightManager(private val context: Context) {
         private const val SUGGESTION_BAR_HEIGHT_DP = 40
         private var lastHeight = 0
         private var cachedHeight = 0
+        @Volatile
+        private var isReturningFromVoicePanel = false
 
         fun applyKeyboardHeight(context: Context, newHeight: Int) {
+            // Prevent height restoration when returning from voice panel
+            if (isReturningFromVoicePanel) {
+                Log.d(TAG, "⏸️ Skipping height update (returning from voice panel)")
+                isReturningFromVoicePanel = false
+                return
+            }
+            
             val prefs = context.getSharedPreferences("KeyboardHeightPrefs", Context.MODE_PRIVATE)
             val displayMetrics = context.resources.displayMetrics
             val minHeight = (displayMetrics.heightPixels * 0.32).toInt()
@@ -92,6 +101,17 @@ class KeyboardHeightManager(private val context: Context) {
             cachedHeight = finalHeight
             prefs.edit().putInt("last_keyboard_height", finalHeight).apply()
             Log.d(TAG, "📐 Applied keyboard height: $finalHeight px")
+        }
+        
+        fun markReturningFromVoicePanel() {
+            isReturningFromVoicePanel = true
+            Log.d(TAG, "🏷️ Marked as returning from voice panel - will skip next height update")
+        }
+        
+        fun invalidateCache() {
+            cachedHeight = 0
+            lastHeight = 0
+            Log.d(TAG, "🔄 Keyboard height cache invalidated")
         }
 
         fun getSavedHeight(context: Context): Int {
@@ -2368,6 +2388,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private var selectedAccentIndex = -1
         private var activeAccentKey: DynamicKey? = null
         private var activeAccentOptions: List<String> = emptyList()
+        
+        // Key preview popup handling
+        private var keyPreviewHandler = Handler(Looper.getMainLooper())
+        private var keyPreviewRunnable: Runnable? = null
+        private var currentPreviewKey: DynamicKey? = null
+        private val POPUP_SHOW_DELAY_MS = 5L // Small delay before showing popup (like Gboard)
 
         fun setInstantLongPressSelectFirst(enabled: Boolean) {
             instantLongPressSelectFirst = enabled
@@ -2391,15 +2417,50 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         fun setPreviewEnabled(enabled: Boolean) {
             keyPreviewEnabled = enabled
             if (!enabled) {
+                cancelKeyPreview()
                 hideKeyPreview()
             }
             Log.d(TAG, "Key preview enabled: $enabled")
         }
         
         /**
-         * ✅ NEW: Show key preview popup for a key
+         * Cancel scheduled key preview
          */
-        private fun showKeyPreview(key: DynamicKey) {
+        private fun cancelKeyPreview() {
+            keyPreviewRunnable?.let { keyPreviewHandler.removeCallbacks(it) }
+            keyPreviewRunnable = null
+            currentPreviewKey = null
+        }
+        
+        /**
+         * ✅ NEW: Schedule key preview popup with delay (like Gboard)
+         */
+        private fun scheduleKeyPreview(key: DynamicKey) {
+            if (!keyPreviewEnabled) return
+            
+            // Skip preview for special keys
+            val keyType = getKeyTypeFromCode(key.code)
+            if (keyType in setOf("space", "enter", "shift", "backspace", "symbols", "emoji", "mic", "globe")) {
+                return
+            }
+            
+            // Cancel any existing preview
+            cancelKeyPreview()
+            currentPreviewKey = key
+            
+            // Schedule preview with small delay
+            keyPreviewRunnable = Runnable {
+                if (currentPreviewKey == key && keyPreviewEnabled) {
+                    showKeyPreviewNow(key)
+                }
+            }
+            keyPreviewHandler.postDelayed(keyPreviewRunnable!!, POPUP_SHOW_DELAY_MS)
+        }
+        
+        /**
+         * ✅ NEW: Show key preview popup for a key (actual implementation)
+         */
+        private fun showKeyPreviewNow(key: DynamicKey) {
             if (!keyPreviewEnabled) return
             
             // Skip preview for special keys
@@ -2414,11 +2475,18 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 // Create popup window if needed or update theme if changed
                 if (keyPreviewPopup == null) {
                     keyPreviewText = TextView(context).apply {
-                        textSize = 24f
+                        textSize = 28f // Slightly larger for clarity
                         gravity = Gravity.CENTER
                         setTextColor(palette.keyText)
-                        setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+                        setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(16))
                         setTypeface(null, android.graphics.Typeface.BOLD)
+                    }
+                    
+                    // Create rounded background drawable (like Gboard)
+                    val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = dpToPx(8).toFloat()
+                        setColor(palette.keyBg)
+                        setStroke(dpToPx(2), palette.keyBorderColor)
                     }
                     
                     keyPreviewPopup = PopupWindow(
@@ -2430,21 +2498,24 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                         inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
                         isTouchable = false
                         isFocusable = false
-                        elevation = 12f
-                        
-                        // Set background with theme colors - match keyboard key style
-                        contentView.background = themeManager.createKeyDrawable()
+                        elevation = 16f // Higher elevation for better visibility
+                        setBackgroundDrawable(backgroundDrawable)
                     }
                 } else {
                     // Update theme colors if popup already exists
                     keyPreviewText?.setTextColor(palette.keyText)
-                    keyPreviewPopup?.contentView?.background = themeManager.createKeyDrawable()
+                    val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = dpToPx(8).toFloat()
+                        setColor(palette.keyBg)
+                        setStroke(dpToPx(2), palette.keyBorderColor)
+                    }
+                    keyPreviewPopup?.setBackgroundDrawable(backgroundDrawable)
                 }
                 
                 // Update preview text - just use the key label as-is
                 keyPreviewText?.text = key.label
                 
-                // Calculate position - center above the key
+                // Calculate position - center above the key, closer (like Gboard)
                 val location = IntArray(2)
                 this.getLocationInWindow(location)
                 
@@ -2453,11 +2524,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
                 )
-                val popupWidth = keyPreviewText?.measuredWidth ?: dpToPx(56)
-                val popupHeight = keyPreviewText?.measuredHeight ?: dpToPx(64)
+                val popupWidth = keyPreviewText?.measuredWidth ?: dpToPx(64)
+                val popupHeight = keyPreviewText?.measuredHeight ?: dpToPx(72)
                 
+                // Position closer to key (like Gboard) - only 4dp above
                 val popupX = location[0] + key.x + (key.width / 2) - (popupWidth / 2)
-                val popupY = location[1] + key.y - popupHeight - dpToPx(12)
+                val popupY = location[1] + key.y - popupHeight - dpToPx(4)
                 
                 // Show popup
                 if (!keyPreviewPopup!!.isShowing) {
@@ -2479,7 +2551,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
          */
         private fun hideKeyPreview() {
             try {
+                cancelKeyPreview()
                 keyPreviewPopup?.dismiss()
+                currentPreviewKey = null
             } catch (e: Exception) {
                 // Ignore dismissal errors
             }
@@ -2906,18 +2980,20 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             progress: Float
         ) {
             if (state.overlays.isEmpty()) return
+            val opacity = palette.globalEffectsOpacity.coerceIn(0f, 1f)
+            if (opacity <= 0f) return
             state.overlays.forEach { (effect, elements) ->
                 when (effect) {
-                    "stars" -> drawStarOverlay(canvas, keyRect, palette.specialAccent, elements, progress, sparkle = false)
-                    "sparkles" -> drawStarOverlay(canvas, keyRect, Color.WHITE, elements, progress, sparkle = true)
-                    "hearts" -> drawHeartOverlay(canvas, keyRect, elements, progress)
-                    "bubbles" -> drawBubbleOverlay(canvas, keyRect, elements, progress)
-                    "leaves" -> drawLeafOverlay(canvas, keyRect, elements, progress)
-                    "snow" -> drawSnowOverlay(canvas, keyRect, elements, progress)
-                    "lightning" -> drawLightningOverlay(canvas, keyRect, elements, progress)
-                    "confetti" -> drawConfettiOverlay(canvas, keyRect, elements, progress)
-                    "butterflies" -> drawButterflyOverlay(canvas, keyRect, elements, progress)
-                    "rainbow" -> drawRainbowOverlay(canvas, keyRect, elements, progress)
+                    "stars" -> drawStarOverlay(canvas, keyRect, palette.specialAccent, elements, progress, sparkle = false, opacity = opacity)
+                    "sparkles" -> drawStarOverlay(canvas, keyRect, Color.WHITE, elements, progress, sparkle = true, opacity = opacity)
+                    "hearts" -> drawHeartOverlay(canvas, keyRect, elements, progress, opacity)
+                    "bubbles" -> drawBubbleOverlay(canvas, keyRect, elements, progress, opacity)
+                    "leaves" -> drawLeafOverlay(canvas, keyRect, elements, progress, opacity)
+                    "snow" -> drawSnowOverlay(canvas, keyRect, elements, progress, opacity)
+                    "lightning" -> drawLightningOverlay(canvas, keyRect, elements, progress, opacity)
+                    "confetti" -> drawConfettiOverlay(canvas, keyRect, elements, progress, opacity)
+                    "butterflies" -> drawButterflyOverlay(canvas, keyRect, elements, progress, opacity)
+                    "rainbow" -> drawRainbowOverlay(canvas, keyRect, elements, progress, opacity)
                 }
             }
         }
@@ -2928,15 +3004,17 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             baseColor: Int,
             elements: List<OverlayElement>,
             progress: Float,
-            sparkle: Boolean
+            sparkle: Boolean,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val baseAlpha = if (sparkle) 170 else 210
             val alpha = (baseAlpha * (1f - progress)).toInt().coerceIn(0, baseAlpha)
-            if (alpha <= 0) return
+            val scaledAlpha = (alpha * opacity).toInt().coerceIn(0, alpha)
+            if (scaledAlpha <= 0) return
 
             elements.forEach { element ->
-                val tint = ColorUtils.setAlphaComponent(element.color ?: baseColor, alpha)
+                val tint = ColorUtils.setAlphaComponent(element.color ?: baseColor, scaledAlpha)
                 overlayPaint.color = tint
                 canvas.save()
                 val cx = keyRect.centerX() + element.dx
@@ -2953,14 +3031,16 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val alpha = (200 * (1f - progress)).toInt().coerceIn(0, 200)
-            if (alpha <= 0) return
+            val scaledAlpha = (alpha * opacity).toInt().coerceIn(0, alpha)
+            if (scaledAlpha <= 0) return
 
             elements.forEach { element ->
-                val color = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FF7AAE"), alpha)
+                val color = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FF7AAE"), scaledAlpha)
                 overlayPaint.color = color
                 canvas.save()
                 val cx = keyRect.centerX() + element.dx
@@ -2977,11 +3057,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             elements.forEach { element ->
-                val alpha = (150 * (1f - progress)).toInt().coerceIn(0, 170)
+                val baseAlpha = (150 * (1f - progress)).toInt().coerceIn(0, 170)
+                val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                 val color = ColorUtils.setAlphaComponent(element.color ?: ColorUtils.setAlphaComponent(Color.WHITE, 200), alpha)
                 overlayPaint.color = color
                 val radius = element.size * (1f + progress * 0.18f)
@@ -2993,13 +3075,15 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val path = Path()
             elements.forEach { element ->
                 val baseColor = element.color ?: Color.parseColor("#4CAF50")
-                val alpha = (200 * (1f - progress)).toInt().coerceIn(0, 255)
+                val baseAlpha = (200 * (1f - progress)).toInt().coerceIn(0, 255)
+                val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                 overlayPaint.style = Paint.Style.FILL
                 overlayPaint.color = ColorUtils.setAlphaComponent(baseColor, alpha)
                 canvas.save()
@@ -3022,7 +3106,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val strokePaint = Paint(overlayPaint).apply {
@@ -3033,7 +3118,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
             elements.forEach { element ->
                 val baseColor = element.color ?: Color.WHITE
-                val alpha = (210 * (1f - progress)).toInt().coerceIn(0, 220)
+                val baseAlpha = (210 * (1f - progress)).toInt().coerceIn(0, 220)
+                val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                 overlayPaint.style = Paint.Style.FILL
                 overlayPaint.color = ColorUtils.setAlphaComponent(baseColor, alpha)
                 val cx = keyRect.centerX() + element.dx
@@ -3054,7 +3140,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val path = Path()
@@ -3063,7 +3150,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             overlayPaint.strokeJoin = Paint.Join.ROUND
 
             elements.forEach { element ->
-                val alpha = (235 * (1f - progress)).toInt().coerceIn(0, 235)
+                val baseAlpha = (235 * (1f - progress)).toInt().coerceIn(0, 235)
+                val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                 overlayPaint.color = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FFD740"), alpha)
                 overlayPaint.strokeWidth = element.size * 0.18f
 
@@ -3095,11 +3183,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             elements.forEach { element ->
-                val alpha = (210 * (1f - progress)).toInt().coerceIn(0, 220)
+                val baseAlpha = (210 * (1f - progress)).toInt().coerceIn(0, 220)
+                val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                 val color = ColorUtils.setAlphaComponent(element.color ?: Color.WHITE, alpha)
                 overlayPaint.style = Paint.Style.FILL
                 overlayPaint.color = color
@@ -3127,7 +3217,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val wingPaint = Paint(overlayPaint)
@@ -3138,7 +3229,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             val wingPath = Path()
 
             elements.forEach { element ->
-                val alpha = (200 * (1f - progress)).toInt().coerceIn(0, 200)
+                val baseAlpha = (200 * (1f - progress)).toInt().coerceIn(0, 200)
+                val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                 val wingColor = ColorUtils.setAlphaComponent(element.color ?: Color.parseColor("#FFB6C1"), alpha)
                 wingPaint.style = Paint.Style.FILL
                 wingPaint.color = wingColor
@@ -3185,7 +3277,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             canvas: Canvas,
             keyRect: RectF,
             elements: List<OverlayElement>,
-            progress: Float
+            progress: Float,
+            opacity: Float
         ) {
             if (elements.isEmpty()) return
             val colors = intArrayOf(
@@ -3217,7 +3310,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     if (radius <= 0f) return@forEachIndexed
 
                     strokePaint.strokeWidth = thickness * 0.8f
-                    val alpha = (210 * (1f - progress)).toInt().coerceIn(0, 210)
+                    val baseAlpha = (210 * (1f - progress)).toInt().coerceIn(0, 210)
+                    val alpha = (baseAlpha * opacity).toInt().coerceIn(0, baseAlpha)
                     strokePaint.color = ColorUtils.setAlphaComponent(color, alpha)
                     val arcRect = RectF(-radius, -radius, radius, radius)
                     canvas.drawArc(arcRect, 200f, 140f, false, strokePaint)
@@ -3837,7 +3931,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateStarOverlay(keyRect: RectF, sparkle: Boolean): List<OverlayElement> {
-            val count = if (sparkle) 7 else 5
+            val count = if (sparkle) 11 else 8
             val spread = max(keyRect.width(), keyRect.height())
             val minSize = min(keyRect.width(), keyRect.height()) * (if (sparkle) 0.12f else 0.18f)
             val maxSize = min(keyRect.width(), keyRect.height()) * (if (sparkle) 0.22f else 0.28f)
@@ -3855,7 +3949,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateHeartOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 6
+            val count = 9
             val spread = max(keyRect.width(), keyRect.height())
             val minSize = min(keyRect.width(), keyRect.height()) * 0.22f
             val maxSize = min(keyRect.width(), keyRect.height()) * 0.3f
@@ -3879,7 +3973,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateBubbleOverlay(keyRect: RectF, palette: ThemePaletteV2): List<OverlayElement> {
-            val count = 6
+            val count = 9
             val spread = max(keyRect.width(), keyRect.height())
             val minRadius = min(keyRect.width(), keyRect.height()) * 0.18f
             val maxRadius = min(keyRect.width(), keyRect.height()) * 0.26f
@@ -3898,7 +3992,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateLeafOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 6
+            val count = 9
             val spread = max(keyRect.width(), keyRect.height())
             val minSize = min(keyRect.width(), keyRect.height()) * 0.2f
             val maxSize = min(keyRect.width(), keyRect.height()) * 0.32f
@@ -3923,7 +4017,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateSnowOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 5
+            val count = 8
             val spread = max(keyRect.width(), keyRect.height())
             val minSize = min(keyRect.width(), keyRect.height()) * 0.22f
             val maxSize = min(keyRect.width(), keyRect.height()) * 0.32f
@@ -3940,7 +4034,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateLightningOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 3
+            val count = 5
             val spread = max(keyRect.width(), keyRect.height()) * 0.5f
             val palette = intArrayOf(
                 Color.parseColor("#FFD740"),
@@ -3970,7 +4064,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateConfettiOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 10
+            val count = 14
             val spread = max(keyRect.width(), keyRect.height())
             val palette = intArrayOf(
                 Color.parseColor("#FF6F61"),
@@ -3995,7 +4089,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateButterflyOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 4
+            val count = 6
             val spread = max(keyRect.width(), keyRect.height()) * 0.9f
             val minSize = min(keyRect.width(), keyRect.height()) * 0.22f
             val maxSize = min(keyRect.width(), keyRect.height()) * 0.32f
@@ -4019,7 +4113,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun generateRainbowOverlay(keyRect: RectF): List<OverlayElement> {
-            val count = 2
+            val count = 3
             val spread = max(keyRect.width(), keyRect.height()) * 0.6f
 
             return List(count) {
@@ -4224,6 +4318,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    // ✅ Hide key preview on move (like Gboard)
+                    hideKeyPreview()
+                    
                     if (!swipeEligibleForCurrentGesture || !parentView.swipeEnabled) {
                         return true
                     }
@@ -4258,17 +4355,24 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     
                     if (swipeEligibleForCurrentGesture && isSwipeActive && fingerPoints.size > 1) {
                         completeSwipe()
-                    } else if (key != null && !isSwipeActive && accentPopup?.isShowing != true) {
-                        // Handle tap (only if no popup is showing)
+                    } else if (key != null && !isSwipeActive) {
+                        // ✅ Handle tap - handleKeyUp will check if popup is showing and insert selected option
                         handleKeyUp(key)
                         fingerPoints.clear()
                         invalidate()
                     } else {
+                        // ✅ If popup is showing but key is null, still handle release
+                        if (accentPopup?.isShowing == true && activeAccentKey != null) {
+                            handleKeyUp(activeAccentKey!!)
+                        }
                         fingerPoints.clear()
                         invalidate()
                     }
 
-                    cancelLongPressInternal()
+                    // Only cancel long press if popup is not showing (popup handles its own cleanup)
+                    if (accentPopup?.isShowing != true) {
+                        cancelLongPressInternal()
+                    }
                     isSwipeActive = false
                     swipeEligibleForCurrentGesture = false
                     true
@@ -4506,8 +4610,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun handleKeyDown(key: DynamicKey) {
-            // ✅ NEW: Show key preview popup
-            showKeyPreview(key)
+            // ✅ NEW: Schedule key preview popup with delay (like Gboard)
+            scheduleKeyPreview(key)
             
             // Special handling for delete key - enable continuous repeat
             if (key.keyType == "backspace") {
@@ -4539,9 +4643,16 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 return
             }
             
-            // Long press handling for accent options
-            if (!key.longPressOptions.isNullOrEmpty()) {
-                longPressRunnable = Runnable { showAccentOptions(key) }
+            // Long press handling for accent options and number keys
+            val hasLongPressOptions = !key.longPressOptions.isNullOrEmpty()
+            val hasNumberHint = !key.hintLabel.isNullOrEmpty() && key.hintLabel?.trim()?.all { it.isDigit() } == true
+            
+            if (hasLongPressOptions || hasNumberHint) {
+                longPressRunnable = Runnable { 
+                    // ✅ Hide key preview when longpress triggers
+                    hideKeyPreview()
+                    showAccentOptions(key) 
+                }
                 longPressHandler.postDelayed(longPressRunnable!!, longPressDelayMs)
             }
         }
@@ -4561,8 +4672,24 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 return
             }
             
-            cancelLongPressInternal()
-            if (accentPopup?.isShowing != true) {
+            // ✅ If popup is showing, insert the selected option (or number if auto-selected)
+            if (accentPopup?.isShowing == true && activeAccentKey == key) {
+                val selectedOption = activeAccentOptions.getOrNull(selectedAccentIndex)
+                val charCode = selectedOption?.firstOrNull()?.code
+                
+                if (charCode != null) {
+                    onKeyCallback?.invoke(charCode, intArrayOf(charCode))
+                    hideAccentPopup()
+                    startTapEffect(key)
+                } else {
+                    // Fallback to default key if no selection
+                    onKeyCallback?.invoke(key.code, intArrayOf(key.code))
+                    hideAccentPopup()
+                    startTapEffect(key)
+                }
+            } else {
+                // Normal tap - insert the letter
+                cancelLongPressInternal()
                 onKeyCallback?.invoke(key.code, intArrayOf(key.code))
                 startTapEffect(key)
             }
@@ -4571,6 +4698,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private fun cancelLongPressInternal() {
             cancelLongPressTimer()
             hideAccentPopup()
+            // ✅ Also hide key preview when longpress is cancelled
+            hideKeyPreview()
         }
 
         private fun cancelLongPressTimer() {
@@ -4596,13 +4725,32 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun showAccentOptions(key: DynamicKey) {
-            val options = key.longPressOptions ?: return
-            if (options.isEmpty()) return
+            // Build list of all available options: letter + number (if exists) + longPressOptions
+            val allOptions = mutableListOf<String>()
+            
+            // Add the main letter/label first
+            allOptions.add(key.label)
+            
+            // Add number (hintLabel) if it exists
+            val numberHint = key.hintLabel?.trim()
+            if (!numberHint.isNullOrEmpty() && numberHint.all { it.isDigit() }) {
+                allOptions.add(numberHint)
+            }
+            
+            // Add long-press options (accent variants, etc.)
+            key.longPressOptions?.forEach { option ->
+                if (!allOptions.contains(option)) {
+                    allOptions.add(option)
+                }
+            }
+            
+            // If no options to show, return
+            if (allOptions.isEmpty()) return
 
             // Dismiss any existing popup
             hideAccentPopup()
             activeAccentKey = key
-            activeAccentOptions = options
+            activeAccentOptions = allOptions
 
             val palette = themeManager.getCurrentPalette()
             
@@ -4622,11 +4770,23 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
             // Clear and prepare for new options
             accentOptionViews.clear()
-            val preselectFirst = shouldAutoSelectFirstOption(key, options)
-            selectedAccentIndex = if (preselectFirst) 0 else -1
+            
+            // ✅ Auto-select number (hintLabel) if it exists, otherwise select first option if enabled
+            val numberIndex = if (!numberHint.isNullOrEmpty() && numberHint.all { it.isDigit() }) {
+                allOptions.indexOfFirst { it == numberHint }
+            } else {
+                -1
+            }
+            
+            val preselectFirst = shouldAutoSelectFirstOption(key, allOptions)
+            selectedAccentIndex = when {
+                numberIndex >= 0 -> numberIndex  // Auto-select number if available
+                preselectFirst -> 0  // Otherwise select first if enabled
+                else -> -1
+            }
 
             // Add each option as a button
-            options.forEachIndexed { index, option ->
+            allOptions.forEachIndexed { index, option ->
                 val optionBackground = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = dpToPx(8).toFloat()
                     setColor(palette.keyboardBg)
@@ -4693,7 +4853,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 
                 try {
                     showAtLocation(this@KeyboardGridView, Gravity.NO_GRAVITY, xPos, yPos)
-                    Log.d(TAG, "✅ Accent popup shown with ${options.size} options")
+                    Log.d(TAG, "✅ Accent popup shown with ${allOptions.size} options (number auto-selected: ${numberIndex >= 0})")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error showing accent popup", e)
                 }

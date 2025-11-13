@@ -82,132 +82,199 @@ class _OnboardingViewState extends State<OnboardingView> {
     });
   }
 
-  Widget _buildHeader() => Padding(
-        padding: const EdgeInsets.only(top: 40.0),
-        child: Center(
-          child: Text(
-            'Kvīve',
-            style: const TextStyle(
-              color: Color(0xFFFF9900),
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
-            ),
+  // Helper methods for responsive sizing
+  double _getResponsiveSize(BuildContext context, double baseSize) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final diagonal = MediaQuery.of(context).size.shortestSide;
+    
+    // Use shortest side for consistent scaling across orientations
+    if (diagonal < 600) {
+      // Small phones
+      return baseSize * 0.85;
+    } else if (diagonal < 900) {
+      // Large phones / small tablets
+      return baseSize;
+    } else {
+      // Tablets
+      return baseSize * 1.15;
+    }
+  }
+
+  double _getResponsivePadding(BuildContext context, double basePadding) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    return screenWidth * (basePadding / 375); // Base on 375px width
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    final topPadding = _getResponsivePadding(context, 40.0);
+    final fontSize = _getResponsiveSize(context, 36);
+    
+    return Padding(
+      padding: EdgeInsets.only(top: topPadding),
+      child: Center(
+        child: Text(
+          'Kvīve',
+          style: TextStyle(
+            color: const Color(0xFFFF9900),
+            fontSize: fontSize,
+            fontWeight: FontWeight.bold,
+            letterSpacing: fontSize * 0.033, // Responsive letter spacing
           ),
         ),
-      );
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final bottomPadding = _getResponsivePadding(context, 40);
+    final horizontalPadding = _getResponsivePadding(context, 24);
+    final headerTopPadding = _getResponsivePadding(context, 10);
+    
+    // Responsive button sizes
+    final nextButtonWidth = screenWidth * 0.18; // ~18% of screen width
+    final nextButtonHeight = screenHeight * 0.065; // ~6.5% of screen height
+    final nextIconSize = nextButtonWidth * 0.55;
+    
+    // Responsive dot indicator sizes
+    final dotWidth = _getResponsiveSize(context, 8);
+    final dotHeight = _getResponsiveSize(context, 8);
+    final activeDotWidth = _getResponsiveSize(context, 20);
+    
     return Scaffold(
       backgroundColor: const Color(0xFF1A233B),
-      body: GestureDetector(
-        onTap: _markUserInteraction,
-        onPanDown: (_) => _markUserInteraction(),
-        onHorizontalDragStart: (_) => _markUserInteraction(),
-        child: Stack(
-          children: [
-            /// PageView area
-            PageView.builder(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              itemCount: _pages.length,
-              physics: const ClampingScrollPhysics(),
-              itemBuilder: (context, i) => _OnboardingPage(
-                data: _pages[i],
-                onAnimationComplete: _onAnimationComplete,
-                isCurrentPage: i == _currentPage,
-                isAdvancing: _isAdvancing,
-                onNextPressed: () {
-                  if (i == _pages.length - 1) {
-                    _navigateToHome();
-                  } else {
-                    _markUserInteraction();
-                    _nextPage();
-                  }
-                },
-              ),
-            ),
-
-            /// Kvive header
-            Positioned(top: 10, left: 0, right: 0, child: _buildHeader()),
-
-            /// Footer (Skip + dots)
-            Positioned(
-              bottom: 40,
-              left: 24,
-              right: 24,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  if (_currentPage < _pages.length - 1)
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        side:
-                            const BorderSide(color: Color(0xFFFF9900), width: 0.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 25, vertical: 10),
-                      ),
-                      onPressed: _navigateToHome,
-                      child: const Text(
-                        'Skip',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    )
-                  else
-                    const SizedBox(width: 70),
-                  Row(
-                    children: List.generate(
-                      _pages.length,
-                      (i) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        width: _currentPage == i ? 20 : 8,
-                        height: 8,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        decoration: BoxDecoration(
-                          color: _currentPage == i
-                              ? const Color(0xFFFF9900)
-                              : Colors.grey.shade600,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
-                  ),
-                   GestureDetector(
-                  onTap: _nextPage,
-                  child: Container(
-                    width: 70,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      color: const Color(0xFFFF9900),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.keyboard_arrow_right,
-                      color: Colors.white,
-                      size: 40,
-                    ),
-                  ),
+      body: SafeArea(
+        bottom: false,
+        child: GestureDetector(
+          onTap: _markUserInteraction,
+          onPanDown: (_) => _markUserInteraction(),
+          onHorizontalDragStart: (_) => _markUserInteraction(),
+          child: Stack(
+            children: [
+              /// PageView area
+              PageView.builder(
+                controller: _pageController,
+                onPageChanged: _onPageChanged,
+                itemCount: _pages.length,
+                physics: const ClampingScrollPhysics(),
+                itemBuilder: (context, i) => _OnboardingPage(
+                  data: _pages[i],
+                  onAnimationComplete: _onAnimationComplete,
+                  isCurrentPage: i == _currentPage,
+                  isAdvancing: _isAdvancing,
+                  onNextPressed: () {
+                    if (i == _pages.length - 1) {
+                      _navigateToHome();
+                    } else {
+                      _markUserInteraction();
+                      _nextPage();
+                    }
+                  },
                 ),
-              
-                ],
               ),
-            ),
-          ],
+
+              /// Kvive header
+              Positioned(
+                top: headerTopPadding,
+                left: 0,
+                right: 0,
+                child: _buildHeader(context),
+              ),
+
+              /// Footer (Skip + dots)
+              Positioned(
+                bottom: bottomPadding,
+                left: horizontalPadding,
+                right: horizontalPadding,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (_currentPage < _pages.length - 1)
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(
+                            color: Color(0xFFFF9900),
+                            width: 0.5,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              _getResponsiveSize(context, 10),
+                            ),
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: _getResponsivePadding(context, 25),
+                            vertical: _getResponsivePadding(context, 10),
+                          ),
+                        ),
+                        onPressed: _navigateToHome,
+                        child: Text(
+                          'Skip',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: _getResponsiveSize(context, 16),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    else
+                      SizedBox(width: nextButtonWidth),
+                    Row(
+                      children: List.generate(
+                        _pages.length,
+                        (i) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          width: _currentPage == i ? activeDotWidth : dotWidth,
+                          height: dotHeight,
+                          margin: EdgeInsets.symmetric(
+                            horizontal: _getResponsivePadding(context, 4),
+                          ),
+                          decoration: BoxDecoration(
+                            color: _currentPage == i
+                                ? const Color(0xFFFF9900)
+                                : Colors.grey.shade600,
+                            borderRadius: BorderRadius.circular(
+                              _getResponsiveSize(context, 4),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _nextPage,
+                      child: Container(
+                        width: nextButtonWidth.clamp(50.0, 90.0),
+                        height: nextButtonHeight.clamp(45.0, 70.0),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(
+                            _getResponsiveSize(context, 10),
+                          ),
+                          color: const Color(0xFFFF9900),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: _getResponsiveSize(context, 10),
+                              offset: Offset(
+                                0,
+                                _getResponsiveSize(context, 4),
+                              ),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.keyboard_arrow_right,
+                          color: Colors.white,
+                          size: nextIconSize.clamp(30.0, 50.0),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -251,15 +318,53 @@ class _OnboardingPageState extends State<_OnboardingPage>
     super.dispose();
   }
 
+  // Helper methods for responsive sizing
+  double _getResponsiveSize(BuildContext context, double baseSize) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final diagonal = MediaQuery.of(context).size.shortestSide;
+    
+    // Use shortest side for consistent scaling across orientations
+    if (diagonal < 600) {
+      // Small phones
+      return baseSize * 0.85;
+    } else if (diagonal < 900) {
+      // Large phones / small tablets
+      return baseSize;
+    } else {
+      // Tablets
+      return baseSize * 1.15;
+    }
+  }
+
+  double _getResponsivePadding(BuildContext context, double basePadding) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    return screenWidth * (basePadding / 375); // Base on 375px width
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    
+    // Responsive animation height - adjust based on screen size
+    final animationHeight = screenHeight * 
+        (screenHeight < 700 ? 0.55 : screenHeight < 900 ? 0.58 : 0.60);
+    
+    // Responsive spacing
+    final titleSpacing = _getResponsivePadding(context, 20);
+    final descriptionSpacing = _getResponsivePadding(context, 12);
+    final horizontalPadding = _getResponsivePadding(context, 24);
+    
+    // Responsive font sizes
+    final titleFontSize = _getResponsiveSize(context, 28);
+    final descriptionFontSize = _getResponsiveSize(context, 16);
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         SizedBox(
-          height: screenHeight * 0.58,
+          height: animationHeight,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -291,29 +396,31 @@ class _OnboardingPageState extends State<_OnboardingPage>
                   if (widget.isCurrentPage) _controller!.forward();
                 },
               ),
-
             ],
           ),
         ),
-        const SizedBox(height: 20),
-        Text(
-          widget.data.title,
-          textAlign: TextAlign.left,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
+        // SizedBox(height: titleSpacing),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Text(
+            widget.data.title,
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: titleFontSize,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: descriptionSpacing),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
           child: Text(
             widget.data.description,
             textAlign: TextAlign.left,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white70,
-              fontSize: 16,
+              fontSize: descriptionFontSize,
               height: 1.4,
             ),
           ),

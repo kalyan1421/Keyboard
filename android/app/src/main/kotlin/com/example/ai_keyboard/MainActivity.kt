@@ -574,6 +574,18 @@ class MainActivity : FlutterActivity() {
             .putBoolean("flutter.autoFillSuggestion", autoFillSuggestion)
             .putBoolean("flutter.remember_caps_state", rememberCapsState)
             .putBoolean("flutter.rememberCapsState", rememberCapsState)
+            // ✅ CRITICAL: Save sound settings to FlutterSharedPreferences for Android service
+            .putBoolean("flutter.sound_enabled", soundEnabled)
+            .putInt("flutter.sound_volume", (soundVolume * 100).toInt()) // Convert 0-1 to 0-100 scale
+            .putBoolean("flutter.key_press_sounds", keyPressSounds)
+            .putBoolean("flutter.long_press_sounds", longPressSounds)
+            .putBoolean("flutter.repeated_action_sounds", repeatedActionSounds)
+            .putBoolean("flutter.vibration_enabled", vibrationEnabled)
+            .putInt("flutter.vibration_ms", vibrationMs)
+            .putBoolean("flutter.use_haptic_interface", useHapticInterface)
+            .putBoolean("flutter.key_press_vibration", keyPressVibration)
+            .putBoolean("flutter.long_press_vibration", longPressVibration)
+            .putBoolean("flutter.repeated_action_vibration", repeatedActionVibration)
             .apply()
             
         LogUtil.d("MainActivity", "✓ Settings V2 persisted to SharedPreferences")

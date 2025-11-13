@@ -490,42 +490,8 @@ class _TypingSuggestionScreenState extends State<TypingSuggestionScreen> {
 
             const SizedBox(height: 32),
 
-            _buildSectionTitle('Clipboard Sync'),
-            const SizedBox(height: 16),
-
-            _buildToggleSetting(
-              title: 'Clear primary clip affects ...',
-              description: clearPrimaryClipAffects ? 'Enabled' : 'Disabled',
-              value: clearPrimaryClipAffects,
-              onChanged: (value) {
-                setState(() => clearPrimaryClipAffects = value);
-                _saveSettings();
-              },
-            ),
-
-            const SizedBox(height: 12),
-
-            _buildToggleSetting(
-              title: 'Sync from system',
-              description: 'Sync from system clipboard',
-              value: syncFromSystem,
-              onChanged: (value) {
-                setState(() => syncFromSystem = value);
-                _saveSettings();
-              },
-            ),
-
-            const SizedBox(height: 12),
-
-            _buildToggleSetting(
-              title: 'Sync to fivive',
-              description: 'Sync to fivive clipboard',
-              value: syncToFivive,
-              onChanged: (value) {
-                setState(() => syncToFivive = value);
-                _saveSettings();
-              },
-            ),
+           
+           
 
             const SizedBox(height: 24),
           ],

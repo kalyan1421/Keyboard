@@ -3047,6 +3047,13 @@ class AIKeyboardService : InputMethodService(),
                 // ✅ NEW: Apply to UnifiedKeyboardView as well
                 unifiedKeyboardView?.setPreviewEnabled(keyPreviewEnabled)
                 Log.d(TAG, "✅ Key preview enabled: $keyPreviewEnabled")
+                
+                // ✅ NEW: Update long press delay when settings change
+                val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                val longPressDelay = flutterPrefs.getIntCompat("flutter.keyboard.longPressDelayMs", 200)
+                unifiedKeyboardView?.setLongPressDelay(longPressDelay)
+                Log.d(TAG, "✅ Long press delay updated: ${longPressDelay}ms")
+                
                 refreshSwipeCapability("settingsLoaded")
             }
             

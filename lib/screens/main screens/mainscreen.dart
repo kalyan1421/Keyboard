@@ -71,15 +71,23 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
     _checkAndShowRateModal();
   }
 
-  void _loadUserInfo() {
+  Future<void> _loadUserInfo() async {
+    final prefs = await SharedPreferences.getInstance();
     final user = _authService.currentUser;
+    
     if (user != null) {
+      // If logged in, prioritize Firebase displayName, then saved name, then email
       setState(() {
-        _userName = user.displayName ?? user.email?.split('@').first ?? 'User';
+        _userName = user.displayName ?? 
+                    prefs.getString('user_display_name') ?? 
+                    user.email?.split('@').first ?? 
+                    'User';
       });
     } else {
+      // If not logged in, use saved name from SharedPreferences
+      final savedName = prefs.getString('user_display_name');
       setState(() {
-        _userName = 'James Canes';
+        _userName = savedName ?? 'Hello User';
       });
     }
   }
@@ -419,7 +427,13 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
           unselectedItemColor: AppColors.grey,
           type: BottomNavigationBarType.fixed,
           currentIndex: selectedIndex,
-          onTap: (index) => setState(() => this.selectedIndex = index),
+          onTap: (index) {
+            setState(() => this.selectedIndex = index);
+            // Refresh user info when switching to profile tab or returning to home
+            if (index == 3 || index == 0) {
+              _loadUserInfo();
+            }
+          },
           items: [
             BottomNavigationBarItem(
               icon: SvgPicture.asset(

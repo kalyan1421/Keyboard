@@ -9,6 +9,9 @@ import android.util.Log
  * - Provides consistent logging across the application
  * 
  * Note: Set ENABLED to false for production builds
+ * 
+ * IMPORTANT: Android system logs (BufferQueueProducer, queueBuffer, etc.) are normal
+ * for Flutter/SurfaceView-based activities. See ANDROID_LOGGING_GUIDE.md for details.
  */
 object LogUtil {
     // TODO: In production, set this to false or use BuildConfig.DEBUG

@@ -507,7 +507,8 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     private fun rebuildShortcutMap() {
         shortcutMap.clear()
         entries.forEach { entry ->
-            shortcutMap[entry.shortcut] = entry
+            // ✅ FIX: Use lowercase key to match lookup logic in getExpansion()
+            shortcutMap[entry.shortcut.lowercase()] = entry
         }
         logW("Rebuilt shortcut map with ${shortcutMap.size} entries")
     }
@@ -663,15 +664,26 @@ class DictionaryManager(context: Context) : BaseManager(context) {
                 }
             }
             
-            // Replace entries with Flutter entries
+            // ✅ FIX: Remove duplicate shortcuts - keep only the first occurrence of each shortcut
+            val uniqueEntries = mutableMapOf<String, DictionaryEntry>()
+            flutterEntries.forEach { entry ->
+                val shortcutKey = entry.shortcut.lowercase()
+                if (!uniqueEntries.containsKey(shortcutKey)) {
+                    uniqueEntries[shortcutKey] = entry
+                } else {
+                    logW("⚠️ Duplicate shortcut removed: '${entry.shortcut}' (keeping first occurrence)")
+                }
+            }
+            
+            // Replace entries with deduplicated Flutter entries
             entries.clear()
-            entries.addAll(flutterEntries)
+            entries.addAll(uniqueEntries.values)
             rebuildShortcutMap()
             
-            logW("Loaded ${flutterEntries.size} entries from Flutter prefs (skipped: $skippedCount)")
+            logW("Loaded ${uniqueEntries.size} unique entries from Flutter prefs (skipped: $skippedCount, duplicates removed: ${flutterEntries.size - uniqueEntries.size})")
             
             // Save cleaned list back to native prefs
-            if (flutterEntries.isNotEmpty()) {
+            if (uniqueEntries.isNotEmpty()) {
                 saveEntriesToPrefs()
             }
             

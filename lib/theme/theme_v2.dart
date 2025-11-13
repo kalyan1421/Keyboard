@@ -410,8 +410,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF3A3A3A),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFFFFFFFF), widthDp: 0),
-        radius: 5.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -451,8 +451,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFFBC02D),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFFFB300), widthDp: 1.0),
-        radius: 10.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -492,8 +492,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFD32F2F),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF000000), widthDp: 0),
-        radius: 6.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -536,8 +536,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE0E0E0),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF222222), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -577,8 +577,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFDDDDDD),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFFFFFFFF), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -618,8 +618,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF1976D2),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF1565C0), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -659,8 +659,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF388E3C),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF2E7D32), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -700,8 +700,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF7B1FA2),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF4A148C), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -741,8 +741,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFF57C00),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFE65100), widthDp: 1.0),
-        radius: 10.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -782,8 +782,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFC2185B),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF880E4F), widthDp: 0),
-        radius: 12.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: true),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -823,8 +823,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF0097A7),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF006064), widthDp: 0),
-        radius: 6.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -864,7 +864,7 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF0288D1),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFF01579B), widthDp: 1.0),
-        radius: 10.0,
+        radius: 4.0,
         shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
@@ -905,8 +905,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF0D47A1),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF0D47A1), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -946,8 +946,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF9E9D24),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF827717), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -987,8 +987,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFFF8F00),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFFF6F00), widthDp: 1.0),
-        radius: 10.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1028,8 +1028,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF00695C),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF004D40), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1069,8 +1069,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF303F9F),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF1A237E), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1110,8 +1110,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF5D4037),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFF3E2723), widthDp: 1.0),
-        radius: 10.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1151,8 +1151,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF512DA8),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF311B92), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: true),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1192,8 +1192,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF689F38),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF33691E), widthDp: 0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1233,8 +1233,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE64A19),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFFBF360C), widthDp: 0),
-        radius: 6.0,
-        shadow: ThemeKeysShadow(enabled: false, elevationDp: 0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1277,8 +1277,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE91E63),
         rippleAlpha: 0.15,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF880E4F), widthDp: 0),
-        radius: 16.0, // Extra rounded for heart effect
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 4.0, glow: true),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1318,8 +1318,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE64A19),
         rippleAlpha: 0.15,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFBF360C), widthDp: 2.0),
-        radius: 4.0, // Sharp corners for warning effect
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1329,7 +1329,7 @@ class KeyboardThemeV2 {
         spaceLabelColor: Color(0xFF000000),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFFF5722), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'alert'),
-      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFFF5722), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFFFCC80), text: Color(0xFF000000), pressed: Color(0xFFE64A19), radius: 8.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFFF5722), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFFFCC80), text: Color(0xFF000000), pressed: Color(0xFFE64A19), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
       effects: const ThemeEffects(pressAnimation: 'bounce', globalEffects: ['glow']),
       sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.7),
       stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
@@ -1362,8 +1362,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF37474F),
         rippleAlpha: 0.2,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFF00E5FF), widthDp: 1.0),
-        radius: 12.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 4.0, glow: true),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1373,7 +1373,7 @@ class KeyboardThemeV2 {
         spaceLabelColor: Color(0xFFE1F5FE),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF0D1421), icon: Color(0xFF00E5FF), heightDp: 44.0, activeAccent: Color(0xFF00E5FF), iconPack: 'default'),
-      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF0D1421), text: Color(0xFFE1F5FE), chip: ThemeChip(bg: Color(0xFF263238), text: Color(0xFFE1F5FE), pressed: Color(0xFF37474F), radius: 16.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF0D1421), text: Color(0xFFE1F5FE), chip: ThemeChip(bg: Color(0xFF263238), text: Color(0xFFE1F5FE), pressed: Color(0xFF37474F), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
       effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['sparkles', 'glow']),
       sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.6),
       stickers: const ThemeStickers(enabled: true, pack: 'space', position: 'behind', opacity: 0.9, animated: true),
@@ -1406,8 +1406,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFFFCC80),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFFE65100), widthDp: 0),
-        radius: 12.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 3.0, glow: true),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1417,7 +1417,7 @@ class KeyboardThemeV2 {
         spaceLabelColor: Color(0xFFBF360C),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFFFF7043), icon: Color(0xFFFFFFFF), heightDp: 44.0, activeAccent: Color(0xFFBF360C), iconPack: 'default'),
-      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFFF9800), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFFFF3E0), text: Color(0xFFBF360C), pressed: Color(0xFFFFCC80), radius: 16.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFFFF9800), text: Color(0xFFFFFFFF), chip: ThemeChip(bg: Color(0xFFFFF3E0), text: Color(0xFFBF360C), pressed: Color(0xFFFFCC80), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
       effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['glow']),
       sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.6),
       stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
@@ -1450,8 +1450,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF4DD0E1),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: false, color: Color(0xFF006064), widthDp: 0),
-        radius: 10.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1491,8 +1491,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFF2A2A2A),
         rippleAlpha: 0.2,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFF00E5FF), widthDp: 1.5),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: true),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: true, italic: false),
       ),
       specialKeys: const ThemeSpecialKeys(
@@ -1502,7 +1502,7 @@ class KeyboardThemeV2 {
         spaceLabelColor: Color(0xFF00E5FF),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: false, bg: Color(0xFF0A0A0A), icon: Color(0xFF00E5FF), heightDp: 44.0, activeAccent: Color(0xFFFF1744), iconPack: 'neon'),
-      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF0A0A0A), text: Color(0xFF00E5FF), chip: ThemeChip(bg: Color(0xFF1A1A1A), text: Color(0xFF00E5FF), pressed: Color(0xFF2A2A2A), radius: 12.0, spacingDp: 8.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
+      suggestions: const ThemeSuggestions(inheritFromKeys: false, bg: Color(0xFF0A0A0A), text: Color(0xFF00E5FF), chip: ThemeChip(bg: Color(0xFF1A1A1A), text: Color(0xFF00E5FF), pressed: Color(0xFF2A2A2A), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: true)),
       effects: const ThemeEffects(pressAnimation: 'glow', globalEffects: ['glow']),
       sounds: const ThemeSounds(pack: 'clicky', customUris: {}, volume: 0.7),
       stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
@@ -1543,7 +1543,7 @@ class KeyboardThemeV2 {
         spaceLabelColor: Color(0xFF880E4F),
       ),
       toolbar: const ThemeToolbar(inheritFromKeys: true, bg: Color(0xFFF8BBD9), icon: Color(0xFF880E4F), heightDp: 44.0, activeAccent: Color(0xFFAD1457), iconPack: 'default'),
-      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFF8BBD9), text: Color(0xFF880E4F), chip: ThemeChip(bg: Color(0xFFFCE4EC), text: Color(0xFF880E4F), pressed: Color(0xFFF48FB1), radius: 16.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
+      suggestions: const ThemeSuggestions(inheritFromKeys: true, bg: Color(0xFFF8BBD9), text: Color(0xFF880E4F), chip: ThemeChip(bg: Color(0xFFFCE4EC), text: Color(0xFF880E4F), pressed: Color(0xFFF48FB1), radius: 14.0, spacingDp: 6.0), font: ThemeSuggestionsFont(family: 'Roboto', sizeSp: 15.0, bold: false)),
       effects: const ThemeEffects(pressAnimation: 'ripple', globalEffects: []),
       sounds: const ThemeSounds(pack: 'soft', customUris: {}, volume: 0.4),
       stickers: const ThemeStickers(enabled: false, pack: '', position: 'behind', opacity: 0.9, animated: false),
@@ -1614,8 +1614,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE8E8E8),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys:  ThemeSpecialKeys(
@@ -1655,8 +1655,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE8E8E8),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys:  ThemeSpecialKeys(
@@ -1696,8 +1696,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE8E8E8),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys:  ThemeSpecialKeys(
@@ -1737,8 +1737,8 @@ class KeyboardThemeV2 {
         pressed: Color(0xFFE8E8E8),
         rippleAlpha: 0.12,
         border: ThemeKeysBorder(enabled: true, color: Color(0xFFDADCE0), widthDp: 1.0),
-        radius: 8.0,
-        shadow: ThemeKeysShadow(enabled: true, elevationDp: 2.0, glow: false),
+        radius: 4.0,
+        shadow: ThemeKeysShadow(enabled: true, elevationDp: 1.0, glow: false),
         font: ThemeKeysFont(family: 'Roboto', sizeSp: 16.0, bold: false, italic: false),
       ),
       specialKeys:  ThemeSpecialKeys(
@@ -2356,16 +2356,19 @@ class ThemeSuggestionsFont {
 class ThemeEffects {
   final String pressAnimation; // "ripple", "bounce", "glow", "none"
   final List<String> globalEffects; // "snow", "hearts", "sparkles", "rain", "leaves"
+  final double opacity;
 
   const ThemeEffects({
     required this.pressAnimation,
     required this.globalEffects,
+    this.opacity = 1.0,
   });
 
   factory ThemeEffects.fromJson(Map<String, dynamic> json) {
     return ThemeEffects(
       pressAnimation: json['pressAnimation'] ?? 'none',
       globalEffects: List<String>.from(json['globalEffects'] ?? []),
+      opacity: ((json['opacity'] ?? 1.0) as num).toDouble().clamp(0.0, 1.0),
     );
   }
 
@@ -2373,6 +2376,7 @@ class ThemeEffects {
     return {
       'pressAnimation': pressAnimation,
       'globalEffects': globalEffects,
+      'opacity': opacity,
     };
   }
 }

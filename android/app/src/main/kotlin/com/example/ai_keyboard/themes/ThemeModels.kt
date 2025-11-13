@@ -111,7 +111,8 @@ data class KeyboardThemeV2(
 
     data class Effects(
         val pressAnimation: String, // "ripple", "bounce", "glow", "none"
-        val globalEffects: List<String> // "snow", "hearts", "sparkles", "rain", "leaves"
+        val globalEffects: List<String>, // "snow", "hearts", "sparkles", "rain", "leaves"
+        val opacity: Float = 1.0f
     )
 
     data class Sounds(
@@ -328,7 +329,8 @@ data class KeyboardThemeV2(
         private fun parseEffects(obj: JSONObject?): Effects {
             return Effects(
                 pressAnimation = obj?.optString("pressAnimation", "none") ?: "none",
-                globalEffects = parseStringArray(obj?.optJSONArray("globalEffects")) ?: emptyList()
+                globalEffects = parseStringArray(obj?.optJSONArray("globalEffects")) ?: emptyList(),
+                opacity = (obj?.optDouble("opacity", 1.0)?.toFloat() ?: 1.0f).coerceIn(0f, 1f)
             )
         }
 
@@ -656,6 +658,7 @@ data class KeyboardThemeV2(
             effects.globalEffects.forEach { globalEffectsArray.put(it) }
             effectsObj.put("globalEffects", globalEffectsArray)
         }
+        effectsObj.put("opacity", effects.opacity)
         obj.put("effects", effectsObj)
         
         // Sounds
@@ -712,6 +715,7 @@ data class ThemePaletteV2(
     val currentSeasonalPack: String = theme.advanced.seasonalPack
     val hasGlobalEffects: Boolean = theme.effects.globalEffects.isNotEmpty()
     val globalEffects: List<String> = theme.effects.globalEffects
+    val globalEffectsOpacity: Float = theme.effects.opacity.coerceIn(0f, 1f)
     val hasStickers: Boolean = theme.stickers.enabled
     val stickerOpacity: Float = theme.stickers.opacity
     
