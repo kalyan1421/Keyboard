@@ -56,7 +56,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
   static const _configChannel = MethodChannel('ai_keyboard/config');
   
   // MethodChannel for language downloads
-  static const _languageChannel = MethodChannel('com.example.ai_keyboard/language');
+  static const _languageChannel = MethodChannel('com.kvive.keyboard/language');
   
   // Download progress tracking
   Map<String, LanguageDownloadState> _downloadStates = {};

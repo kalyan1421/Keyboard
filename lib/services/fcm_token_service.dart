@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../firebase_options.dart';
 import 'notification_service.dart';
 
 /// Service to manage FCM token collection and storage
@@ -11,11 +14,20 @@ class FCMTokenService {
   static const String _prefsKey = 'fcm_token_saved';
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  // Local notifications plugin for foreground notifications
+  static final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+  
+  static bool _localNotificationsInitialized = false;
 
   /// Initialize FCM token collection
   /// Call this when the app starts
   static Future<void> initialize() async {
     try {
+      // Initialize local notifications for foreground display
+      await _initializeLocalNotifications();
+      
       // Set background message handler
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
@@ -56,7 +68,8 @@ class FCMTokenService {
         debugPrint('📨 FCM: Received foreground message: ${message.notification?.title}');
         // Save notification to Firestore
         NotificationService.processFCMMessage(message);
-        // You can show a local notification here if needed
+        // Show local notification for foreground messages
+        _showForegroundNotification(message);
       });
 
       // Handle background messages (when app is in background)
@@ -164,13 +177,123 @@ class FCMTokenService {
       debugPrint('❌ FCM: Error deleting token: $e');
     }
   }
+  
+  /// Initialize local notifications plugin
+  static Future<void> _initializeLocalNotifications() async {
+    if (_localNotificationsInitialized) return;
+    
+    try {
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+      
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      );
+      
+      await _localNotifications.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (details) {
+          debugPrint('📨 Local notification tapped: ${details.payload}');
+          // Handle notification tap if needed
+        },
+      );
+      
+      _localNotificationsInitialized = true;
+      debugPrint('✅ FCM: Local notifications initialized');
+    } catch (e) {
+      debugPrint('❌ FCM: Error initializing local notifications: $e');
+    }
+  }
+  
+  /// Show local notification for foreground messages
+  static Future<void> _showForegroundNotification(RemoteMessage message) async {
+    if (!_localNotificationsInitialized) {
+      await _initializeLocalNotifications();
+    }
+    
+    try {
+      final notification = message.notification;
+      if (notification == null) return;
+      
+      const androidDetails = AndroidNotificationDetails(
+        'default',
+        'Default Notifications',
+        channelDescription: 'Default notification channel for app notifications',
+        importance: Importance.high,
+        priority: Priority.high,
+        showWhen: true,
+      );
+      
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      
+      const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+      
+      await _localNotifications.show(
+        message.hashCode,
+        notification.title ?? 'Notification',
+        notification.body ?? '',
+        notificationDetails,
+        payload: message.data['link'] as String?,
+      );
+      
+      debugPrint('✅ FCM: Foreground notification displayed');
+    } catch (e) {
+      debugPrint('❌ FCM: Error showing foreground notification: $e');
+    }
+  }
 }
 
 /// Background message handler (must be top-level function)
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('📨 FCM: Background message received: ${message.notification?.title}');
-  // Save notification to Firestore
-  await NotificationService.processFCMMessage(message);
+  
+  // Initialize Firebase in the background isolate before using Firestore
+  // In background isolates, Firebase is not initialized by default
+  try {
+    // Check if Firebase is already initialized
+    try {
+      Firebase.app();
+      debugPrint('✅ FCM: Firebase already initialized in background handler');
+    } catch (e) {
+      // Firebase not initialized, initialize it now
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+        debugPrint('✅ FCM: Firebase initialized in background handler');
+      } catch (initError) {
+        // Handle duplicate app error gracefully
+        if (initError.toString().contains('duplicate-app')) {
+          debugPrint('✅ FCM: Firebase already initialized (duplicate-app caught)');
+        } else {
+          debugPrint('❌ FCM: Failed to initialize Firebase: $initError');
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    debugPrint('❌ FCM: Unexpected error checking Firebase: $e');
+    // Try to proceed anyway - Firebase might be initialized
+  }
+  
+  // Save notification to Firestore (now that Firebase is guaranteed to be initialized)
+  try {
+    await NotificationService.processFCMMessage(message);
+  } catch (e) {
+    debugPrint('❌ FCM: Error processing notification: $e');
+  }
 }
 

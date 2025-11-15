@@ -109,7 +109,7 @@ class _ClipboardScreenState extends State<ClipboardScreen> {
     try {
       const platform = MethodChannel('ai_keyboard/config');
       platform.invokeMethod('sendBroadcast', {
-        'action': 'com.example.ai_keyboard.CLIPBOARD_CHANGED'
+        'action': 'com.kvive.keyboard.CLIPBOARD_CHANGED'
       });
       debugPrint('Clipboard settings broadcast sent');
     } catch (e) {

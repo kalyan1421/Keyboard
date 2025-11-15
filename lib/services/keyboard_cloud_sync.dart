@@ -194,7 +194,7 @@ class KeyboardCloudSync {
     // Also send broadcast for backwards compatibility
     try {
       await _channel.invokeMethod('sendBroadcast', {
-        'action': 'com.example.ai_keyboard.SETTINGS_CHANGED'
+        'action': 'com.kvive.keyboard.SETTINGS_CHANGED'
       });
       debugPrint('$_tag: ✓ Settings broadcast sent');
     } catch (e) {

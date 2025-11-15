@@ -120,6 +120,10 @@ service cloud.firestore {
       match /notifications/{notificationId} {
         // Allow devices to read their own notifications
         allow read: if true;
+        // Allow devices to create new notifications (required for FCM background handlers)
+        allow create: if true;
+        // Allow devices to write their own notifications (general write permission)
+        allow write: if true;
         // Allow devices to update (mark as read) their own notifications
         allow update: if true;
         // Allow devices to delete their own notifications

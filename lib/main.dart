@@ -39,7 +39,7 @@ import 'package:ai_keyboard/screens/main%20screens/setting_screen.dart';
 class LanguageCacheManager {
   static const String _cachedLanguagesKey = 'cached_languages';
   static const String _languageMetadataPrefix = 'lang_meta_';
-  static const MethodChannel _platform = MethodChannel('com.example.ai_keyboard/language');
+  static const MethodChannel _platform = MethodChannel('com.kvive.keyboard/language');
   
   /// Get list of languages that have been cached locally
   static Future<List<String>> getCachedLanguages() async {

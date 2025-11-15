@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,10 +7,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Service to manage user notifications received from FCM
 class NotificationService {
   static const String _userNotificationsCollection = 'userNotifications';
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  // Lazy getter to ensure Firebase is initialized before accessing Firestore
+  static FirebaseFirestore get _firestore {
+    try {
+      // Ensure Firebase is initialized
+      Firebase.app();
+      return FirebaseFirestore.instance;
+    } catch (e) {
+      throw StateError(
+        'Firebase must be initialized before using NotificationService. '
+        'Error: $e',
+      );
+    }
+  }
 
   /// Save a received notification to Firestore
   /// This is called when a notification is received (foreground or background)
+  /// Prevents duplicates by checking if notificationId already exists
   static Future<void> saveNotification({
     required String title,
     required String body,
@@ -18,6 +33,14 @@ class NotificationService {
     Map<String, dynamic>? data,
   }) async {
     try {
+      // Ensure Firebase is initialized before proceeding
+      try {
+        Firebase.app();
+      } catch (e) {
+        debugPrint('❌ NotificationService: Firebase not initialized: $e');
+        return;
+      }
+      
       // Get device token to identify the device
       final prefs = await SharedPreferences.getInstance();
       final deviceToken = prefs.getString('fcm_token_saved');
@@ -27,6 +50,28 @@ class NotificationService {
         return;
       }
 
+      // Generate a unique notification ID if not provided
+      final finalNotificationId = notificationId ?? 
+          '${DateTime.now().millisecondsSinceEpoch}_${title.hashCode}';
+
+      // Check if notification with this ID already exists to prevent duplicates
+      if (finalNotificationId.isNotEmpty) {
+        final existingQuery = await _firestore
+            .collection(_userNotificationsCollection)
+            .doc(deviceToken)
+            .collection('notifications')
+            .where('notificationId', isEqualTo: finalNotificationId)
+            .limit(1)
+            .get();
+
+        if (existingQuery.docs.isNotEmpty) {
+          debugPrint('ℹ️ NotificationService: Notification already exists, skipping duplicate: $title');
+          return;
+        }
+      }
+
+      debugPrint('📝 NotificationService: Saving notification for device: ${deviceToken.substring(0, 20)}...');
+
       // Create notification document
       final notificationData = {
         'title': title,
@@ -35,7 +80,7 @@ class NotificationService {
         'isRead': false,
         'receivedAt': FieldValue.serverTimestamp(),
         'deviceToken': deviceToken,
-        'notificationId': notificationId ?? FieldValue.serverTimestamp().toString(),
+        'notificationId': finalNotificationId,
         ...?data,
       };
 
@@ -47,8 +92,9 @@ class NotificationService {
           .add(notificationData);
 
       debugPrint('✅ NotificationService: Notification saved: $title');
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ NotificationService: Error saving notification: $e');
+      debugPrint('❌ NotificationService: Stack trace: $stackTrace');
     }
   }
 

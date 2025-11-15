@@ -11,8 +11,9 @@ class FirebaseAuthService {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    // Use the Web client ID from Firebase Console for proper authentication
-    clientId: "621863637081-glee7m3vo4e73g84lss259507bklkm2b.apps.googleusercontent.com",
+    // Use serverClientId for Android (Web client ID from Firebase Console)
+    // This is the OAuth 2.0 Web client ID, not the Android client ID
+    serverClientId: "621863637081-glee7m3vo4e73g84lss259507bklkm2b.apps.googleusercontent.com",
   );
 
   // Get current user

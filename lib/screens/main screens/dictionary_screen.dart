@@ -45,7 +45,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     try {
       const platform = MethodChannel('ai_keyboard/config');
       platform.invokeMethod('sendBroadcast', {
-        'action': 'com.example.ai_keyboard.DICTIONARY_CHANGED'
+        'action': 'com.kvive.keyboard.DICTIONARY_CHANGED'
       });
       debugPrint('Dictionary settings broadcast sent');
     } catch (e) {

@@ -13,6 +13,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'package:ai_keyboard/services/firebase_auth_service.dart';
+import 'package:ai_keyboard/services/notification_service.dart';
 import 'package:flutter/services.dart';
 
 class mainscreen extends StatefulWidget {
@@ -33,12 +34,13 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
   Timer? _animationTimer;
   bool _isExtended = false;
   bool _hasShownRateModal = false;
-  bool hasNotification = true;
+  int _unreadNotificationCount = 0;
   final FirebaseAuthService _authService = FirebaseAuthService();
   String _userName = 'User';
   bool _isKeyboardEnabled = false;
   bool _isKeyboardActive = false;
   Timer? _keyboardCheckTimer;
+  StreamSubscription? _notificationStreamSubscription;
 
   final List<Widget> _pages = [
     const HomeScreen(),
@@ -69,6 +71,8 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
 
     _startAnimationTimer();
     _checkAndShowRateModal();
+    _checkUnreadNotifications();
+    _listenToNotifications();
   }
 
   Future<void> _loadUserInfo() async {
@@ -97,7 +101,52 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
     _fabAnimationController?.dispose();
     _animationTimer?.cancel();
     _keyboardCheckTimer?.cancel();
+    _notificationStreamSubscription?.cancel();
     super.dispose();
+  }
+
+  /// Check unread notification count
+  Future<void> _checkUnreadNotifications() async {
+    try {
+      final count = await NotificationService.getUnreadCount();
+      if (mounted) {
+        setState(() {
+          _unreadNotificationCount = count;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking unread notifications: $e');
+    }
+  }
+
+  /// Listen to notification changes in real-time
+  void _listenToNotifications() {
+    try {
+      _notificationStreamSubscription = NotificationService
+          .getNotificationsStreamForDevice()
+          .listen((snapshot) {
+        // Count unread notifications
+        final unreadCount = snapshot.docs
+            .where((doc) => (doc.data()['isRead'] ?? false) == false)
+            .length;
+        
+        if (mounted) {
+          setState(() {
+            _unreadNotificationCount = unreadCount;
+          });
+        }
+      });
+    } catch (e) {
+      debugPrint('Error listening to notifications: $e');
+      // Fallback to periodic check if stream fails
+      Timer.periodic(const Duration(seconds: 30), (timer) {
+        if (mounted) {
+          _checkUnreadNotifications();
+        } else {
+          timer.cancel();
+        }
+      });
+    }
   }
 
   Future<void> _checkKeyboardStatus() async {
@@ -178,11 +227,13 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
     );
   }
 
-  void _showNotification() {
-    Navigator.push(
+  Future<void> _showNotification() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const NotificationScreen()),
     );
+    // Refresh unread count when returning from notification screen
+    _checkUnreadNotifications();
   }
 
   @override
@@ -228,11 +279,13 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
             icon: Stack(
               children: [
                 Icon(
-                  Icons.notifications_outlined,
+                  _unreadNotificationCount > 0
+                      ? Icons.notifications
+                      : Icons.notifications_outlined,
                   size: appBarIconSize,
                   color: selectedIndex == 0 ? AppColors.black : AppColors.white,
                 ),
-                if (hasNotification)
+                if (_unreadNotificationCount > 0)
                   Positioned(
                     top: 0,
                     right: 0,
@@ -240,15 +293,19 @@ class _mainscreenState extends State<mainscreen> with TickerProviderStateMixin {
                       width: 16,
                       height: 16,
                       decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.white),
                         color: AppColors.secondary,
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selectedIndex == 0 ? AppColors.white : AppColors.primary,
+                          width: 2,
+                        ),
                       ),
                     ),
                   ),
               ],
             ),
           ),
+          SizedBox(width: 16),
         ],
       ),
       body: Column(
